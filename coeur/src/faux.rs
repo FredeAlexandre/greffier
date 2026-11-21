@@ -48,28 +48,69 @@ impl<T> Tache<T> for FausseTache<T> {
     }
 }
 
-/// Une capture dont le temps va `vitesse` fois plus vite que le temps écoulé. Elle écrit un
-/// petit fichier à la place de l'enregistrement ; sa durée finale vaut au moins `duree_minimale`.
+/// Une capture dont le temps va `vitesse` fois plus vite que le temps écoulé. Elle écrit au fil
+/// de l'eau un petit MP4 fragmenté sans image ni son (une piste, un fragment par sondage), dont
+/// la durée se relit comme celle d'un vrai enregistrement, même coupé. Sa durée finale vaut au
+/// moins `duree_minimale`.
 pub struct FausseCapture {
     vitesse: f64,
     duree_minimale: f64,
     duree: f64,
     fichier: Option<PathBuf>,
+    /// Millisecondes déjà écrites dans les fragments, et numéro du prochain fragment.
+    ecrit: u64,
+    fragment: u32,
+    autorisations: Autorisations,
 }
 
 impl FausseCapture {
     pub fn new(vitesse: f64, duree_minimale: f64) -> FausseCapture {
-        FausseCapture { vitesse, duree_minimale, duree: 0.0, fichier: None }
+        FausseCapture { vitesse, duree_minimale, duree: 0.0, fichier: None, ecrit: 0, fragment: 1, autorisations: Autorisations::ACCORDEES }
+    }
+
+    /// Les autorisations de départ. Une demande est toujours acceptée (« Autoriser ») ; une
+    /// autorisation refusée le reste, comme sous macOS.
+    pub fn avec_autorisations(mut self, autorisations: Autorisations) -> FausseCapture {
+        self.autorisations = autorisations;
+        self
+    }
+
+    /// Ajoute un fragment jusqu'à la durée actuelle.
+    fn ecrire_jusqu_ici(&mut self) -> Result<(), String> {
+        let Some(fichier) = &self.fichier else { return Ok(()) };
+        let ms = (self.duree * 1000.0).round() as u64;
+        if ms <= self.ecrit {
+            return Ok(());
+        }
+        let octets = mp4::fragment(self.fragment, self.ecrit, (ms - self.ecrit) as u32);
+        use std::io::Write;
+        std::fs::OpenOptions::new().append(true).open(fichier).and_then(|mut f| f.write_all(&octets)).map_err(|e| e.to_string())?;
+        self.ecrit = ms;
+        self.fragment += 1;
+        Ok(())
     }
 }
 
 impl Capture for FausseCapture {
+    fn autorisations(&self) -> Autorisations {
+        self.autorisations
+    }
+
+    fn demander_autorisation(&mut self, autorisation: Autorisation) {
+        let etat = self.autorisations.etat_mut(autorisation);
+        if *etat == EtatDAutorisation::ADemander {
+            *etat = EtatDAutorisation::Accordee;
+        }
+    }
+
     fn demarrer(&mut self, demande: DemandeDeCapture) -> Result<(), String> {
         if let Some(parent) = demande.fichier.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        std::fs::write(&demande.fichier, b"faux enregistrement\n").map_err(|e| e.to_string())?;
+        std::fs::write(&demande.fichier, mp4::debut()).map_err(|e| e.to_string())?;
         self.duree = 0.0;
+        self.ecrit = 0;
+        self.fragment = 1;
         self.fichier = Some(demande.fichier);
         Ok(())
     }
@@ -77,13 +118,58 @@ impl Capture for FausseCapture {
     fn sonder(&mut self, ecoule: f64) -> EtatDeCapture {
         if self.fichier.is_some() {
             self.duree += ecoule * self.vitesse;
+            let _ = self.ecrire_jusqu_ici();
         }
         EtatDeCapture { duree: self.duree, niveaux: Niveaux { micro: 0.5, son_du_mac: 0.5 } }
     }
 
     fn arreter(&mut self) -> Result<f64, String> {
+        self.duree = self.duree.max(self.duree_minimale);
+        self.ecrire_jusqu_ici()?;
         self.fichier.take().ok_or("aucun enregistrement en cours")?;
-        Ok(self.duree.max(self.duree_minimale))
+        Ok(self.duree)
+    }
+}
+
+/// Les boîtes du MP4 fragmenté de la fausse capture : une piste au millième de seconde.
+mod mp4 {
+    fn boite(nom: &[u8; 4], contenu: &[u8]) -> Vec<u8> {
+        let mut b = ((contenu.len() + 8) as u32).to_be_bytes().to_vec();
+        b.extend_from_slice(nom);
+        b.extend_from_slice(contenu);
+        b
+    }
+
+    fn entiers(v: &[u32]) -> Vec<u8> {
+        v.iter().flat_map(|x| x.to_be_bytes()).collect()
+    }
+
+    /// `ftyp` et `moov` : durée inconnue, une piste (identifiant 1, échelle 1000).
+    pub fn debut() -> Vec<u8> {
+        let matrice = [0x0001_0000, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000];
+        let mut mvhd = entiers(&[0, 0, 0, 1000, 0, 0x0001_0000, 0x0100_0000, 0, 0]);
+        mvhd.extend(entiers(&matrice));
+        mvhd.extend(entiers(&[0, 0, 0, 0, 0, 0, 2]));
+        let mut tkhd = entiers(&[3, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+        tkhd.extend(entiers(&matrice));
+        tkhd.extend(entiers(&[0, 0]));
+        let mdhd = entiers(&[0, 0, 0, 1000, 0, 0x55c4_0000]);
+        let hdlr = [entiers(&[0, 0]), b"soun".to_vec(), entiers(&[0, 0, 0]), b"Greffier\0".to_vec()].concat();
+        let mdia = [boite(b"mdhd", &mdhd), boite(b"hdlr", &hdlr)].concat();
+        let trak = [boite(b"tkhd", &tkhd), boite(b"mdia", &mdia)].concat();
+        let mvex = boite(b"trex", &entiers(&[0, 1, 1, 0, 0, 0]));
+        let moov = [boite(b"mvhd", &mvhd), boite(b"trak", &trak), boite(b"mvex", &mvex)].concat();
+        [boite(b"ftyp", &[b"iso5".to_vec(), entiers(&[0]), b"iso5iso6mp41".to_vec()].concat()), boite(b"moov", &moov)].concat()
+    }
+
+    /// Un fragment d'un échantillon de `duree` ms commençant à `debut` ms, et son `mdat` vide.
+    pub fn fragment(numero: u32, debut: u64, duree: u32) -> Vec<u8> {
+        let tfhd = entiers(&[0x0002_0000, 1]);
+        let tfdt = [entiers(&[0x0100_0000]), debut.to_be_bytes().to_vec()].concat();
+        let trun = entiers(&[0x0000_0100, 1, duree]);
+        let traf = [boite(b"tfhd", &tfhd), boite(b"tfdt", &tfdt), boite(b"trun", &trun)].concat();
+        let moof = [boite(b"mfhd", &entiers(&[0, numero])), boite(b"traf", &traf)].concat();
+        [boite(b"moof", &moof), boite(b"mdat", &[])].concat()
     }
 }
 
