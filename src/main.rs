@@ -119,7 +119,7 @@ pub struct App {
     /// Pourquoi l'enregistrement n'a pas démarré (autorisation, source…).
     pub record_error: Option<String>,
     /// Un enregistrement de moins d'une minute, proposé à la suppression.
-    pub short_recording: Option<IdReunion>,
+    pub enregistrement_court: Option<IdReunion>,
     /// Ce que compte le lexique, pour les réglages.
     pub lexique: lexique::Apercu,
     /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
@@ -193,7 +193,7 @@ impl App {
                         h.open();
                     }
                 }
-                Evenement::SuppressionProposee(id) => self.short_recording = Some(id),
+                Evenement::SuppressionProposee(id) => self.enregistrement_court = Some(id),
                 Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
                     if self.page == Page::Meeting(reunion) {
@@ -371,7 +371,7 @@ impl App {
             Err(e) => s.folder_error = Some(e.to_string()),
         });
     }
-    pub fn recording(&self) -> bool {
+    pub fn enregistre(&self) -> bool {
         self.core.enregistrement().is_some()
     }
     /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
@@ -379,8 +379,8 @@ impl App {
     fn install_menu_bar(&mut self) {
         let Some(h) = self.handle.clone() else { return };
         self.menu_bar = IconeDeLaBarre::new(move |choix| match choix {
-            Choix::Demarrer => h.update(|s: &mut App, _| if !s.recording() { s.toggle_recording() }),
-            Choix::Arreter => h.update(|s: &mut App, _| if s.recording() { s.toggle_recording() }),
+            Choix::Demarrer => h.update(|s: &mut App, _| if !s.enregistre() { s.toggle_recording() }),
+            Choix::Arreter => h.update(|s: &mut App, _| if s.enregistre() { s.toggle_recording() }),
             Choix::Ouvrir => h.open(),
             Choix::Quitter => h.quit(),
         });
@@ -422,10 +422,10 @@ impl App {
         if self.needs_folder {
             return;
         }
-        if !self.recording() {
+        if !self.enregistre() {
             self.rec_phase = 0.0;
             self.record_error = self.try_command(Commande::DemarrerEnregistrement).err().map(|r| r.to_string());
-            if self.recording() {
+            if self.enregistre() {
                 self.register_marker_shortcut(true);
             } else if let Some(h) = &self.handle {
                 // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
@@ -439,13 +439,13 @@ impl App {
         self.page = Page::Recording;
     }
     pub fn stop_recording(&mut self) {
-        if self.recording() {
+        if self.enregistre() {
             self.command(Commande::ArreterEnregistrement);
         }
         self.register_marker_shortcut(false);
     }
     pub fn toggle_recording(&mut self) {
-        if self.recording() { self.stop_recording() } else { self.start_recording() }
+        if self.enregistre() { self.stop_recording() } else { self.start_recording() }
     }
     /// ⌘M de n'importe où pendant l'enregistrement (rendu aux autres apps à l'arrêt).
     fn register_marker_shortcut(&mut self, on: bool) {
@@ -552,7 +552,7 @@ impl App {
         }
     }
     pub fn add_marker(&mut self) {
-        if self.recording() {
+        if self.enregistre() {
             self.command(Commande::PoserRepere);
         }
     }
@@ -694,7 +694,7 @@ fn init() -> App {
         shortcut_id: None,
         marker_id: None,
         record_error: None,
-        short_recording: None,
+        enregistrement_court: None,
         lexique,
         people,
         watch: None,
@@ -777,7 +777,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         active = true;
     }
 
-    if s.recording() {
+    if s.enregistre() {
         s.rec_phase += dt;
     }
     // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
@@ -825,7 +825,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.enregistrement_court.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -838,7 +838,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.confirm_delete = Some(id);
         return true;
     }
-    if ev.is_command('m') && s.recording() {
+    if ev.is_command('m') && s.enregistre() {
         s.add_marker();
         return true;
     }
@@ -903,7 +903,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     meeting::fullscreen(s, &k, cx, &mut layer);
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
-    overlays::short_recording(s, &k, &mut layer);
+    overlays::enregistrement_court(s, &k, &mut layer);
     titre::window(s, &k, &mut layer);
     refaire::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);

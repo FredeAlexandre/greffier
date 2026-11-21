@@ -5,7 +5,7 @@
 mod banc;
 
 use banc::{Banc, mot, tour};
-use greffier_coeur::adaptateurs::{Adaptateurs, Participant, ResultatDeRelecture, ResultatDuBilan};
+use greffier_coeur::adaptateurs::{Adaptateurs, LocuteurDuBilan, ResultatDeRelecture, ResultatDuBilan};
 use greffier_coeur::faux::{FauxAgent, FauxSeparateur, FauxTranscripteur};
 use greffier_coeur::{Commande, IdReunion, Role, Statut};
 
@@ -24,11 +24,11 @@ fn adaptateurs() -> Adaptateurs {
         mot(9.0, 10.0, "Oui."),
     ];
     let tours = vec![tour(0.0, 1.6, "SPEAKER_00"), tour(2.9, 4.1, "SPEAKER_01"), tour(5.9, 7.1, "SPEAKER_02"), tour(8.9, 10.1, "SPEAKER_03")];
-    let participants = vec![
-        Participant { locuteur: "SPEAKER_00".into(), nom_propose: "Alexandre".into(), justification: "Khalid l'appelle Alexandre à 0:00:03.".into(), meme_voix_que: None },
-        Participant { locuteur: "SPEAKER_01".into(), nom_propose: "Khalid".into(), justification: "Répond à Alexandre à 0:00:03.".into(), meme_voix_que: None },
-        Participant { locuteur: "SPEAKER_02".into(), nom_propose: "Alexandre".into(), justification: "Même voix qu'Alexandre, qui relance à 0:00:06.".into(), meme_voix_que: Some("SPEAKER_00".into()) },
-        Participant { locuteur: "SPEAKER_03".into(), nom_propose: String::new(), justification: "Ne dit que « Oui » à 0:00:09 ; personne ne le nomme.".into(), meme_voix_que: None },
+    let locuteurs = vec![
+        LocuteurDuBilan { locuteur: "SPEAKER_00".into(), nom_propose: "Alexandre".into(), justification: "Khalid l'appelle Alexandre à 0:00:03.".into(), meme_voix_que: None },
+        LocuteurDuBilan { locuteur: "SPEAKER_01".into(), nom_propose: "Khalid".into(), justification: "Répond à Alexandre à 0:00:03.".into(), meme_voix_que: None },
+        LocuteurDuBilan { locuteur: "SPEAKER_02".into(), nom_propose: "Alexandre".into(), justification: "Même voix qu'Alexandre, qui relance à 0:00:06.".into(), meme_voix_que: Some("SPEAKER_00".into()) },
+        LocuteurDuBilan { locuteur: "SPEAKER_03".into(), nom_propose: String::new(), justification: "Ne dit que « Oui » à 0:00:09 ; personne ne le nomme.".into(), meme_voix_que: None },
     ];
     let mut a = banc::adaptateurs();
     a.transcripteur = Box::new(FauxTranscripteur::fixe(banc::DUREE_D_ETAPE, mots));
@@ -37,7 +37,7 @@ fn adaptateurs() -> Adaptateurs {
         banc::DUREE_D_ETAPE,
         |_| Ok(ResultatDeRelecture::default()),
         banc::DUREE_D_ETAPE,
-        move |_| Ok((banc::BILAN.to_string(), ResultatDuBilan { participants: participants.clone(), ..banc::resultat_du_bilan() })),
+        move |_| Ok((banc::BILAN.to_string(), ResultatDuBilan { locuteurs: locuteurs.clone(), ..banc::resultat_du_bilan() })),
     ));
     a
 }

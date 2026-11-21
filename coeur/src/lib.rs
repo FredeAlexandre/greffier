@@ -966,7 +966,7 @@ impl Greffier {
                 r.titre = resultat.titre;
                 r.resume = resultat.resume;
                 r.actions_principales = resultat.actions.into_iter().take(3).collect();
-                for p in resultat.participants {
+                for p in resultat.locuteurs {
                     let index = |etiquette: &str| r.locuteurs.iter().position(|l| l.etiquette == etiquette);
                     let Some(i) = index(&p.locuteur) else { continue };
                     let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| r.locuteur_affiche(*j) != r.locuteur_affiche(i));

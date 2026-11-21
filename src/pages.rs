@@ -94,7 +94,7 @@ pub fn welcome(s: &App, k: &Kit) -> El {
 pub fn overview(s: &App, k: &Kit) -> El {
     let meetings = s.core.reunions();
     let total: f64 = meetings.iter().map(|m| m.duree).sum();
-    let todo = meetings.iter().filter(|m| m.statut != Statut::Terminee).count();
+    let sans_bilan = meetings.iter().filter(|m| m.statut != Statut::Terminee).count();
     let doubts: usize = meetings.iter().map(|m| m.passages_en_attente()).sum();
     let since = match meetings.iter().map(|m| m.debut).min() {
         Some(d) => format!("réunions depuis le {:02}/{:02}", d.jour, d.mois),
@@ -105,7 +105,7 @@ pub fn overview(s: &App, k: &Kit) -> El {
         .gap(10.0)
         .child(stat(k, format!("{}", meetings.len()), &since))
         .child(stat(k, ui::dur(total), "enregistrées"))
-        .child(stat(k, format!("{todo}"), "en attente de bilan"))
+        .child(stat(k, format!("{sans_bilan}"), "en attente de bilan"))
         .child(stat(k, format!("{doubts}"), "passages à vérifier"));
 
     // Temps en réunion par jour, les 12 derniers jours qui en ont.

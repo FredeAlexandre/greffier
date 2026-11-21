@@ -5,7 +5,7 @@
 //! [`adaptateurs`] branche les faux adaptateurs du prototype : une capture au temps accéléré, un
 //! transcripteur et un séparateur qui inventent une réunion courte, un agent qui en écrit le bilan.
 
-use crate::adaptateurs::{Adaptateurs, DemandeDeBilan, EtatDeRessource, Participant, Ressource, ResultatDeRelecture, ResultatDuBilan};
+use crate::adaptateurs::{Adaptateurs, DemandeDeBilan, EtatDeRessource, LocuteurDuBilan, Ressource, ResultatDeRelecture, ResultatDuBilan};
 use crate::faux::{FausseCapture, FausseCorbeille, FausseHorloge, FausseMiseEnMp4, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
 use crate::reunion::{Etape, Locuteur, Mot, PassageAVerifier, Repere, Replique, Reunion, Statut, StatutDuPassage, TourDeParole};
 use crate::temps::{DateHeure, hms};
@@ -110,8 +110,8 @@ fn weave(keys: Vec<Replique>, duration: f64, weights: &[f64], seed: u64) -> Vec<
     out
 }
 
-fn u(speaker: usize, start: f64, len: f64, text: &str) -> Replique {
-    Replique { locuteur: speaker, debut: start, fin: start + len, texte: text.to_string(), passages: vec![] }
+fn u(locuteur: usize, start: f64, len: f64, text: &str) -> Replique {
+    Replique { locuteur, debut: start, fin: start + len, texte: text.to_string(), passages: vec![] }
 }
 
 fn sp(label: &str, guess: &str, evidence: &str, hue: f32, confirmed: bool) -> Locuteur {
@@ -151,14 +151,14 @@ fn terminee(id: u32, debut: DateHeure, duree: f64, titre: &str) -> Reunion {
 /// La revue de release : la réunion détaillée du prototype.
 pub fn revue_de_release(id: u32) -> Reunion {
     let duration = hms(2, 34, 22);
-    let mut speakers = vec![
+    let mut locuteurs_fictifs = vec![
         sp("SPEAKER_00", "Jérôme", "Khalid l'appelle « Jérôme » à 0:44:00 et 1:41:02. Mène la revue côté métier.", 35.0, false),
         sp("SPEAKER_01", "Alexandre", "Jérôme l'appelle « Alexandre » à 1:04:46. Présente les bookmarks à 1:58:45.", 255.0, false),
         sp("SPEAKER_02", "Jérôme", "Prolonge presque toujours les répliques de SPEAKER_00 : sans doute la même personne, mal séparée.", 80.0, false),
         sp("SPEAKER_03", "Khalid", "Anime la revue et prend les retours. Appelé « Khalid » à 1:07:04.", 160.0, false),
         sp("SPEAKER_04", "Pablo", "Nommé par Khalid à 0:05:17. Parle des permissions et du Search.", 320.0, false),
     ];
-    speakers[2].fusion_proposee = Some(0);
+    locuteurs_fictifs[2].fusion_proposee = Some(0);
     let keys = vec![
         u(0, 1.0, 7.0, "Ça ne veut rien dire, « in your portfolio ». Moi je suis sur la prod, sur un compte au hasard."),
         u(0, 17.0, 13.0, "Il y a écrit « Status active in your portfolio ». Je ne sais pas si c'est nouveau, mais ça me paraît mislibé."),
@@ -202,7 +202,7 @@ pub fn revue_de_release(id: u32) -> Reunion {
     ];
     attach_doubts(&mut utterances, &mut doubts);
     Reunion {
-        locuteurs: speakers,
+        locuteurs: locuteurs_fictifs,
         repliques: utterances,
         passages: doubts,
         reperes: vec![Repere { instant: hms(1, 58, 45), libelle: "Ma démo bookmarks".into() }],
@@ -410,12 +410,12 @@ fn nouvelle_transcription(duree: f64, graine: u64) -> (Vec<Mot>, Vec<TourDeParol
 fn bilan_invente(d: &DemandeDeBilan) -> Result<(String, ResultatDuBilan), String> {
     let session = Some("session-fictive".to_string());
     if let Some(md) = &d.bilan_actuel {
-        let participants = d
+        let locuteurs = d
             .locuteurs
             .iter()
-            .filter_map(|l| Some(Participant { locuteur: l.etiquette.clone(), nom_propose: l.proposition.clone()?, justification: l.justification.clone(), meme_voix_que: l.meme_voix_proposee.clone() }))
+            .filter_map(|l| Some(LocuteurDuBilan { locuteur: l.etiquette.clone(), nom_propose: l.proposition.clone()?, justification: l.justification.clone(), meme_voix_que: l.meme_voix_proposee.clone() }))
             .collect();
-        let resultat = ResultatDuBilan { session, titre: d.titre.clone(), resume: bilan::en_bref(md), actions: bilan::actions(md).into_iter().take(3).collect(), participants };
+        let resultat = ResultatDuBilan { session, titre: d.titre.clone(), resume: bilan::en_bref(md), actions: bilan::actions(md).into_iter().take(3).collect(), locuteurs };
         return Ok((md.clone(), resultat));
     }
     let b = &NOUVELLE_REUNION;
@@ -425,7 +425,7 @@ fn bilan_invente(d: &DemandeDeBilan) -> Result<(String, ResultatDuBilan), String
         titre: b.title.into(),
         resume: b.brief.into(),
         actions: b.actions.iter().take(3).map(|(qui, quoi)| format!("{qui} — {quoi}")).collect(),
-        participants: EQUIPE.iter().map(|(l, n, j, _)| Participant { locuteur: (*l).into(), nom_propose: (*n).into(), justification: (*j).into(), meme_voix_que: None }).collect(),
+        locuteurs: EQUIPE.iter().map(|(l, n, j, _)| LocuteurDuBilan { locuteur: (*l).into(), nom_propose: (*n).into(), justification: (*j).into(), meme_voix_que: None }).collect(),
     };
     Ok((md, resultat))
 }

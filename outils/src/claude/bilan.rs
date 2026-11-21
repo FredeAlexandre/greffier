@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use super::{AppelAClaude, Claude, Session};
-use greffier_coeur::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan};
+use greffier_coeur::adaptateurs::{DemandeDeBilan, LocuteurDuBilan, ResultatDuBilan};
 use greffier_coeur::horodatage_de_lecture;
 
 /// Le prompt du bilan, livré avec l'app.
@@ -105,12 +105,12 @@ pub fn resultat(reponse: &serde_json::Value, session: &str) -> Result<ResultatDu
     }
     let liste = |cle: &str| reponse.get(cle).and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     let actions = liste("actions").iter().filter_map(|a| a.as_str()).map(|a| a.trim().trim_start_matches("- ").trim_start_matches("[ ]").trim().to_string()).filter(|a| !a.is_empty()).take(3).collect();
-    let participants = liste("participants")
+    let locuteurs = liste("participants")
         .iter()
-        .map(|p| Participant { locuteur: texte(p, "locuteur"), nom_propose: texte(p, "nom"), justification: texte(p, "justification"), meme_voix_que: Some(texte(p, "meme_voix_que")).filter(|m| !m.is_empty()) })
+        .map(|p| LocuteurDuBilan { locuteur: texte(p, "locuteur"), nom_propose: texte(p, "nom"), justification: texte(p, "justification"), meme_voix_que: Some(texte(p, "meme_voix_que")).filter(|m| !m.is_empty()) })
         .filter(|p| !p.locuteur.is_empty() && (!p.nom_propose.is_empty() || !p.justification.is_empty()))
         .collect();
-    Ok(ResultatDuBilan { session: Some(session.to_string()), titre, resume: texte(reponse, "resume"), actions, participants })
+    Ok(ResultatDuBilan { session: Some(session.to_string()), titre, resume: texte(reponse, "resume"), actions, locuteurs })
 }
 
 fn modifie(fichier: &Path) -> Option<SystemTime> {
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn la_reponse_donne_titre_resume_actions_et_participants() {
+    fn la_reponse_donne_titre_resume_actions_et_locuteurs() {
         let reponse = serde_json::json!({
             "titre": " Budget du trimestre ",
             "resume": "On garde le budget.",
@@ -265,10 +265,10 @@ mod tests {
         assert_eq!(r.titre, "Budget du trimestre");
         assert_eq!(r.resume, "On garde le budget.");
         assert_eq!(r.actions, ["Odile — envoyer le devis — lundi", "Bastien — relire", "C"]);
-        assert_eq!(r.participants[0].meme_voix_que, None);
-        assert_eq!(r.participants[1].meme_voix_que.as_deref(), Some("SPEAKER_01"));
-        assert_eq!(r.participants.len(), 3, "un locuteur sans nom proposé garde sa justification");
-        assert_eq!((r.participants[2].nom_propose.as_str(), r.participants[2].justification.as_str()), ("", "Personne ne le nomme."));
+        assert_eq!(r.locuteurs[0].meme_voix_que, None);
+        assert_eq!(r.locuteurs[1].meme_voix_que.as_deref(), Some("SPEAKER_01"));
+        assert_eq!(r.locuteurs.len(), 3, "un locuteur sans nom proposé garde sa justification");
+        assert_eq!((r.locuteurs[2].nom_propose.as_str(), r.locuteurs[2].justification.as_str()), ("", "Personne ne le nomme."));
         assert!(resultat(&serde_json::json!({"titre": " ", "resume": "", "actions": [], "participants": []}), "s").is_err());
     }
 }
