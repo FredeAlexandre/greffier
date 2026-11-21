@@ -1,99 +1,48 @@
-//! Les réglages de l'app qui survivent à un redémarrage, dans son dossier
-//! (`~/Library/Application Support/Greffier/reglages.json`) : le dossier de réunions, le raccourci
-//! global, les sources, le démarrage automatique du traitement et les dossiers de contexte de
-//! l'agent. Rien n'est écrit dans le dossier
-//! de réunions lui-même. Les clés inconnues sont gardées.
-//!
-//! `GREFFIER_DOSSIER=/chemin` remplace le dossier choisi le temps d'un lancement, sans toucher
-//! aux réglages (essais sur une copie, réunions d'exemple).
+//! Ce que l'interface sait des réglages retenus : le dossier de réunions (que
+//! `GREFFIER_DOSSIER=/chemin` remplace le temps d'un lancement, sans toucher aux réglages : essais
+//! sur une copie, réunions d'exemple), les vrais adaptateurs et l'heure du Mac. Le fichier des
+//! réglages et le lexique sont lus et écrits par le cœur ([`greffier_coeur::reglages`],
+//! [`greffier_coeur::Greffier::lexique`]).
 
 use std::path::{Path, PathBuf};
 
-fn maison() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
-}
+use greffier_coeur::reglages::{self, ReglagesRetenus};
 
-/// Le dossier de l'app : modèles, environnement Python, lexique, cache, réglages.
-pub fn dossier_de_l_app() -> PathBuf {
-    greffier_coeur::ressources::dossier_de_l_app()
-}
+pub use greffier_coeur::reglages::{dossier_de_l_app, dossier_propose};
 
-fn fichier() -> PathBuf {
-    dossier_de_l_app().join("reglages.json")
-}
-
-/// Le dossier proposé au premier lancement.
-pub fn dossier_propose() -> PathBuf {
-    maison().join("Documents/Réunions")
+/// Les réglages retenus dans le dossier de l'app.
+pub fn retenus() -> ReglagesRetenus {
+    ReglagesRetenus::lire(&dossier_de_l_app())
 }
 
 /// Le dossier de réunions choisi, s'il l'a été.
 pub fn dossier_de_reunions() -> Option<PathBuf> {
-    if let Some(d) = std::env::var_os("GREFFIER_DOSSIER") {
-        return Some(PathBuf::from(d));
+    match std::env::var_os("GREFFIER_DOSSIER") {
+        Some(d) => Some(PathBuf::from(d)),
+        None => retenus().dossier_de_reunions,
     }
-    let json = std::fs::read_to_string(fichier()).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
-    v.get("dossier_de_reunions")?.as_str().map(PathBuf::from)
 }
 
-/// Retient le dossier de réunions (et le crée s'il n'existe pas).
+/// Retient le dossier de réunions (et le crée s'il n'existe pas) ; avec `GREFFIER_DOSSIER`, le
+/// crée seulement.
 pub fn choisir_dossier_de_reunions(dossier: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
     if std::env::var_os("GREFFIER_DOSSIER").is_some() {
-        return Ok(());
+        return reglages::creer_dossier_de_reunions(dossier);
     }
-    modifier(|v| v["dossier_de_reunions"] = serde_json::Value::String(dossier.to_string_lossy().into_owned()))
+    reglages::choisir_dossier_de_reunions(&dossier_de_l_app(), dossier)
 }
 
-/// Le raccourci global d'enregistrement par défaut.
-pub const RACCOURCI_PAR_DEFAUT: &str = "cmd+shift+r";
-
-/// Les réglages d'enregistrement retenus (les défauts du cœur pour ce qui manque) et le raccourci
-/// global (au format de Rune, « cmd+shift+r »).
-pub fn enregistrement() -> (greffier_coeur::Reglages, String) {
-    let v = lire();
-    let mut r = greffier_coeur::Reglages::default();
-    if let Some(b) = v.get("traiter_a_l_arret").and_then(serde_json::Value::as_bool) {
-        r.traiter_a_l_arret = b;
-    }
-    let source = |nom: &str, defaut: bool| v.get("sources").and_then(|s| s.get(nom)).and_then(serde_json::Value::as_bool).unwrap_or(defaut);
-    r.sources = greffier_coeur::adaptateurs::Sources { ecran: source("ecran", r.sources.ecran), son_du_mac: source("son_du_mac", r.sources.son_du_mac), micro: source("micro", r.sources.micro) };
-    r.dossiers_de_contexte = v.get("dossiers_de_contexte").and_then(serde_json::Value::as_array).map(|a| a.iter().filter_map(serde_json::Value::as_str).map(PathBuf::from).collect()).unwrap_or_default();
-    let raccourci = v.get("raccourci").and_then(serde_json::Value::as_str).unwrap_or(RACCOURCI_PAR_DEFAUT).to_string();
-    (r, raccourci)
-}
-
-/// Retient les réglages d'enregistrement et le raccourci global (vide : aucun).
+/// Retient les réglages d'enregistrement du cœur et le raccourci global (vide : aucun).
 pub fn retenir_enregistrement(r: &greffier_coeur::Reglages, raccourci: &str) -> Result<(), String> {
-    modifier(|v| {
-        v["traiter_a_l_arret"] = r.traiter_a_l_arret.into();
-        v["sources"] = serde_json::json!({ "ecran": r.sources.ecran, "son_du_mac": r.sources.son_du_mac, "micro": r.sources.micro });
-        v["raccourci"] = raccourci.into();
-        v["dossiers_de_contexte"] = r.dossiers_de_contexte.iter().map(|d| serde_json::Value::String(d.to_string_lossy().into_owned())).collect();
-    })
-}
-
-fn lire() -> serde_json::Value {
-    std::fs::read_to_string(fichier()).ok().and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_else(|| serde_json::json!({}))
-}
-
-/// Change le fichier des réglages en gardant les autres clés.
-fn modifier(f: impl FnOnce(&mut serde_json::Value)) -> Result<(), String> {
-    let mut v = lire();
-    if !v.is_object() {
-        v = serde_json::json!({});
-    }
-    f(&mut v);
-    std::fs::create_dir_all(dossier_de_l_app()).map_err(|e| e.to_string())?;
-    let mut json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    json.push('\n');
-    std::fs::write(fichier(), json).map_err(|e| format!("{} : {e}", fichier().display()))
+    let mut retenus = retenus();
+    retenus.depuis(r);
+    retenus.raccourci = raccourci.to_string();
+    retenus.retenir(&dossier_de_l_app())
 }
 
 /// Un chemin à afficher : `~` pour le dossier personnel.
 pub fn afficher(chemin: &Path) -> String {
-    match chemin.strip_prefix(maison()) {
+    match chemin.strip_prefix(reglages::maison()) {
         Ok(reste) => format!("~/{}", reste.display()),
         Err(_) => chemin.display().to_string(),
     }
@@ -140,35 +89,19 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
 
 /// Le cache de recherche, dans le dossier de l'app.
 pub fn cache_de_recherche() -> PathBuf {
-    dossier_de_l_app().join("recherche")
+    reglages::cache_de_recherche(&dossier_de_l_app())
+}
+
+/// Les personnes du lexique, proposées pour nommer les locuteurs ; sans fenêtre, celles des
+/// données fictives.
+pub fn personnes(core: &greffier_coeur::Greffier) -> Vec<String> {
+    if rune::is_headless() {
+        return greffier_coeur::fictif::PERSONNES.map(String::from).to_vec();
+    }
+    core.personnes()
 }
 
 /// Le chemin du lexique du dossier de l'app (le lexique livré y est écrit s'il manque).
 pub fn chemin_du_lexique() -> Option<PathBuf> {
     greffier_coeur::lexique::installer(&dossier_de_l_app()).map_err(|e| eprintln!("greffier : lexique : {e}")).ok()
-}
-
-/// Le lexique : celui du dossier de l'app (le lexique livré y est écrit s'il manque) ; sans
-/// fenêtre, le lexique livré, sans rien écrire.
-pub fn lexique() -> greffier_coeur::lexique::Resume {
-    use greffier_coeur::lexique;
-    if rune::is_headless() {
-        return lexique::resume(lexique::LEXIQUE_INITIAL);
-    }
-    match lexique::installer(&dossier_de_l_app()).and_then(std::fs::read_to_string) {
-        Ok(md) => lexique::resume(&md),
-        Err(e) => {
-            eprintln!("greffier : lexique : {e}");
-            lexique::resume(lexique::LEXIQUE_INITIAL)
-        }
-    }
-}
-
-/// Les personnes du lexique, proposées pour nommer les locuteurs ; sans fenêtre, celles des
-/// données fictives.
-pub fn personnes() -> Vec<String> {
-    if rune::is_headless() {
-        return greffier_coeur::fictif::PERSONNES.map(String::from).to_vec();
-    }
-    chemin_du_lexique().and_then(|c| std::fs::read_to_string(c).ok()).map(|md| greffier_coeur::lexique::personnes(&md)).unwrap_or_default()
 }

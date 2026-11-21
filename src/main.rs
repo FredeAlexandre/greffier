@@ -121,7 +121,7 @@ pub struct App {
     /// Un enregistrement de moins d'une minute, proposé à la suppression.
     pub short_recording: Option<IdReunion>,
     /// Ce que compte le lexique, pour les réglages.
-    pub lexique: lexique::Resume,
+    pub lexique: lexique::Apercu,
     /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
     pub people: Vec<String>,
     /// Signale les changements faits dans le dossier de réunions hors de l'app.
@@ -204,8 +204,8 @@ impl App {
                 }
                 Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
                     // La relecture a pu enrichir le lexique.
-                    self.lexique = reglages::lexique();
-                    self.people = reglages::personnes();
+                    self.lexique = self.core.lexique();
+                    self.people = reglages::personnes(&self.core);
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
                 Evenement::RessourcesInstallees => {
@@ -655,10 +655,13 @@ fn init() -> App {
         None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
     };
     // Sans fenêtre, les réglages par défaut : rendu déterministe.
-    let (settings, shortcut) = if rune::is_headless() { (greffier_coeur::Reglages::default(), reglages::RACCOURCI_PAR_DEFAUT.to_string()) } else { reglages::enregistrement() };
+    let retenus = if rune::is_headless() { greffier_coeur::reglages::ReglagesRetenus::default() } else { reglages::retenus() };
     // Le lexique et le cache viennent du dossier de l'app (`real_core`), pas des réglages retenus.
-    let settings = greffier_coeur::Reglages { lexique: core.reglages().lexique.clone(), cache_de_recherche: core.reglages().cache_de_recherche.clone(), ..settings };
+    let settings = retenus.appliquer(core.reglages().clone());
     let _ = core.executer(Commande::ChangerReglages(settings));
+    let shortcut = retenus.raccourci;
+    let lexique = core.lexique();
+    let people = reglages::personnes(&core);
     App {
         core,
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
@@ -692,8 +695,8 @@ fn init() -> App {
         marker_id: None,
         record_error: None,
         short_recording: None,
-        lexique: reglages::lexique(),
-        people: reglages::personnes(),
+        lexique,
+        people,
         watch: None,
         import: None,
         process_imported: None,

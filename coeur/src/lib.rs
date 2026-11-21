@@ -21,6 +21,7 @@ pub mod fictif;
 pub mod lexique;
 pub mod mac;
 pub mod recherche;
+pub mod reglages;
 pub mod ressources;
 mod reunion;
 mod suppression;
@@ -354,6 +355,21 @@ impl Greffier {
 
     pub fn reglages(&self) -> &Reglages {
         &self.reglages
+    }
+
+    /// Le lexique des réglages, lu maintenant ; sans lexique (ou illisible), le lexique livré.
+    fn texte_du_lexique(&self) -> String {
+        self.reglages.lexique.as_ref().and_then(|c| std::fs::read_to_string(c).ok()).unwrap_or_else(|| lexique::LEXIQUE_INITIAL.to_string())
+    }
+
+    /// Ce que compte le lexique (personnes, mots justes, erreurs connues), pour les réglages.
+    pub fn lexique(&self) -> lexique::Apercu {
+        lexique::apercu(&self.texte_du_lexique())
+    }
+
+    /// Les personnes du lexique, proposées pour nommer les locuteurs.
+    pub fn personnes(&self) -> Vec<String> {
+        lexique::personnes(&self.texte_du_lexique())
     }
 
     pub fn dossier(&self) -> &DossierDeReunions {

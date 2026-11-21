@@ -21,11 +21,7 @@ use sha2::{Digest, Sha256};
 use crate::adaptateurs::{Avancement, EtatDeRessource, Ressource, Ressources, TacheDe};
 use crate::reunion::Etape;
 
-/// Le dossier de l'app : `~/Library/Application Support/Greffier`.
-pub fn dossier_de_l_app() -> PathBuf {
-    let maison = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
-    maison.join("Library/Application Support/Greffier")
-}
+pub use crate::reglages::dossier_de_l_app;
 
 /// Le modèle de Whisper, dans le dossier de l'app.
 pub const MODELE_WHISPER: &str = "modeles/ggml-large-v3.bin";
