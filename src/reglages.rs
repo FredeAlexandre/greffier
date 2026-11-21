@@ -1,6 +1,7 @@
 //! Les réglages de l'app qui survivent à un redémarrage, dans son dossier
-//! (`~/Library/Application Support/Greffier/reglages.json`) : pour l'instant, le dossier de
-//! réunions. Rien n'est écrit dans le dossier de réunions lui-même.
+//! (`~/Library/Application Support/Greffier/reglages.json`) : le dossier de réunions, le raccourci
+//! global, les sources et le démarrage automatique du traitement. Rien n'est écrit dans le dossier
+//! de réunions lui-même. Les clés inconnues sont gardées.
 //!
 //! `GREFFIER_DOSSIER=/chemin` remplace le dossier choisi le temps d'un lancement, sans toucher
 //! aux réglages (essais sur une copie, réunions d'exemple).
@@ -41,8 +42,46 @@ pub fn choisir_dossier_de_reunions(dossier: &Path) -> Result<(), String> {
     if std::env::var_os("GREFFIER_DOSSIER").is_some() {
         return Ok(());
     }
-    let mut v: serde_json::Value = std::fs::read_to_string(fichier()).ok().and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_else(|| serde_json::json!({}));
-    v["dossier_de_reunions"] = serde_json::Value::String(dossier.to_string_lossy().into_owned());
+    modifier(|v| v["dossier_de_reunions"] = serde_json::Value::String(dossier.to_string_lossy().into_owned()))
+}
+
+/// Le raccourci global d'enregistrement par défaut.
+pub const RACCOURCI_PAR_DEFAUT: &str = "cmd+shift+r";
+
+/// Les réglages d'enregistrement retenus (les défauts du cœur pour ce qui manque) et le raccourci
+/// global (au format de Rune, « cmd+shift+r »).
+pub fn enregistrement() -> (greffier_coeur::Reglages, String) {
+    let v = lire();
+    let mut r = greffier_coeur::Reglages::default();
+    if let Some(b) = v.get("traiter_a_l_arret").and_then(serde_json::Value::as_bool) {
+        r.traiter_a_l_arret = b;
+    }
+    let source = |nom: &str, defaut: bool| v.get("sources").and_then(|s| s.get(nom)).and_then(serde_json::Value::as_bool).unwrap_or(defaut);
+    r.sources = greffier_coeur::adaptateurs::Sources { ecran: source("ecran", r.sources.ecran), son_du_mac: source("son_du_mac", r.sources.son_du_mac), micro: source("micro", r.sources.micro) };
+    let raccourci = v.get("raccourci").and_then(serde_json::Value::as_str).unwrap_or(RACCOURCI_PAR_DEFAUT).to_string();
+    (r, raccourci)
+}
+
+/// Retient les réglages d'enregistrement et le raccourci global (vide : aucun).
+pub fn retenir_enregistrement(r: &greffier_coeur::Reglages, raccourci: &str) -> Result<(), String> {
+    modifier(|v| {
+        v["traiter_a_l_arret"] = r.traiter_a_l_arret.into();
+        v["sources"] = serde_json::json!({ "ecran": r.sources.ecran, "son_du_mac": r.sources.son_du_mac, "micro": r.sources.micro });
+        v["raccourci"] = raccourci.into();
+    })
+}
+
+fn lire() -> serde_json::Value {
+    std::fs::read_to_string(fichier()).ok().and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Change le fichier des réglages en gardant les autres clés.
+fn modifier(f: impl FnOnce(&mut serde_json::Value)) -> Result<(), String> {
+    let mut v = lire();
+    if !v.is_object() {
+        v = serde_json::json!({});
+    }
+    f(&mut v);
     std::fs::create_dir_all(dossier_de_l_app()).map_err(|e| e.to_string())?;
     let mut json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
     json.push('\n');
@@ -69,7 +108,7 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : ceux du prototype pour le traitement (en attendant les vrais),
-/// avec l'heure du Mac.
+/// avec l'heure du Mac et la vraie capture (ScreenCaptureKit).
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
-    greffier_coeur::adaptateurs::Adaptateurs { horloge: Box::new(HorlogeDuMac), ..greffier_coeur::fictif::adaptateurs() }
+    greffier_coeur::adaptateurs::Adaptateurs { horloge: Box::new(HorlogeDuMac), capture: Box::new(greffier_capture::CaptureDuMac::new()), ..greffier_coeur::fictif::adaptateurs() }
 }
