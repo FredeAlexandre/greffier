@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 mod import;
+mod locuteurs;
 mod meeting;
 mod overlays;
 mod pages;
@@ -81,7 +82,8 @@ pub struct App {
     pub transcript_frames: u32,
     /// Phase de l'animation de l'enregistrement (pulsation, niveaux).
     pub rec_phase: f64,
-    pub picking: Option<usize>,
+    /// La correction du nom ou la fusion d'un locuteur, dans l'onglet Locuteurs.
+    pub picking: Option<locuteurs::Picking>,
     pub toast: Option<Toast>,
     pub clock: f64,
     pub last: Option<f64>,
@@ -118,6 +120,8 @@ pub struct App {
     pub short_recording: Option<IdReunion>,
     /// Ce que compte le lexique, pour les réglages.
     pub lexique: lexique::Resume,
+    /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
+    pub people: Vec<String>,
     /// Signale les changements faits dans le dossier de réunions hors de l'app.
     pub watch: Option<surveillance::Surveillance>,
     /// La fenêtre d'import, ouverte quand `Some`.
@@ -189,6 +193,7 @@ impl App {
                 Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
                     // La relecture a pu enrichir le lexique.
                     self.lexique = reglages::lexique();
+                    self.people = reglages::personnes();
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
                 Evenement::RessourcesInstallees => {
@@ -648,6 +653,7 @@ fn init() -> App {
         record_error: None,
         short_recording: None,
         lexique: reglages::lexique(),
+        people: reglages::personnes(),
         watch: None,
         import: None,
         process_imported: None,
@@ -848,6 +854,17 @@ fn scene_people(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Speakers;
 }
+/// Locuteurs : la correction du nom de SPEAKER_01 ouverte.
+fn scene_people_naming(s: &mut App) {
+    scene_people(s);
+    s.start_naming(1);
+}
+/// Locuteurs : SPEAKER_02 fusionné dans Jérôme, la fusion de Pablo ouverte.
+fn scene_people_merged(s: &mut App) {
+    scene_people(s);
+    s.command(Commande::FusionnerLocuteurs { reunion: 2, locuteur: 2, dans: 0 });
+    s.start_merging(4);
+}
 fn scene_info(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Info;
@@ -1010,6 +1027,8 @@ fn main() {
             ("transcript", scene_transcript),
             ("doubts", scene_doubts),
             ("people", scene_people),
+            ("people-naming", scene_people_naming),
+            ("people-merged", scene_people_merged),
             ("info", scene_info),
             ("recording", scene_recording),
             ("record-ready", scene_record_ready),
