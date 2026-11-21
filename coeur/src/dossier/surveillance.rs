@@ -29,7 +29,9 @@ impl DossierDeReunions {
         Role::TOUS
             .into_iter()
             .filter_map(|role| {
-                let m = std::fs::metadata(self.fichier(nom, role)).ok().filter(|m| m.is_file())?;
+                // L'enregistrement peut être un média importé qui garde son extension (`.m4a`…).
+                let chemin = if role == Role::Enregistrement { self.enregistrement(nom)? } else { self.fichier(nom, role) };
+                let m = std::fs::metadata(chemin).ok().filter(|m| m.is_file())?;
                 Some((role, Empreinte { modifie: m.modified().ok(), taille: m.len(), inode: inode(&m) }))
             })
             .collect()

@@ -87,12 +87,16 @@ pub enum Commande {
     InstallerRessources,
     /// Refait les vérifications des ressources (la CLI `claude`) sans rien télécharger.
     VerifierRessources,
+    /// Ajoute une réunion à partir de fichiers existants, copiés dans un nouveau dossier de
+    /// réunion (voir [`Greffier::proposer_import`]).
+    Importer(dossier::Import),
 }
 
 /// Ce qui s'est passé dans le cœur et que l'interface peut vouloir annoncer.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Evenement {
     ReunionEnregistree(IdReunion),
+    ReunionImportee(IdReunion),
     EtapeTerminee { reunion: IdReunion, etape: Etape },
     EtapeEnEchec { reunion: IdReunion, etape: Etape, message: String },
     BilanPret { reunion: IdReunion, titre: String },
@@ -324,6 +328,13 @@ impl Greffier {
         self.verification.is_some()
     }
 
+    /// Ce que la fenêtre d'import propose pour des fichiers déposés ou choisis : le média, la
+    /// transcription et le bilan, la date et le titre, à modifier avant d'envoyer
+    /// [`Commande::Importer`]. N'écrit rien.
+    pub fn proposer_import(&self, fichiers: &[PathBuf]) -> Result<dossier::Import, Refus> {
+        dossier::import::proposer(fichiers, |t| self.adaptateurs.horloge.en_heure_locale(t)).map_err(Refus::Impossible)
+    }
+
     /// Vrai tant que le temps compte : enregistrement, traitement, file, installation ou
     /// vérification des ressources.
     pub fn occupe(&self) -> bool {
@@ -460,6 +471,18 @@ impl Greffier {
                     self.ressources = self.adaptateurs.ressources.etat();
                 }
             }
+            Commande::Importer(import) => {
+                let id = self.prochain_id;
+                let r = self.dossier.importer(&import, id).map_err(Refus::Impossible)?;
+                // Les fichiers copiés par Greffier ne sont pas des modifications faites hors de l'app.
+                self.noter(&r.nom_du_dossier.clone(), &Role::TOUS);
+                self.prochain_id += 1;
+                // Les plus récentes d'abord.
+                let place = self.reunions.iter().position(|x| x.debut <= r.debut).unwrap_or(self.reunions.len());
+                self.reunions.insert(place, r);
+                ev.push(Evenement::ReunionImportee(id));
+                self.persister(id, &mut ev);
+            }
         }
         if let Some(id) = touchee {
             self.persister(id, &mut ev);
@@ -593,7 +616,7 @@ impl Greffier {
 
     fn preparer(&mut self, id: IdReunion, etape: Etape) -> Result<Travail, String> {
         let r = self.reunion(id).ok_or("réunion inconnue")?.clone();
-        let audio = self.dossier.fichier(&r.nom_du_dossier, Role::Enregistrement);
+        let audio = self.dossier.enregistrement(&r.nom_du_dossier).unwrap_or_else(|| self.dossier.fichier(&r.nom_du_dossier, Role::Enregistrement));
         let a = &mut self.adaptateurs;
         self.ressources = a.ressources.etat();
         let manquantes: Vec<&str> = self.ressources.iter().filter(|x| x.etapes.contains(&etape) && x.etat != EtatDeRessource::Prete).map(|x| x.nom.as_str()).collect();

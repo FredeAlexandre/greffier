@@ -510,6 +510,16 @@ fn info(s: &App, m: &Reunion, k: &Kit) -> El {
 
 fn pending(m: &Reunion, k: &Kit) -> El {
     let id = m.id;
+    // Une transcription importée : le traitement reprend à la relecture (#5).
+    if m.statut == Statut::ATraiter && m.etape_faite == Some(Etape::Transcription) {
+        return card(k)
+            .gap(14.0)
+            .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, "Transcription importée, pas encore relue")))
+            .child(muted(k, "La relecture et le bilan partent vers Claude. La transcription est reprise telle quelle."))
+            .child(row().gap(8.0)
+                .child(Button::new("Relire et faire le bilan").icon(&ui::SPARK).variant(ButtonVariant::Submit)
+                    .on_press(move |s: &mut App| s.process(id)).build(k).key("process")));
+    }
     if m.statut == Statut::ATraiter {
         let people = m.nombre_de_locuteurs;
         let stepper = row().gap(6.0).center_y()
