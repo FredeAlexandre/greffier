@@ -99,7 +99,7 @@ struct SurUnFil<T> {
     arret: Arc<AtomicBool>,
 }
 
-fn sur_un_fil<T: Send + 'static>(travail: impl FnOnce(&AtomicU64, &AtomicBool) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
+pub(crate) fn sur_un_fil<T: Send + 'static>(travail: impl FnOnce(&AtomicU64, &AtomicBool) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
     let (envoi, resultat) = mpsc::channel();
     let progres = Arc::new(AtomicU64::new(0f64.to_bits()));
     let arret = Arc::new(AtomicBool::new(false));
@@ -224,7 +224,7 @@ fn sortie_de(programme: &Path, arguments: &[&str], delai: Duration) -> Result<(b
 
 /// La CLI `claude` : une app lancée du Finder n'a pas le PATH du terminal, on regarde donc aux
 /// endroits où ses installateurs la mettent avant le PATH.
-fn trouver_claude() -> Option<PathBuf> {
+pub(crate) fn trouver_claude() -> Option<PathBuf> {
     let maison = PathBuf::from(std::env::var_os("HOME")?);
     let connus = [maison.join(".local/bin/claude"), maison.join(".claude/local/claude"), "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into()];
     let chemin = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join("claude")).collect::<Vec<_>>()).unwrap_or_default();

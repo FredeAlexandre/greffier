@@ -14,6 +14,7 @@
 pub mod adaptateurs;
 mod attribution;
 pub mod bilan;
+pub mod claude;
 pub mod dossier;
 pub mod faux;
 pub mod fictif;
@@ -23,6 +24,7 @@ pub mod ressources;
 mod reunion;
 mod surveillance;
 mod temps;
+mod titre;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -43,11 +45,13 @@ pub struct Reglages {
     /// transcripteur ; il est relu au début de chaque transcription. Absent ou illisible : pas de
     /// vocabulaire.
     pub lexique: Option<PathBuf>,
+    /// Les dossiers ouverts à l'agent du bilan en plus du dossier de réunions (notes, projets…).
+    pub dossiers_de_contexte: Vec<PathBuf>,
 }
 
 impl Default for Reglages {
     fn default() -> Reglages {
-        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None }
+        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None, dossiers_de_contexte: Vec::new() }
     }
 }
 
@@ -86,6 +90,9 @@ pub enum Commande {
     CocherAction { reunion: IdReunion, action: usize, faite: bool },
     /// La réunion a été ouverte : elle n'est plus nouvelle.
     MarquerLue(IdReunion),
+    /// Change le titre : le dossier et ses fichiers sont renommés, liens compris. Refusé pendant
+    /// une étape (l'adaptateur écrit dans le dossier).
+    ChangerTitre { reunion: IdReunion, titre: String },
     ChangerReglages(Reglages),
     /// Télécharge, installe et vérifie les ressources qui manquent.
     InstallerRessources,
@@ -482,6 +489,18 @@ impl Greffier {
                 self.noter(&nom, &[Role::Bilan]);
             }
             Commande::MarquerLue(id) => self.reunion_mut(id)?.nouvelle = false,
+            Commande::ChangerTitre { reunion, titre } => {
+                let titre = titre.trim();
+                if titre.is_empty() {
+                    return impossible("le titre est vide");
+                }
+                let r = self.reunion_mut(reunion)?;
+                if matches!(r.statut, Statut::EnCours { .. }) {
+                    return impossible("le titre pourra changer à la fin de l'étape en cours");
+                }
+                r.titre = titre.to_string();
+                self.renommer_d_apres_le_titre(reunion, &mut ev);
+            }
             Commande::ChangerReglages(r) => self.reglages = r,
             Commande::DemanderAutorisation(a) => self.adaptateurs.capture.demander_autorisation(a),
             Commande::InstallerRessources => {
@@ -683,7 +702,10 @@ impl Greffier {
                 let fichier = self.dossier.fichier(&r.nom_du_dossier, Role::Bilan);
                 let demande = DemandeDeBilan {
                     dossier_de_reunions: self.dossier.racine().to_path_buf(),
+                    dossiers_de_contexte: self.reglages.dossiers_de_contexte.clone(),
                     fichier_du_bilan: fichier.clone(),
+                    fiche: self.dossier.fichier(&r.nom_du_dossier, Role::Fiche),
+                    transcription: self.dossier.fichier(&r.nom_du_dossier, Role::TranscriptionLisible),
                     titre: r.titre.clone(),
                     debut: r.debut,
                     duree: r.duree,
@@ -818,7 +840,7 @@ impl Greffier {
                 r.statut = Statut::Terminee;
                 r.nouvelle = true;
                 ev.push(Evenement::BilanPret { reunion: id, titre: r.titre.clone() });
-                self.persister(id, ev);
+                self.renommer_d_apres_le_titre(id, ev);
             }
             Some(suivante) if en_enregistrement => {
                 r.statut = Statut::EnAttente(suivante);
