@@ -79,17 +79,18 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
             s.menu = None;
             s.open(id);
         }));
+    if !m.repliques.is_empty() {
+        menu = menu.item(MenuItem::new("Lire la transcription").on_select(move |s: &mut App| {
+            s.menu = None;
+            s.open(id);
+            s.tab = Tab::Transcript;
+        }));
+    }
     if done {
-        menu = menu
-            .item(MenuItem::new("Lire la transcription").on_select(move |s: &mut App| {
-                s.menu = None;
-                s.open(id);
-                s.tab = Tab::Transcript;
-            }))
-            .item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
-                s.menu = None;
-                s.redo_bilan(id);
-            }));
+        menu = menu.item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
+            s.menu = None;
+            s.redo_bilan(id);
+        }));
     } else if m.statut == Statut::ATraiter {
         menu = menu.item(MenuItem::new("Transcrire et faire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
             s.menu = None;
@@ -99,8 +100,14 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
     let busy = matches!(m.statut, Statut::EnCours { .. });
     menu.item(MenuItem::new("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))
         .separator()
-        .item(MenuItem::new("Afficher dans le Finder").icon(&ui::FOLDER).on_select(|s: &mut App| s.menu = None))
-        .item(MenuItem::new("Copier le bilan en Markdown").disabled(!done).on_select(|s: &mut App| s.menu = None))
+        .item(MenuItem::new("Afficher dans le Finder").icon(&ui::FOLDER).on_select(move |s: &mut App| {
+            s.menu = None;
+            s.reveal(id);
+        }))
+        .item(MenuItem::new("Copier le bilan en Markdown").disabled(m.bilan.trim().is_empty()).on_select_tx(move |s: &mut App, tx| {
+            s.menu = None;
+            s.copy_bilan(id, tx);
+        }))
         .separator()
         .item(MenuItem::new("Supprimer…").danger(true).shortcut("⌘⌫").on_select(move |s: &mut App| {
             s.menu = None;

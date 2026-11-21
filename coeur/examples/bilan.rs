@@ -72,6 +72,7 @@ fn main() {
         agent: Box::new(BilanSeul(AgentClaude::new(std::sync::Arc::new(ClaudeDuMac::default()), std::sync::Arc::new(SansReecoute)))),
         ressources: Box::new(FaussesRessources::pretes()),
         horloge: Box::new(FausseHorloge(DateHeure::new(2026, 11, 21, 16, 30))),
+        corbeille: Box::new(greffier_coeur::faux::FausseCorbeille::new()),
     };
     let mut g = Greffier::ouvrir(&dossier, adaptateurs);
     g.executer(Commande::ChangerReglages(Reglages { dossiers_de_contexte: contexte, ..Reglages::default() })).expect("réglages");

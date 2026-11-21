@@ -20,8 +20,10 @@ pub mod faux;
 pub mod fictif;
 pub mod lexique;
 pub mod mac;
+pub mod recherche;
 pub mod ressources;
 mod reunion;
+mod suppression;
 mod surveillance;
 mod temps;
 mod titre;
@@ -47,11 +49,14 @@ pub struct Reglages {
     pub lexique: Option<PathBuf>,
     /// Les dossiers ouverts à l'agent du bilan en plus du dossier de réunions (notes, projets…).
     pub dossiers_de_contexte: Vec<PathBuf>,
+    /// Le dossier du cache de recherche (`recherche/` du dossier de l'app) : l'index y est
+    /// gardé d'un lancement à l'autre, et refait s'il manque. Sans lui, l'index reste en mémoire.
+    pub cache_de_recherche: Option<PathBuf>,
 }
 
 impl Default for Reglages {
     fn default() -> Reglages {
-        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None, dossiers_de_contexte: Vec::new() }
+        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None, dossiers_de_contexte: Vec::new(), cache_de_recherche: None }
     }
 }
 
@@ -81,6 +86,8 @@ pub enum Commande {
     Refaire { reunion: IdReunion, etape: Etape },
     /// Arrête le traitement (ou sort la réunion de la file) : elle redevient à traiter.
     ArreterTraitement(IdReunion),
+    /// Met le dossier de la réunion à la corbeille du Mac et l'oublie (refusé si la corbeille
+    /// refuse).
     Supprimer(IdReunion),
     NommerLocuteur { reunion: IdReunion, locuteur: usize, nom: String },
     /// `locuteur` est la même voix que `dans`, qui le remplace partout.
@@ -264,6 +271,8 @@ pub struct Greffier {
     /// L'empreinte de chaque dossier de réunion au dernier passage du cœur (voir
     /// [`Greffier::relire_le_dossier`]).
     empreintes: HashMap<String, dossier::surveillance::Empreintes>,
+    /// L'index de la recherche ⌘K (voir [`Greffier::rechercher`]).
+    index: recherche::Index,
 }
 
 impl Greffier {
@@ -290,7 +299,7 @@ impl Greffier {
         let ressources = adaptateurs.ressources.etat();
         let dossier = DossierDeReunions::new(dossier);
         let empreintes = dossier.toutes_les_empreintes();
-        Greffier {
+        let mut greffier = Greffier {
             dossier,
             adaptateurs,
             reglages: Reglages::default(),
@@ -303,7 +312,10 @@ impl Greffier {
             verification: None,
             ressources,
             empreintes,
-        }
+            index: recherche::Index::default(),
+        };
+        greffier.indexer();
+        greffier
     }
 
     // --- Lecture de l'état ---------------------------------------------------------------
@@ -453,11 +465,7 @@ impl Greffier {
                 r.statut = Statut::ATraiter;
                 self.sortir_de_la_file(id);
             }
-            Commande::Supprimer(id) => {
-                self.reunion_mut(id)?;
-                self.sortir_de_la_file(id);
-                self.reunions.retain(|r| r.id != id);
-            }
+            Commande::Supprimer(id) => self.supprimer(id)?,
             Commande::NommerLocuteur { reunion, locuteur, nom } => {
                 let l = locuteur_mut(self.reunion_mut(reunion)?, locuteur)?;
                 l.nom = Some(nom);
@@ -512,7 +520,13 @@ impl Greffier {
                 r.titre = titre.to_string();
                 self.renommer_d_apres_le_titre(reunion, &mut ev);
             }
-            Commande::ChangerReglages(r) => self.reglages = r,
+            Commande::ChangerReglages(r) => {
+                let cache = (r.cache_de_recherche != self.reglages.cache_de_recherche).then(|| r.cache_de_recherche.clone());
+                self.reglages = r;
+                if let Some(cache) = cache {
+                    self.utiliser_le_cache_de_recherche(cache);
+                }
+            }
             Commande::DemanderAutorisation(a) => self.adaptateurs.capture.demander_autorisation(a),
             Commande::InstallerRessources => {
                 if self.installation.is_none() {
@@ -546,6 +560,7 @@ impl Greffier {
         if let Some(id) = touchee {
             self.persister(id, &mut ev);
         }
+        self.indexer();
         Ok(ev)
     }
 
@@ -709,6 +724,10 @@ impl Greffier {
             self.demarrer_etape(id, etape, &mut ev);
         }
         self.avancer_traitement(ecoule, &mut ev);
+        // Une étape finie, un enregistrement arrêté : des réunions ont changé.
+        if !ev.is_empty() {
+            self.indexer();
+        }
         ev
     }
 

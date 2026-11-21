@@ -3,10 +3,11 @@
 use rune::{El, ScrollSpec, Span, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
 
-use greffier_coeur::{IdReunion, Statut, bilan};
+use greffier_coeur::recherche::Endroit;
+use greffier_coeur::{IdReunion, Reunion, Statut};
 
 use crate::ui::{self, glyph, muted, tnum};
-use crate::{App, Tab};
+use crate::{App, Tab, meeting};
 
 pub struct Hit {
     pub id: IdReunion,
@@ -16,96 +17,42 @@ pub struct Hit {
     pub who: Option<String>,
     pub snippet: String,
     pub range: Option<(usize, usize)>,
-    pub transcript: bool,
+    pub endroit: Option<Endroit>,
 }
 
-/// Un extrait de `s` autour de `[a, b)`, coupé sur des limites de caractères.
-fn excerpt(s: &str, a: usize, b: usize) -> (String, (usize, usize)) {
-    let mut start = a.saturating_sub(50);
-    while !s.is_char_boundary(start) {
-        start -= 1;
-    }
-    let mut end = (b + 90).min(s.len());
-    while !s.is_char_boundary(end) {
-        end += 1;
-    }
-    let prefix = if start > 0 { "…" } else { "" };
-    let suffix = if end < s.len() { "…" } else { "" };
-    let out = format!("{prefix}{}{suffix}", &s[start..end]);
-    let shift = prefix.len() + a - start;
-    (out, (shift, shift + (b - a)))
-}
-
-fn find(hay: &str, q: &str) -> Option<(usize, usize)> {
-    let low = hay.to_lowercase();
-    if low.len() != hay.len() {
-        return None;
-    }
-    low.find(q).map(|i| (i, i + q.len()))
-}
-
+/// Les résultats de la recherche du cœur ; sans requête, les réunions récentes.
 pub fn hits(s: &App) -> Vec<Hit> {
-    let q = s.search.as_ref().map(|e| e.text.trim().to_lowercase()).unwrap_or_default();
-    let mut out = Vec::new();
+    let q = s.search.as_ref().map(|e| e.text.trim().to_string()).unwrap_or_default();
+    let when = |m: &Reunion| format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte());
     if q.is_empty() {
-        for m in s.core.reunions().iter().take(6) {
-            let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
-            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte()), who: None, snippet: title, range: None, transcript: false });
-        }
-        return out;
+        return s.core.reunions().iter().take(6).map(|m| Hit { id: m.id, at: None, kind: "Réunion", meeting: when(m), who: None, snippet: meeting::display_title(m, false), range: None, endroit: None }).collect();
     }
-    for m in s.core.reunions().iter().filter(|m| m.statut == Statut::Terminee) {
-        let when = format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte());
-        let mut n = 0;
-        if let Some(r) = find(&m.titre, &q) {
-            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: when.clone(), who: None, snippet: m.titre.clone(), range: Some(r), transcript: false });
-        }
-        // Une puce sans horodatage prend celui du sujet `###` qui la contient.
-        let mut topic_at = None;
-        for line in m.bilan.lines() {
-            if line.starts_with("## ") {
-                topic_at = None;
-            }
-            if let Some(t) = bilan::sujets(&format!("## Sujets\n{line}")).first() {
-                topic_at = Some(t.debut);
-            }
-            let clean = line.trim_start_matches(['#', '-', ' ', '|']).replace("**", "");
-            if let Some((a, b)) = find(&clean, &q) {
-                let at = bilan::decisions(&format!("## Décisions\n{line}")).first().map(|d| d.instant).or(topic_at);
-                let (snippet, range) = excerpt(&clean, a, b);
-                out.push(Hit { id: m.id, at, kind: "Bilan", meeting: format!("{} · {when}", m.titre), who: None, snippet, range: Some(range), transcript: false });
-                n += 1;
-                if n >= 3 {
-                    break;
-                }
-            }
-        }
-        let mut n = 0;
-        for u in &m.repliques {
-            if let Some((a, b)) = find(&u.texte, &q) {
-                let (snippet, range) = excerpt(&u.texte, a, b);
-                let who = m.locuteurs[m.locuteur_affiche(u.locuteur)].affiche();
-                out.push(Hit { id: m.id, at: Some(u.debut), kind: "Transcription", meeting: format!("{} · {when}", m.titre), who: Some(who), snippet, range: Some(range), transcript: true });
-                n += 1;
-                if n >= 4 {
-                    break;
-                }
-            }
-        }
-        if out.len() >= 40 {
-            break;
-        }
-    }
-    out
+    s.core
+        .rechercher(&q)
+        .into_iter()
+        .filter_map(|r| {
+            let m = s.core.reunion(r.reunion)?;
+            let (kind, meeting) = match r.endroit {
+                Endroit::Titre => ("Réunion", when(m)),
+                Endroit::Bilan => ("Bilan", format!("{} · {}", meeting::display_title(m, false), when(m))),
+                Endroit::Transcription => ("Transcription", format!("{} · {}", meeting::display_title(m, false), when(m))),
+            };
+            Some(Hit { id: r.reunion, at: r.instant, kind, meeting, who: r.locuteur, snippet: r.extrait, range: Some(r.surligne), endroit: Some(r.endroit) })
+        })
+        .collect()
 }
 
+/// Ouvre la réunion du résultat à l'instant visé : la réplique dans la transcription, le sujet
+/// (la décision) d'une ligne du bilan dans l'onglet Bilan.
 fn go(s: &mut App, h: &Hit) {
     s.open(h.id);
     if let Some(t) = h.at {
         s.seek(t);
     }
-    if h.transcript {
-        s.tab = Tab::Transcript;
+    match h.endroit {
+        Some(Endroit::Transcription) => s.tab = Tab::Transcript,
+        Some(Endroit::Bilan) => s.tab = Tab::Summary,
+        _ => {}
     }
     s.search = None;
 }

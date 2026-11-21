@@ -19,7 +19,8 @@ impl Greffier {
     ///   disparaît (et sort de la file).
     /// - Le dossier de l'enregistrement en cours et celui de la réunion en cours de traitement
     ///   sont laissés de côté : ils seront relus après.
-    /// - Une réunion supprimée dans l'app dont le dossier existe encore ne revient pas.
+    /// - Un dossier connu qui n'est la réunion de personne (illisible au dernier passage) est
+    ///   laissé de côté.
     pub fn relire_le_dossier(&mut self) -> Vec<Evenement> {
         let mut ev = Vec::new();
         let noms = self.dossier.noms();
@@ -55,7 +56,8 @@ impl Greffier {
                         ev.push(Evenement::ReunionRelue(id));
                     }
                 }
-                // Supprimée dans l'app : son dossier reste jusqu'à la corbeille (#15).
+                // Une réunion supprimée dans l'app est partie à la corbeille et sortie des
+                // empreintes : un dossier connu sans réunion est un dossier illisible.
                 None if connu => {}
                 None => {
                     if let Some(r) = self.dossier.lire(&nom, self.prochain_id) {
@@ -67,6 +69,7 @@ impl Greffier {
             }
             self.empreintes.insert(nom, empreintes);
         }
+        self.indexer();
         ev
     }
 
