@@ -239,7 +239,7 @@ enum Travail {
     /// La transcription et la séparation des locuteurs tournent en parallèle.
     Transcription { mots: Partie<Vec<Mot>>, tours: Partie<Vec<TourDeParole>> },
     Relecture(Partie<ResultatDeRelecture>),
-    Bilan { resultat: Partie<ResultatDuBilan>, fichier: PathBuf },
+    Bilan { resultat: Partie<ResultatDuBilan> },
 }
 
 impl Travail {
@@ -270,7 +270,7 @@ struct Traitement {
 enum Produit {
     Transcription(Vec<Mot>, Vec<TourDeParole>),
     Relecture(ResultatDeRelecture),
-    Bilan(ResultatDuBilan, PathBuf),
+    Bilan(ResultatDuBilan),
 }
 
 /// Le cœur de Greffier.
@@ -661,7 +661,7 @@ impl Greffier {
         }
         let debut = self.adaptateurs.horloge.maintenant();
         let nom = self.dossier.nom_libre(debut, "Réunion");
-        std::fs::create_dir_all(self.dossier.dossier(&nom)).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
+        self.dossier.creer(&nom).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
         let demande = DemandeDeCapture { fichier: self.dossier.fichier(&nom, Role::Enregistrement), sources };
         self.adaptateurs.capture.demarrer(demande).map_err(Refus::Impossible)?;
         self.enregistrement = Some(Enregistrement { debut, duree: 0.0, niveaux: Niveaux::default(), reperes: vec![], nombre_de_locuteurs: None, nom_du_dossier: nom, sources });
@@ -832,13 +832,11 @@ impl Greffier {
                 Travail::Relecture(Partie::EnCours(a.agent.relire(demande)))
             }
             Etape::Bilan => {
-                let dossier = self.dossier.dossier(&r.nom_du_dossier);
-                std::fs::create_dir_all(&dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
-                let fichier = self.dossier.fichier(&r.nom_du_dossier, Role::Bilan);
+                self.dossier.creer(&r.nom_du_dossier)?;
                 let demande = DemandeDeBilan {
                     dossier_de_reunions: self.dossier.racine().to_path_buf(),
                     dossiers_de_contexte: self.reglages.dossiers_de_contexte.clone(),
-                    fichier_du_bilan: fichier.clone(),
+                    fichier_du_bilan: self.dossier.fichier(&r.nom_du_dossier, Role::Bilan),
                     fiche: self.dossier.fichier(&r.nom_du_dossier, Role::Fiche),
                     transcription: self.dossier.fichier(&r.nom_du_dossier, Role::TranscriptionLisible),
                     titre: r.titre.clone(),
@@ -860,7 +858,7 @@ impl Greffier {
                     reperes: r.reperes.clone(),
                     bilan_actuel: (!r.bilan.is_empty()).then(|| r.bilan.clone()),
                 };
-                Travail::Bilan { resultat: Partie::EnCours(a.agent.faire_le_bilan(demande)), fichier }
+                Travail::Bilan { resultat: Partie::EnCours(a.agent.faire_le_bilan(demande)) }
             }
         })
     }
@@ -905,8 +903,8 @@ impl Greffier {
                 let produit = match t.travail {
                     Travail::Transcription { mots, tours } => Produit::Transcription(mots.prendre().unwrap_or_default(), tours.prendre().unwrap_or_default()),
                     Travail::Relecture(p) => Produit::Relecture(p.prendre().unwrap_or_default()),
-                    Travail::Bilan { resultat, fichier } => match resultat.prendre() {
-                        Some(r) => Produit::Bilan(r, fichier),
+                    Travail::Bilan { resultat } => match resultat.prendre() {
+                        Some(r) => Produit::Bilan(r),
                         None => return,
                     },
                 };
@@ -919,13 +917,14 @@ impl Greffier {
     /// pendant un enregistrement).
     fn appliquer(&mut self, id: IdReunion, etape: Etape, produit: Produit, ev: &mut Vec<Evenement>) {
         // La session de l'agent est gardée même si son bilan est refusé : on peut la reprendre.
-        if let Produit::Bilan(resultat, _) = &produit
+        if let Produit::Bilan(resultat) = &produit
             && let Ok(r) = self.reunion_mut(id)
         {
             r.sessions.bilan = resultat.session.clone();
         }
+        let nom = self.reunion(id).map(|r| r.nom_du_dossier.clone()).unwrap_or_default();
         let lu = match &produit {
-            Produit::Bilan(_, fichier) => match std::fs::read_to_string(fichier) {
+            Produit::Bilan(..) => match self.dossier.lire_le_bilan(&nom) {
                 Ok(md) => Some(md),
                 Err(e) => return self.echec(id, etape, format!("L'agent n'a pas écrit le bilan ({e})."), ev),
             },
@@ -961,7 +960,7 @@ impl Greffier {
                 r.corrections_a_la_main.clear();
             }
             Produit::Relecture(resultat) => appliquer_la_relecture(r, resultat, ajoutes),
-            Produit::Bilan(resultat, _) => {
+            Produit::Bilan(resultat) => {
                 r.poser_bilan(lu.unwrap_or_default());
                 r.titre = resultat.titre;
                 r.resume = resultat.resume;
