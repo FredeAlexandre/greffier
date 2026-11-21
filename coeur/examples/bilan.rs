@@ -58,7 +58,7 @@ fn main() {
     for (locuteur, texte) in REPLIQUES {
         let debut = t;
         for m in texte.split(' ') {
-            mots.push(Mot { debut: t, fin: t + 0.35, texte: m.into(), confiance: 0.9 });
+            mots.push(Mot { debut: t, fin: t + 0.35, texte: m.into(), confiance: 0.9, locuteur: None });
             t += 0.4;
         }
         tours.push(TourDeParole { debut, fin: t, locuteur: locuteur.into() });

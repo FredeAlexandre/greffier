@@ -195,8 +195,8 @@ pub trait Separateur {
     fn separer(&mut self, demande: DemandeDeSeparation) -> TacheDe<Vec<TourDeParole>>;
 }
 
-/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur.
-/// Branché tant que le vrai séparateur (pyannote) ne l'est pas.
+/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur
+/// (pour les tests).
 pub struct UnSeulLocuteur;
 
 impl Separateur for UnSeulLocuteur {

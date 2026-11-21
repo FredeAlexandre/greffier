@@ -274,7 +274,7 @@ pub fn recording(s: &App, k: &Kit) -> El {
         .child(check_row(k, r.sources.micro, "Micro", if r.sources.micro { "Micro par défaut du Mac" } else { "coupé" }))
         .child(
             row().w_full().gap(10.0).center_y().pt(6.0)
-                .child(text("Personnes").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
+                .child(text("Nombre de locuteurs").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
                 .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                     .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(match people { Some(n) if n > 2 => Some(n - 1), _ => None }))).build(k))
                 .child(text(people.map_or("Détecté".to_string(), |n| format!("{n}"))).font(k.ty.ui_medium).color(k.c.text_base).w(64.0).align(rune::Align::Center))

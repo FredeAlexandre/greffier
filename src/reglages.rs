@@ -116,11 +116,11 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
-/// sans séparation des locuteurs pour l'instant (un seul locuteur), la relecture et le bilan par
-/// la CLI `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure du
-/// Mac et les vraies ressources.
+/// la vraie séparation des locuteurs (pyannote dans le Python privé), la relecture et le bilan
+/// par la CLI `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure
+/// du Mac et les vraies ressources.
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
-    use greffier_coeur::adaptateurs::{Adaptateurs, UnSeulLocuteur};
+    use greffier_coeur::adaptateurs::Adaptateurs;
     use greffier_coeur::claude::{AgentClaude, ClaudeDuMac};
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
     use std::sync::Arc;
@@ -130,7 +130,7 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         horloge: Box::new(HorlogeDuMac),
         ressources: Box::new(ressources),
         transcripteur: Box::new(greffier_moteurs::TranscripteurWhisper::de_l_app(&app)),
-        separateur: Box::new(UnSeulLocuteur),
+        separateur: Box::new(greffier_moteurs::SeparateurPyannote::de_l_app(&app)),
         agent: Box::new(AgentClaude::new(Arc::new(ClaudeDuMac::default()), Arc::new(greffier_moteurs::ReecouteWhisper::de_l_app(&app)))),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
     }

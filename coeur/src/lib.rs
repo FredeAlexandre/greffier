@@ -868,12 +868,11 @@ impl Greffier {
         let Ok(r) = self.reunion_mut(id) else { return };
         match produit {
             Produit::Transcription(mots, tours) => {
-                let mots = attribution::sans_les_bruits(mots);
-                let (locuteurs, repliques) = attribution::attribuer(&mots, &tours);
-                r.mots = mots;
-                r.tours = tours;
-                r.locuteurs = locuteurs;
-                r.repliques = repliques;
+                let a = attribution::attribuer(attribution::sans_les_bruits(mots), tours);
+                r.mots = a.mots;
+                r.tours = a.tours;
+                r.locuteurs = a.locuteurs;
+                r.repliques = a.repliques;
                 r.passages.clear();
                 r.corrections = 0;
                 r.brute.clear();

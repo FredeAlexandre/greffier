@@ -31,6 +31,8 @@ pub fn dossier_de_l_app() -> PathBuf {
 pub const MODELE_WHISPER: &str = "modeles/ggml-large-v3.bin";
 /// Le modèle du VAD Silero, dans le dossier de l'app.
 pub const MODELE_VAD: &str = "modeles/ggml-silero-v5.1.2.bin";
+/// Le dossier du modèle de pyannote, dans le dossier de l'app.
+pub const MODELE_PYANNOTE: &str = "modeles/pyannote-community-1";
 
 /// Un fichier à télécharger.
 #[derive(Clone, Debug, PartialEq)]
@@ -89,7 +91,7 @@ impl Catalogue {
     /// Les ressources de Greffier, aux sha256 figés (ceux du vault pour whisper et Silero ; ceux de
     /// la révision 3533c8c de pyannote, republiée en release du dépôt par `scripts/publier-pyannote`).
     pub fn de_greffier() -> Catalogue {
-        let pyannote = |chemin: &str, asset: &str, taille: u64, sha: &str| Fichier::new(&format!("modeles/pyannote-community-1/{chemin}"), &format!("{RELEASE_PYANNOTE}/{asset}"), taille, sha);
+        let pyannote = |chemin: &str, asset: &str, taille: u64, sha: &str| Fichier::new(&format!("{MODELE_PYANNOTE}/{chemin}"), &format!("{RELEASE_PYANNOTE}/{asset}"), taille, sha);
         Catalogue(vec![
             Element::fichiers(
                 "Whisper large-v3",

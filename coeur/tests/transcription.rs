@@ -226,7 +226,7 @@ fn une_ponctuation_seule_reste_dans_la_replique_precedente() {
 
 #[test]
 fn un_media_importe_seul_produit_les_deux_transcriptions_et_la_fiche_dit_ou_il_en_est() {
-    let mots = vec![Mot { debut: 0.5, fin: 0.9, texte: "Bonjour".into(), confiance: 0.873 }, mot(0.9, 1.4, "Bérénice."), mot(4.0, 4.5, "Lumion"), mot(4.5, 5.0, "démarre.")];
+    let mots = vec![Mot { debut: 0.5, fin: 0.9, texte: "Bonjour".into(), confiance: 0.873, locuteur: None }, mot(0.9, 1.4, "Bérénice."), mot(4.0, 4.5, "Lumion"), mot(4.5, 5.0, "démarre.")];
     let mut banc = Banc::avec(avec_transcripteur(FauxTranscripteur::fixe(1.0, mots)));
     let id = importer_un_media(&mut banc);
     traiter_la_transcription(&mut banc, id);
