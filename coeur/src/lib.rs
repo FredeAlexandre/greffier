@@ -90,6 +90,8 @@ pub enum Evenement {
     BilanPret { reunion: IdReunion, titre: String },
     RessourcesInstallees,
     InstallationEnEchec(String),
+    /// Un fichier de la réunion n'a pas pu être écrit dans le dossier de réunions.
+    EcritureImpossible { reunion: IdReunion, message: String },
 }
 
 /// Pourquoi une commande n'a pas été exécutée. L'état n'a pas changé.
@@ -217,9 +219,11 @@ pub struct Greffier {
 }
 
 impl Greffier {
-    /// Le cœur sur un dossier de réunions.
+    /// Le cœur sur un dossier de réunions, avec les réunions qu'il contient déjà.
     pub fn ouvrir(dossier: impl Into<PathBuf>, adaptateurs: Adaptateurs) -> Greffier {
-        Greffier::avec_reunions(dossier, adaptateurs, vec![])
+        let dossier = DossierDeReunions::new(dossier);
+        let reunions = dossier.lire_tout(1);
+        Greffier::avec_reunions(dossier.racine(), adaptateurs, reunions)
     }
 
     /// Le cœur avec des réunions déjà connues (les données fictives du prototype).
@@ -292,9 +296,25 @@ impl Greffier {
 
     pub fn executer(&mut self, commande: Commande) -> Result<Vec<Evenement>, Refus> {
         let mut ev = Vec::new();
+        let touchee = match &commande {
+            Commande::NombreDeLocuteurs { reunion, .. }
+            | Commande::Refaire { reunion, .. }
+            | Commande::NommerLocuteur { reunion, .. }
+            | Commande::FusionnerLocuteurs { reunion, .. }
+            | Commande::Trancher { reunion, .. }
+            | Commande::CocherAction { reunion, .. } => Some(*reunion),
+            Commande::Traiter(id) | Commande::ArreterTraitement(id) | Commande::MarquerLue(id) => Some(*id),
+            _ => None,
+        };
         match commande {
             Commande::DemarrerEnregistrement => self.demarrer_enregistrement()?,
-            Commande::ArreterEnregistrement => ev.push(self.arreter_enregistrement()?),
+            Commande::ArreterEnregistrement => {
+                let e = self.arreter_enregistrement()?;
+                if let Evenement::ReunionEnregistree(id) = e {
+                    self.persister(id, &mut ev);
+                }
+                ev.insert(0, e);
+            }
             Commande::PoserRepere => {
                 let Some(e) = &mut self.enregistrement else { return impossible("aucun enregistrement en cours") };
                 e.reperes.push(e.duree);
@@ -394,7 +414,23 @@ impl Greffier {
                 }
             }
         }
+        if let Some(id) = touchee {
+            self.persister(id, &mut ev);
+        }
         Ok(ev)
+    }
+
+    /// Écrit les fichiers de la réunion (fiche, transcriptions) et note ceux qui sont présents.
+    fn persister(&mut self, id: IdReunion, ev: &mut Vec<Evenement>) {
+        let Some(r) = self.reunion(id) else { return };
+        let resultat = self.dossier.ecrire(r);
+        let fichiers = self.dossier.roles_presents(&r.nom_du_dossier);
+        if let Ok(r) = self.reunion_mut(id) {
+            r.fichiers = fichiers;
+        }
+        if let Err(message) = resultat {
+            ev.push(Evenement::EcritureImpossible { reunion: id, message });
+        }
     }
 
     fn reunion_mut(&mut self, id: IdReunion) -> Result<&mut Reunion, Refus> {
@@ -410,6 +446,11 @@ impl Greffier {
         std::fs::create_dir_all(self.dossier.dossier(&nom)).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
         let demande = DemandeDeCapture { fichier: self.dossier.fichier(&nom, Role::Enregistrement), sources: self.reglages.sources };
         self.adaptateurs.capture.demarrer(demande).map_err(Refus::Impossible)?;
+        // La fiche dit qu'un enregistrement est en cours : si l'app s'arrête, la réunion sera
+        // relue « enregistrement interrompu ».
+        let mut r = Reunion::new(0, nom.clone(), debut, 0.0);
+        r.statut = Statut::EnregistrementEnCours;
+        let _ = self.dossier.ecrire(&r);
         self.enregistrement = Some(Enregistrement { debut, duree: 0.0, niveaux: Niveaux::default(), reperes: vec![], nombre_de_locuteurs: None, nom_du_dossier: nom });
         Ok(())
     }
@@ -419,9 +460,11 @@ impl Greffier {
         let duree = self.adaptateurs.capture.arreter().map_err(Refus::Impossible)?;
         let id = self.prochain_id;
         self.prochain_id += 1;
-        let mut r = Reunion::new(id, e.nom_du_dossier, e.debut, duree);
+        // Au centième de seconde, comme dans la fiche.
+        let centieme = |t: f64| (t * 100.0).round() / 100.0;
+        let mut r = Reunion::new(id, e.nom_du_dossier, e.debut, centieme(duree));
         r.nombre_de_locuteurs = e.nombre_de_locuteurs;
-        r.reperes = e.reperes.iter().enumerate().map(|(i, t)| Repere { instant: *t, libelle: format!("Repère {}", i + 1) }).collect();
+        r.reperes = e.reperes.iter().enumerate().map(|(i, t)| Repere { instant: centieme(*t), libelle: format!("Repère {}", i + 1) }).collect();
         self.reunions.insert(0, r);
         if self.reglages.traiter_a_l_arret {
             self.mettre_en_file(id, Etape::Transcription);
@@ -487,6 +530,7 @@ impl Greffier {
                     r.statut = Statut::EnCours { etape, progres: 0.0 };
                 }
                 self.traitement = Some(Traitement { reunion: id, travail });
+                self.persister(id, ev);
             }
             Err(message) => self.echec(id, etape, message, ev),
         }
@@ -612,6 +656,9 @@ impl Greffier {
                 r.repliques = repliques;
                 r.passages.clear();
                 r.corrections = 0;
+                r.brute.clear();
+                r.relecture = None;
+                r.corrections_a_la_main.clear();
             }
             Produit::Relecture(resultat) => appliquer_la_relecture(r, resultat),
             Produit::Bilan(resultat, _) => {
@@ -638,10 +685,12 @@ impl Greffier {
                 r.statut = Statut::Terminee;
                 r.nouvelle = true;
                 ev.push(Evenement::BilanPret { reunion: id, titre: r.titre.clone() });
+                self.persister(id, ev);
             }
             Some(suivante) if en_enregistrement => {
                 r.statut = Statut::EnAttente(suivante);
                 self.file.push_front(id);
+                self.persister(id, ev);
             }
             Some(suivante) => self.demarrer_etape(id, suivante, ev),
         }
@@ -652,6 +701,7 @@ impl Greffier {
             r.statut = Statut::Echec { etape, message: message.clone() };
         }
         ev.push(Evenement::EtapeEnEchec { reunion: id, etape, message });
+        self.persister(id, ev);
     }
 }
 
@@ -660,18 +710,21 @@ fn locuteur_mut(r: &mut Reunion, i: usize) -> Result<&mut Locuteur, Refus> {
 }
 
 fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture) {
-    r.corrections = 0;
+    r.brute = r.repliques.iter().map(|x| Replique { passage: None, ..x.clone() }).collect();
+    let mut journal = JournalDeRelecture { ajouts_au_lexique: resultat.ajouts_au_lexique, ..Default::default() };
     for c in resultat.corrections {
         let Some(x) = r.repliques.get_mut(c.replique) else { continue };
         if let Some(i) = x.texte.find(&c.avant) {
             x.texte.replace_range(i..i + c.avant.len(), &c.apres);
-            r.corrections += 1;
+            journal.corrections.push(c);
         }
     }
+    r.corrections = journal.corrections.len() as u32;
     for c in resultat.changements_de_locuteur {
         if c.replique >= r.repliques.len() {
             continue;
         }
+        journal.changements_de_locuteur.push(c.clone());
         let i = match r.locuteurs.iter().position(|l| l.etiquette == c.locuteur) {
             Some(i) => i,
             None => {
@@ -694,6 +747,7 @@ fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture) {
         r.passages.push(PassageAVerifier { replique: p.replique, extrait: p.extrait, hypothese: p.hypothese, reecoute: p.reecoute, statut: StatutDuPassage::EnAttente });
     }
     r.sessions.relecture = resultat.session;
+    r.relecture = Some(journal);
 }
 
 fn pour_l_agent(r: &Reunion) -> Vec<RepliquePourLAgent> {

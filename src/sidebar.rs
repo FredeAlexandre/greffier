@@ -56,7 +56,7 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
         st => format!("{start} · {}", ui::status(st).to_lowercase()),
     };
     let done = m.statut == Statut::Terminee;
-    let title = if done { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
+    let title = crate::meeting::display_title(m, false);
     let mut r = SidebarRow::new(title)
         .height(46.0)
         .subtitle(subtitle)
@@ -132,14 +132,17 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("nav-search"),
         )
         .footer(nav("Réglages", &ui::SLIDERS, Page::Settings).build(k).key("nav-settings"));
-    let groups: [(&str, fn(i64) -> bool); 4] = [
-        ("Aujourd'hui", |a| a == 0),
-        ("Hier", |a| a == 1),
-        ("Cette semaine", |a| (2..=5).contains(&a)),
-        ("Semaine dernière", |a| a > 5),
+    // Les semaines commencent le lundi : « Cette semaine » s'arrête au lundi d'aujourd'hui.
+    let today = s.core.aujourd_hui();
+    let monday = today.jour_de_la_semaine() as i64;
+    let groups: [(&str, Box<dyn Fn(i64) -> bool>); 5] = [
+        ("Aujourd'hui", Box::new(|a| a <= 0)),
+        ("Hier", Box::new(|a| a == 1)),
+        ("Cette semaine", Box::new(move |a| a >= 2 && a <= monday)),
+        ("Semaine dernière", Box::new(move |a| a >= 2 && a > monday && a <= monday + 7)),
+        ("Plus tôt", Box::new(move |a| a >= 2 && a > monday + 7)),
     ];
     for (gi, (name, pred)) in groups.iter().enumerate() {
-        let today = s.core.aujourd_hui();
         let rows: Vec<El> = s.core.reunions().iter().filter(|m| pred(m.debut.jours_jusqu_a(today))).map(|m| meeting_row(s, m, k, layer)).collect();
         if rows.is_empty() {
             continue;

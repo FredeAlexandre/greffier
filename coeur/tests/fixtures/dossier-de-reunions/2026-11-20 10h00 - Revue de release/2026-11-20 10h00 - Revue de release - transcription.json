@@ -1,0 +1,223 @@
+{
+  "version": 1,
+  "locuteurs": [
+    "SPEAKER_00",
+    "SPEAKER_01",
+    "SPEAKER_02"
+  ],
+  "mots": [
+    {
+      "debut": 0.0,
+      "fin": 0.25,
+      "texte": "Bonjour",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 0.25,
+      "fin": 0.5,
+      "texte": "Khalid,",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 0.5,
+      "fin": 0.75,
+      "texte": "on",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 0.75,
+      "fin": 1.0,
+      "texte": "publie",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 1.0,
+      "fin": 1.25,
+      "texte": "la",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 1.25,
+      "fin": 1.5,
+      "texte": "release",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 1.5,
+      "fin": 1.75,
+      "texte": "lundi",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 1.75,
+      "fin": 2.0,
+      "texte": "?",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 2.0,
+      "fin": 2.25,
+      "texte": "Oui,",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 2.25,
+      "fin": 2.5,
+      "texte": "si",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 2.5,
+      "fin": 2.75,
+      "texte": "la",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 2.75,
+      "fin": 3.0,
+      "texte": "recète",
+      "confiance": 0.42,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 3.0,
+      "fin": 3.25,
+      "texte": "passe",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 3.25,
+      "fin": 3.5,
+      "texte": "vendredi.",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 5.0,
+      "fin": 5.25,
+      "texte": "Je",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_02"
+    },
+    {
+      "debut": 5.25,
+      "fin": 5.5,
+      "texte": "préviens",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_02"
+    },
+    {
+      "debut": 5.5,
+      "fin": 5.75,
+      "texte": "le",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_02"
+    },
+    {
+      "debut": 5.75,
+      "fin": 6.0,
+      "texte": "support",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_02"
+    },
+    {
+      "debut": 6.0,
+      "fin": 6.25,
+      "texte": "demain.",
+      "confiance": 0.9,
+      "locuteur": "SPEAKER_02"
+    }
+  ],
+  "tours": [
+    {
+      "debut": 0.0,
+      "fin": 2.0,
+      "locuteur": "SPEAKER_00"
+    },
+    {
+      "debut": 2.0,
+      "fin": 3.5,
+      "locuteur": "SPEAKER_01"
+    },
+    {
+      "debut": 5.0,
+      "fin": 6.25,
+      "locuteur": "SPEAKER_02"
+    }
+  ],
+  "repliques": [
+    {
+      "locuteur": "SPEAKER_00",
+      "debut": 0.0,
+      "fin": 2.0,
+      "texte": "Bonjour Khalid, on publie la release lundi ?"
+    },
+    {
+      "locuteur": "SPEAKER_01",
+      "debut": 2.0,
+      "fin": 3.5,
+      "texte": "Oui, si la recette passe vendredi."
+    },
+    {
+      "locuteur": "SPEAKER_02",
+      "debut": 5.0,
+      "fin": 6.25,
+      "texte": "Je préviens le support demain."
+    }
+  ],
+  "brute": [
+    {
+      "locuteur": "SPEAKER_00",
+      "debut": 0.0,
+      "fin": 2.0,
+      "texte": "Bonjour Khalid, on publie la release lundi ?"
+    },
+    {
+      "locuteur": "SPEAKER_01",
+      "debut": 2.0,
+      "fin": 3.5,
+      "texte": "Oui, si la recète passe vendredi."
+    },
+    {
+      "locuteur": "SPEAKER_02",
+      "debut": 5.0,
+      "fin": 6.25,
+      "texte": "Je préviens le support demain."
+    }
+  ],
+  "relecture": {
+    "corrections": [
+      {
+        "replique": 1,
+        "avant": "recète",
+        "apres": "recette"
+      }
+    ],
+    "changements_de_locuteur": [],
+    "ajouts_au_lexique": [
+      "recette"
+    ]
+  },
+  "passages": [
+    {
+      "replique": 2,
+      "extrait": "le support",
+      "hypothese": "l'équipe support",
+      "reecoute": "« Je préviens l'équipe support demain. »",
+      "statut": "en_attente"
+    }
+  ],
+  "corrections_a_la_main": []
+}

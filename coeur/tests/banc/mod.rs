@@ -78,12 +78,28 @@ impl Banc {
     }
 
     pub fn avec(adaptateurs: Adaptateurs) -> Banc {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let dossier = std::env::temp_dir().join(format!("greffier-banc-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
-        let _ = std::fs::remove_dir_all(&dossier);
-        std::fs::create_dir_all(&dossier).expect("dossier temporaire");
+        let dossier = dossier_temporaire();
         let greffier = Greffier::ouvrir(&dossier, adaptateurs);
         Banc { greffier, dossier }
+    }
+
+    /// Le cœur sur une copie du dossier de réunions d'exemple (`tests/fixtures/dossier-de-reunions`).
+    pub fn sur_les_fixtures() -> Banc {
+        let dossier = dossier_temporaire();
+        copier(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dossier-de-reunions"), &dossier);
+        let greffier = Greffier::ouvrir(&dossier, adaptateurs());
+        Banc { greffier, dossier }
+    }
+
+    /// Relance le cœur sur le même dossier de réunions, comme au lancement suivant de l'app.
+    pub fn rouvrir(&mut self) {
+        self.greffier = Greffier::ouvrir(&self.dossier, adaptateurs());
+    }
+
+    /// La réunion dont le dossier porte ce nom.
+    pub fn reunion_nommee(&self, nom: &str) -> &Reunion {
+        let noms: Vec<&str> = self.greffier.reunions().iter().map(|r| r.nom_du_dossier.as_str()).collect();
+        self.greffier.reunions().iter().find(|r| r.nom_du_dossier == nom).unwrap_or_else(|| panic!("pas de réunion « {nom} » parmi {noms:?}"))
     }
 
     pub fn executer(&mut self, commande: Commande) -> Vec<Evenement> {
@@ -149,6 +165,27 @@ impl Banc {
 
     pub fn lire(&self, chemin: &Path) -> String {
         std::fs::read_to_string(chemin).unwrap_or_else(|e| panic!("{} : {e}", chemin.display()))
+    }
+}
+
+fn dossier_temporaire() -> PathBuf {
+    static N: AtomicU32 = AtomicU32::new(0);
+    let dossier = std::env::temp_dir().join(format!("greffier-banc-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let _ = std::fs::remove_dir_all(&dossier);
+    std::fs::create_dir_all(&dossier).expect("dossier temporaire");
+    dossier
+}
+
+fn copier(de: &Path, vers: &Path) {
+    std::fs::create_dir_all(vers).expect("copie des fixtures");
+    for entree in std::fs::read_dir(de).expect("fixtures") {
+        let entree = entree.expect("fixture");
+        let cible = vers.join(entree.file_name());
+        if entree.file_type().expect("type").is_dir() {
+            copier(&entree.path(), &cible);
+        } else {
+            std::fs::copy(entree.path(), cible).expect("copie d'une fixture");
+        }
     }
 }
 

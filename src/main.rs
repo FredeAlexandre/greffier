@@ -1,30 +1,37 @@
 //! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
-//! commandes ; le cœur tourne ici sur les données fictives et les faux adaptateurs du prototype.
+//! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement ; le
+//! traitement tourne encore sur les faux adaptateurs du prototype.
 //!
 //! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
-//! sans fenêtre (`--list-scenes` pour la liste).
+//! sans fenêtre (`--list-scenes` pour la liste) : sans fenêtre, l'app part des données fictives
+//! du prototype, jamais du dossier de réunions. `GREFFIER_DOSSIER=… cargo run` ouvre un autre
+//! dossier de réunions le temps d'un lancement.
 
 #![forbid(unsafe_code)]
 
 mod meeting;
 mod overlays;
 mod pages;
+mod reglages;
 mod sidebar;
 mod timeline;
 mod ui;
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rune::{AppSpec, Chrome, Cx, El, Key, KeyEvent, PointerPress, Spring, TextEdit, Tx};
+use rune::{AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, PointerPress, Spring, TextEdit, Tx, Waker};
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit};
 
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Statut, Tranche, fictif};
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Role, Tranche, fictif};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
+    /// Premier lancement : choisir le dossier de réunions.
+    Welcome,
     Overview,
     Recording,
     Meeting(IdReunion),
@@ -68,7 +75,7 @@ pub struct App {
     pub toast: Option<Toast>,
     pub clock: f64,
     pub last: Option<f64>,
-    pub collapsed: [bool; 4],
+    pub collapsed: [bool; 5],
     /// Recherche ⌘K : ouverte quand `Some`.
     pub search: Option<TextEdit>,
     /// Menu du clic droit sur une réunion de la barre latérale.
@@ -76,6 +83,18 @@ pub struct App {
     pub confirm_delete: Option<IdReunion>,
     /// Vidéo en plein écran (la fenêtre passe aussi en plein écran macOS).
     pub fullscreen: bool,
+    /// L'enregistrement de la réunion ouverte, quand son dossier en a un. Sans lui (données
+    /// fictives), la lecture est simulée.
+    pub video: Option<(IdReunion, Player)>,
+    /// Réveille l'interface quand la vidéo charge, finit ou échoue.
+    pub waker: Option<Waker>,
+    /// Le dossier de réunions choisi (`None` pour les données fictives du prototype).
+    pub folder: Option<PathBuf>,
+    /// Premier lancement : rien d'autre que le choix du dossier de réunions tant qu'il n'est
+    /// pas fait (aucun enregistrement ne doit partir dans un dossier non choisi).
+    pub needs_folder: bool,
+    /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
+    pub folder_error: Option<String>,
 }
 
 impl App {
@@ -84,6 +103,18 @@ impl App {
             Page::Meeting(id) => self.core.reunion(id),
             _ => None,
         }
+    }
+    /// La vidéo de la réunion ouverte.
+    pub fn player(&self) -> Option<&Player> {
+        match (self.page, &self.video) {
+            (Page::Meeting(id), Some((vid, p))) if id == *vid => Some(p),
+            _ => None,
+        }
+    }
+    /// La durée de la réunion ouverte : celle de ses fichiers, sinon celle de la vidéo.
+    pub fn duration(&self) -> f64 {
+        let d = self.meeting().map_or(0.0, |m| m.duree);
+        if d > 0.0 { d } else { self.player().and_then(Player::duration).unwrap_or(0.0) }
     }
     /// Envoie une commande au cœur et donne suite à ses événements.
     pub fn command(&mut self, c: Commande) {
@@ -102,7 +133,7 @@ impl App {
                     }
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
                 }
-                Evenement::EtapeEnEchec { message, .. } => eprintln!("greffier : {message}"),
+                Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
                 _ => {}
             }
         }
@@ -117,6 +148,7 @@ impl App {
             self.picking = None;
             self.tab = Tab::Summary;
             self.fullscreen = false;
+            self.load_video(id);
         }
         if self.core.reunion(id).is_some_and(|m| m.nouvelle) {
             self.command(Commande::MarquerLue(id));
@@ -126,24 +158,94 @@ impl App {
         self.open(id);
         self.seek(t);
     }
+    /// Ouvre l'enregistrement de la réunion, son activé, s'il existe.
+    fn load_video(&mut self, id: IdReunion) {
+        self.video = None;
+        let Some(m) = self.core.reunion(id) else { return };
+        if !m.fichiers.contains(&Role::Enregistrement) {
+            return;
+        }
+        let player = Player::file(self.core.dossier().fichier(&m.nom_du_dossier, Role::Enregistrement));
+        player.set_muted(false);
+        player.set_rate(SPEEDS[self.speed] as f32);
+        if let Some(w) = &self.waker {
+            player.set_waker(w.clone());
+        }
+        self.video = Some((id, player));
+    }
     pub fn seek(&mut self, t: f64) {
-        let d = self.meeting().map_or(0.0, |m| m.duree);
-        self.pos = t.clamp(0.0, d);
+        self.pos = t.clamp(0.0, self.duration());
+        if let Some(p) = self.player() {
+            p.seek(self.pos);
+        }
         self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
     }
     pub fn seek_and_play(&mut self, t: f64) {
         self.seek(t);
+        self.play();
+    }
+    fn play(&mut self) {
+        if let Some(p) = self.player() {
+            p.play();
+        }
         self.playing = true;
     }
     pub fn toggle_play(&mut self) {
-        if self.meeting().is_some_and(|m| m.statut == Statut::Terminee) {
-            self.playing = !self.playing;
+        if !self.meeting().is_some_and(meeting::playable) {
+            return;
         }
+        if self.playing {
+            if let Some(p) = self.player() {
+                p.pause();
+            }
+            self.playing = false;
+        } else {
+            self.play();
+        }
+    }
+    pub fn set_speed(&mut self, i: usize) {
+        self.speed = i;
+        if let Some(p) = self.player() {
+            p.set_rate(SPEEDS[i] as f32);
+        }
+    }
+    /// Lit les réunions d'un dossier de réunions et le retient pour les lancements suivants.
+    pub fn use_folder(&mut self, dir: PathBuf) {
+        if self.core.occupe() {
+            self.folder_error = Some("Impossible de changer de dossier pendant un enregistrement ou un traitement.".into());
+            return;
+        }
+        if let Err(e) = reglages::choisir_dossier_de_reunions(&dir) {
+            self.folder_error = Some(e);
+            return;
+        }
+        self.core = Greffier::ouvrir(&dir, reglages::adaptateurs());
+        self.folder = Some(dir);
+        self.needs_folder = false;
+        self.folder_error = None;
+        self.video = None;
+        self.playing = false;
+        if matches!(self.page, Page::Welcome | Page::Meeting(_)) {
+            self.page = Page::Overview;
+        }
+    }
+    /// Le sélecteur de dossier de macOS, pour choisir le dossier de réunions.
+    pub fn pick_folder(&mut self, tx: &mut Tx) {
+        let directory = self.folder.clone().or_else(|| reglages::dossier_propose().parent().map(Path::to_path_buf));
+        let options = FileDialogOptions { title: "Dossier de réunions".into(), directory, ..Default::default() };
+        tx.open_folder(options, |s: &mut App, answer, _| match answer {
+            Ok(Some(dir)) => s.use_folder(dir),
+            Ok(None) => {}
+            Err(e) => s.folder_error = Some(e.to_string()),
+        });
     }
     pub fn recording(&self) -> bool {
         self.core.enregistrement().is_some()
     }
     pub fn start_recording(&mut self) {
+        if self.needs_folder {
+            return;
+        }
         if !self.recording() {
             self.rec_phase = 0.0;
             self.command(Commande::DemarrerEnregistrement);
@@ -166,6 +268,9 @@ impl App {
         self.command(Commande::ArreterTraitement(id));
     }
     pub fn delete(&mut self, id: IdReunion) {
+        if self.video.as_ref().is_some_and(|(v, _)| *v == id) {
+            self.video = None;
+        }
         self.command(Commande::Supprimer(id));
         if self.page == Page::Meeting(id) {
             self.page = Page::Overview;
@@ -201,7 +306,7 @@ impl App {
         self.command(Commande::ChangerReglages(r));
     }
     pub fn toggle_fullscreen(&mut self, tx: &mut Tx) {
-        self.fullscreen = !self.fullscreen && self.meeting().is_some_and(|m| m.statut == Statut::Terminee);
+        self.fullscreen = !self.fullscreen && self.meeting().is_some_and(meeting::playable);
         tx.toggle_full_screen();
     }
     pub fn open_search(&mut self) {
@@ -219,11 +324,24 @@ fn prototype_folder() -> std::path::PathBuf {
     dir
 }
 
+/// Le cœur du prototype : données fictives, dossier temporaire.
+fn prototype() -> Greffier {
+    Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions())
+}
+
 fn init() -> App {
+    // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
+    // jamais d'écriture dans le vrai dossier de réunions.
+    let folder = if rune::is_headless() { None } else { reglages::dossier_de_reunions() };
+    let (core, page) = match &folder {
+        _ if rune::is_headless() => (prototype(), Page::Overview),
+        Some(dir) => (Greffier::ouvrir(dir, reglages::adaptateurs()), Page::Overview),
+        None => (Greffier::avec_reunions(reglages::dossier_propose(), reglages::adaptateurs(), vec![]), Page::Welcome),
+    };
     App {
-        core: Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions()),
+        core,
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
-        page: Page::Overview,
+        page,
         tab: Tab::Summary,
         pos: 0.0,
         playing: false,
@@ -237,12 +355,24 @@ fn init() -> App {
         toast: None,
         clock: 0.0,
         last: None,
-        collapsed: [false; 4],
+        collapsed: [false; 5],
         search: None,
         menu: None,
         confirm_delete: None,
         fullscreen: false,
+        video: None,
+        waker: None,
+        needs_folder: page == Page::Welcome,
+        folder,
+        folder_error: None,
     }
+}
+
+fn setup(s: &mut App, waker: Waker) {
+    if let Some((_, p)) = &s.video {
+        p.set_waker(waker.clone());
+    }
+    s.waker = Some(waker);
 }
 
 /// Avance la lecture et fait passer le temps du cœur (enregistrement, file de traitement).
@@ -252,11 +382,28 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let mut active = false;
     let mut changed = false;
 
-    if s.playing {
+    // La vidéo ne joue que sur la page de sa réunion.
+    if s.video.is_some() && s.player().is_none() {
+        s.video = None;
+        s.playing = false;
+    }
+    if let Some(p) = s.player() {
+        // La vraie vidéo donne la position ; on la relit tant qu'elle joue.
+        let (pos, playing) = (p.time(), p.is_playing());
+        if playing || s.playing != playing || (pos - s.pos).abs() > 0.01 {
+            changed = true;
+        }
+        s.playing = playing;
+        s.pos = pos;
+        if playing {
+            active = true;
+        }
+        s.current = s.meeting().and_then(|m| m.replique_a(s.pos));
+    } else if s.playing {
         active = true;
         changed = true;
         let speed = SPEEDS[s.speed];
-        let dur = s.meeting().map_or(0.0, |m| m.duree);
+        let dur = s.duration();
         s.pos = (s.pos + dt * speed).min(dur);
         if s.pos >= dur {
             s.playing = false;
@@ -351,6 +498,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let k = Kit::neutral(cx.system_dark());
     let mut layer = Vec::new();
     let main = match s.page {
+        _ if s.needs_folder => pages::welcome(s, &k),
+        Page::Welcome => pages::welcome(s, &k),
         Page::Overview => pages::overview(s, &k),
         Page::Recording => pages::recording(s, &k),
         Page::Settings => pages::settings(s, &k),
@@ -438,12 +587,46 @@ fn scene_fullscreen(s: &mut App) {
 fn scene_delete(s: &mut App) {
     s.confirm_delete = Some(2);
 }
+fn scene_welcome(s: &mut App) {
+    s.core = Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), vec![]);
+    s.page = Page::Welcome;
+    s.needs_folder = true;
+}
+/// Les réunions d'exemple des tests du cœur (une copie), la réunion complète ouverte à 0:00:05.
+fn scene_folder(s: &mut App) {
+    let dir = prototype_folder();
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("coeur/tests/fixtures/dossier-de-reunions"), &dir);
+    s.core = Greffier::ouvrir(&dir, fictif::adaptateurs());
+    s.folder = Some(dir);
+    if let Some(id) = s.core.reunions().first().map(|m| m.id) {
+        s.open_at(id, 5.0);
+    }
+}
+fn copy_dir(from: &Path, to: &Path) {
+    let _ = std::fs::create_dir_all(to);
+    for e in std::fs::read_dir(from).into_iter().flatten().flatten() {
+        let target = to.join(e.file_name());
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            copy_dir(&e.path(), &target);
+        } else {
+            let _ = std::fs::copy(e.path(), target);
+        }
+    }
+}
+/// Les réunions d'exemple : celle qui n'a que son enregistrement.
+fn scene_video_only(s: &mut App) {
+    scene_folder(s);
+    if let Some(id) = s.core.reunions().get(1).map(|m| m.id) {
+        s.open(id);
+    }
+}
 
 fn main() {
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
         on_key: Some(on_key),
         poll: Some(poll),
+        setup: Some(setup),
         min_size: Some((980.0, 640.0)),
         scenes: &[
             ("meeting", scene_meeting),
@@ -459,6 +642,9 @@ fn main() {
             ("menu", scene_menu),
             ("delete", scene_delete),
             ("fullscreen", scene_fullscreen),
+            ("welcome", scene_welcome),
+            ("folder", scene_folder),
+            ("video-only", scene_video_only),
         ],
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };

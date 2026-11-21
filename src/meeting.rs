@@ -1,25 +1,31 @@
 //! La page d'une réunion : en-tête, vidéo pleine largeur et ses contrôles, timeline, puis les
 //! onglets Bilan / Transcription / À vérifier / Locuteurs / Infos. Avant le bilan, la page
-//! montre le traitement.
+//! montre le traitement, et dessous ce qui existe déjà (enregistrement, transcription).
 
 use std::rc::Rc;
 
-use rune::{Cx, El, ScrollSpec, Span, col, el, rich, row, text};
+use rune::{Cx, El, ScrollSpec, Span, SurfaceFit, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Markdown, Progress, SegmentedControl, Spinner, Switch};
 
 use greffier_coeur::fictif::PERSONNES;
-use greffier_coeur::{Commande, Etape, Reunion, Statut, StatutDuPassage, Tranche, bilan};
+use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, Tranche, bilan};
 
 use crate::ui::{self, card, dot, eyebrow, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
-use crate::{App, TABS, Tab, timeline};
+use crate::{App, TABS, Tab, reglages, timeline};
+
+/// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
+pub fn playable(m: &Reunion) -> bool {
+    m.statut == Statut::Terminee || m.fichiers.contains(&Role::Enregistrement) || !m.repliques.is_empty()
+}
 
 pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
     let view_h = cx.layout_size("meeting").map_or(780.0, |v| v[1]);
-    let inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
-    let inner = if m.statut != Statut::Terminee {
-        inner.child(pending(m, k))
-    } else {
-        inner
+    let mut inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
+    if m.statut != Statut::Terminee {
+        inner = inner.child(pending(m, k));
+    }
+    if playable(m) {
+        inner = inner
             .child(player(s, m, k, cx, view_h))
             .child(timeline::view(s, m, k, cx))
             .child(tabs_row(s, m, k))
@@ -28,17 +34,26 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
                 Tab::Transcript => transcript(s, m, k, view_h),
                 Tab::Doubts => doubts(m, k),
                 Tab::Speakers => speakers(s, m, k),
-                Tab::Info => info(m, k),
-            })
-    };
+                Tab::Info => info(s, m, k),
+            });
+    }
     col().key("meeting").w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(inner)
 }
 
+/// Le titre affiché : celui du bilan, sinon « Réunion du sam. 21/11 · 14h02 ».
+pub fn display_title(m: &Reunion, with_time: bool) -> String {
+    match m.titre.as_str() {
+        "Réunion" | "" if with_time => format!("Réunion du {} · {}", m.debut.jour_court(), m.debut.heure_courte()),
+        "Réunion" | "" => format!("Réunion du {}", m.debut.jour_court()),
+        t => t.to_string(),
+    }
+}
+
 fn header(m: &Reunion, k: &Kit) -> El {
-    let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {} · {}", m.debut.jour_court(), m.debut.heure_courte()) };
+    let title = display_title(m, true);
     let people = m.locuteurs_actifs().count();
     let mut meta = format!("{} · {} · {}", m.debut.jour_court(), m.debut.heure_courte(), ui::dur(m.duree));
-    if m.statut == Statut::Terminee {
+    if people > 0 {
         meta += &format!(" · {people} locuteurs");
     }
     col()
@@ -57,20 +72,25 @@ fn picture(s: &App, m: &Reunion, k: &Kit, w: f32, h: f32, big: bool) -> El {
     let hue = spk.map_or(250.0, |p| p.teinte);
     let white = rune::Color::WHITE;
     let play = if big { 84.0 } else { 56.0 };
-    col()
-        .key("video")
-        .w(w)
-        .h(h)
-        .gradient(rune::oklch(0.3, 0.03, 260.0), rune::oklch(0.17, 0.02, 260.0))
+    let frame = col().key("video").w(w).h(h);
+    // La vraie vidéo, sinon (données fictives) une image simulée.
+    let frame = match s.player() {
+        Some(p) => frame.fill(rune::Color::BLACK).video(p, SurfaceFit::Fit),
+        None => frame.gradient(rune::oklch(0.3, 0.03, 260.0), rune::oklch(0.17, 0.02, 260.0)),
+    };
+    frame
         .padding(if big { 28.0 } else { 16.0 })
         .justify_between()
-        .child(
+        .child(if m.repliques.is_empty() {
+            // Pas encore de transcription : personne à nommer.
+            row().h(24.0)
+        } else {
             row().gap(6.0).center_y().child(
                 row().gap(6.0).center_y().px(8.0).py(4.0).radius(6.0).fill(rune::Color::BLACK.alpha(0.35))
                     .child(dot(spk_color(hue), 7.0))
                     .child(text(format!("Partage d'écran · {speaking}")).font(k.ty.text_xsmall_medium).color(white.alpha(0.85))),
-            ),
-        )
+            )
+        })
         .child(
             row().w_full().justify_center().child(
                 row().size(play, play).radius(play / 2.0).center()
@@ -104,7 +124,7 @@ fn controls(s: &App, m: &Reunion, k: &Kit, full: bool) -> El {
         .key("play");
     let back = Button::new("10 s").icon(&ui::BACK).variant(ButtonVariant::Ghost).help("←").on_press(|s: &mut App| s.seek(s.pos - 10.0)).build(k).key("back10");
     let fwd = Button::new("10 s").icon(&ui::FORWARD).variant(ButtonVariant::Ghost).help("→").on_press(|s: &mut App| s.seek(s.pos + 10.0)).build(k).key("fwd10");
-    let speed = SegmentedControl::new(&["1×", "1,5×", "2×"], Some(s.speed)).label("Vitesse").fit().on_pick(|s: &mut App, i, _| s.speed = i).build(k).key("speed");
+    let speed = SegmentedControl::new(&["1×", "1,5×", "2×"], Some(s.speed)).label("Vitesse").fit().on_pick(|s: &mut App, i, _| s.set_speed(i)).build(k).key("speed");
     let screen = IconButton::new(if full { &ui::SHRINK } else { &ui::EXPAND })
         .variant(IconButtonVariant::Ghost)
         .label(if full { "Quitter le plein écran" } else { "Plein écran" })
@@ -123,7 +143,7 @@ fn controls(s: &App, m: &Reunion, k: &Kit, full: bool) -> El {
         .child(back)
         .child(play)
         .child(fwd)
-        .child(text(format!("{} / {}", ui::ts(s.pos), ui::ts(m.duree))).font(tnum(k.ty.ui_medium)).color(k.c.text_base).px(8.0))
+        .child(text(format!("{} / {}", ui::ts(s.pos), ui::ts(s.duration()))).font(tnum(k.ty.ui_medium)).color(k.c.text_base).px(8.0))
         .child(
             row().grow(1.0).min_w(0.0).gap(8.0).center_y()
                 .child(dot(spk_color(hue), 8.0))
@@ -212,6 +232,7 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
         .key("tabs");
     let id = m.id;
     let trailing = match s.tab {
+        Tab::Summary if m.statut != Statut::Terminee => el(),
         Tab::Summary => Button::new("Refaire le bilan")
             .icon(&ui::SPARK)
             .variant(ButtonVariant::Outline)
@@ -229,6 +250,9 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
 /// Le bilan est le Markdown de l'agent, rendu tel quel. Les horodatages deviennent des liens qui
 /// lancent la lecture, et les cases des actions se cochent.
 fn summary(m: &Reunion, k: &Kit) -> El {
+    if m.bilan.trim().is_empty() {
+        return col().key("bilan").w_full().pt(4.0).child(muted(k, "Pas encore de bilan."));
+    }
     let src = Rc::new(bilan::avec_liens_de_lecture(&m.bilan));
     let tasks = src.clone();
     let id = m.id;
@@ -283,6 +307,9 @@ fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
 }
 
 fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
+    if m.repliques.is_empty() {
+        return col().key("transcript-scroll").w_full().child(muted(k, "Pas encore de transcription."));
+    }
     let mut lines = col().key("lines").w_full().gap(2.0);
     for (i, u) in m.repliques.iter().enumerate() {
         let (name, color, sure) = speaker_name(m, u.locuteur);
@@ -393,6 +420,9 @@ fn speakers(s: &App, m: &Reunion, k: &Kit) -> El {
     } else {
         "Tous les locuteurs sont nommés.".to_string()
     };
+    if active.is_empty() {
+        return muted(k, "Pas encore de locuteurs : ils viennent avec la transcription.");
+    }
     let mut grid = row().w_full().gap(12.0).flex_wrap().items_start();
     for &si in &active {
         grid = grid.child(speaker_card(s, m, si, k));
@@ -449,21 +479,24 @@ fn speaker_card(s: &App, m: &Reunion, si: usize, k: &Kit) -> El {
     card_
 }
 
-fn info(m: &Reunion, k: &Kit) -> El {
+fn info(s: &App, m: &Reunion, k: &Kit) -> El {
+    let done = |e: Etape| m.etape_faite.is_some_and(|f| f >= e);
     let mut processing = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Traitement"));
-    for (label, detail) in [
-        ("Enregistrement", format!("{} · écran, son du Mac, micro", ui::dur(m.duree))),
-        ("Transcription", "Whisper large-v3 · pyannote, sur le Mac".to_string()),
-        ("Relecture IA", format!("{} corrections · {} à vérifier", m.corrections, m.passages_en_attente())),
-        ("Bilan IA", format!("{} sujets · {} décisions", m.sujets.len(), m.decisions.len())),
+    for (ok, label, detail) in [
+        (m.fichiers.contains(&Role::Enregistrement), "Enregistrement", ui::dur(m.duree)),
+        (done(Etape::Transcription), "Transcription", format!("{} répliques · {} locuteurs", m.repliques.len(), m.locuteurs_actifs().count())),
+        (done(Etape::Relecture), "Relecture IA", format!("{} corrections · {} à vérifier", m.corrections, m.passages_en_attente())),
+        (done(Etape::Bilan), "Bilan IA", format!("{} sujets · {} décisions", m.sujets.len(), m.decisions.len())),
     ] {
-        processing = processing.child(ui::check_row(k, true, label, &detail));
+        processing = processing.child(ui::check_row(k, ok, label, &detail));
     }
-    let folder = format!("Réunions/{}-{:02}-{:02} {} - Réunion/", m.debut.annee, m.debut.mois, m.debut.jour, m.debut.heure_courte());
-    let mut files = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Fichiers dans le vault"))
+    let folder = format!("{}/", reglages::afficher(&s.core.dossier().dossier(&m.nom_du_dossier)));
+    let mut files = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Fichiers dans le dossier de réunions"))
         .child(row().gap(6.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(folder).font(k.ty.small).color(k.c.text_muted).truncate_middle().min_w(0.0)));
-    for f in ["00 - Réunion.md", "bilan.md", "transcription.md", "relecture.md", "enregistrement.mp4"] {
-        files = files.child(text(format!("· {f}")).font(k.ty.small).color(k.c.text_faint).pl(20.0));
+    for role in Role::TOUS {
+        let present = m.fichiers.contains(&role);
+        let name = format!("{} {} - {}", if present { "·" } else { "–" }, m.nom_du_dossier, role.suffixe());
+        files = files.child(text(name).font(k.ty.small).color(if present { k.c.text_muted } else { k.c.text_faint.alpha(0.5) }).truncate_middle().min_w(0.0).pl(20.0));
     }
     let mut marks = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Repères"));
     if m.reperes.is_empty() {

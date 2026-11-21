@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "repliques": [
+    { "locuteur": "SPEAKER_00", "debut": 1.0, "fin": 4.0, "texte": "On commence par le point sur le banc de test." },
+    { "locuteur": "SPEAKER_00", "debut": 6.5, "fin": 9.0, "texte": "Il reste deux mesures à refaire." }
+  ]
+}
