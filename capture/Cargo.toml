@@ -29,3 +29,6 @@ name = "essai_capture"
 
 [[example]]
 name = "rejouer"
+
+[[example]]
+name = "essai_veille"

@@ -61,11 +61,28 @@ pub struct FausseCapture {
     ecrit: u64,
     fragment: u32,
     autorisations: Autorisations,
+    /// La capture s'arrête d'elle-même à cet instant, avec ce message.
+    panne: Option<(f64, String)>,
+    /// `arreter` échoue avec ce message (le fichier garde les fragments déjà écrits).
+    echec_a_l_arret: Option<String>,
 }
 
 impl FausseCapture {
     pub fn new(vitesse: f64, duree_minimale: f64) -> FausseCapture {
-        FausseCapture { vitesse, duree_minimale, duree: 0.0, fichier: None, ecrit: 0, fragment: 1, autorisations: Autorisations::ACCORDEES }
+        FausseCapture { vitesse, duree_minimale, duree: 0.0, fichier: None, ecrit: 0, fragment: 1, autorisations: Autorisations::ACCORDEES, panne: None, echec_a_l_arret: None }
+    }
+
+    /// La capture s'arrête d'elle-même après `duree` secondes enregistrées, comme quand macOS
+    /// coupe le flux : elle n'avance plus et signale `message`.
+    pub fn en_panne_a(mut self, duree: f64, message: &str) -> FausseCapture {
+        self.panne = Some((duree, message.into()));
+        self
+    }
+
+    /// L'arrêt échoue avec `message`, comme un fichier qui ne peut pas être fini.
+    pub fn en_echec_a_l_arret(mut self, message: &str) -> FausseCapture {
+        self.echec_a_l_arret = Some(message.into());
+        self
     }
 
     /// Les autorisations de départ. Une demande est toujours acceptée (« Autoriser ») ; une
@@ -116,14 +133,25 @@ impl Capture for FausseCapture {
     }
 
     fn sonder(&mut self, ecoule: f64) -> EtatDeCapture {
+        let mut erreur = None;
         if self.fichier.is_some() {
             self.duree += ecoule * self.vitesse;
+            if let Some((fin, message)) = &self.panne
+                && self.duree >= *fin
+            {
+                self.duree = *fin;
+                erreur = Some(message.clone());
+            }
             let _ = self.ecrire_jusqu_ici();
         }
-        EtatDeCapture { duree: self.duree, niveaux: Niveaux { micro: 0.5, son_du_mac: 0.5 } }
+        EtatDeCapture { duree: self.duree, niveaux: Niveaux { micro: 0.5, son_du_mac: 0.5 }, erreur }
     }
 
     fn arreter(&mut self) -> Result<f64, String> {
+        if let Some(message) = &self.echec_a_l_arret {
+            self.fichier = None;
+            return Err(message.clone());
+        }
         self.duree = self.duree.max(self.duree_minimale);
         self.ecrire_jusqu_ici()?;
         self.fichier.take().ok_or("aucun enregistrement en cours")?;

@@ -29,6 +29,7 @@ use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
 use greffier_barre::{Choix, IconeDeLaBarre};
+use greffier_capture::veille::PasDeVeille;
 use greffier_coeur::adaptateurs::EtatDeRessource;
 use greffier_coeur::faux::FaussesRessources;
 use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif, lexique};
@@ -127,6 +128,9 @@ pub struct App {
     pub menu_bar: Option<IconeDeLaBarre>,
     /// La fenêtre « Changer le titre », ouverte quand `Some`.
     pub rename: Option<titre::Renaming>,
+    /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
+    /// seulement).
+    pub awake: Option<PasDeVeille>,
 }
 
 impl App {
@@ -156,7 +160,7 @@ impl App {
     }
     fn try_command(&mut self, c: Commande) -> Result<(), Refus> {
         let events = self.core.executer(c);
-        self.show_menu_bar();
+        self.follow_core();
         self.handle(events?);
         Ok(())
     }
@@ -164,6 +168,15 @@ impl App {
         for e in events {
             match e {
                 Evenement::ReunionEnregistree(id) => self.open(id),
+                Evenement::EnregistrementInterrompu { reunion, message } => {
+                    eprintln!("greffier : {message}");
+                    self.register_marker_shortcut(false);
+                    self.open(reunion);
+                    self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(reunion), until: self.clock + 8.0 });
+                    if let Some(h) = &self.handle {
+                        h.open();
+                    }
+                }
                 Evenement::SuppressionProposee(id) => self.short_recording = Some(id),
                 Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
@@ -299,7 +312,7 @@ impl App {
         self.folder = Some(dir);
         self.watch_folder();
         self.needs_folder = false;
-        self.show_menu_bar();
+        self.follow_core();
         self.folder_error = None;
         self.video = None;
         self.playing = false;
@@ -333,6 +346,27 @@ impl App {
             Choix::Quitter => h.quit(),
         });
         self.show_menu_bar();
+    }
+    /// Ce qui suit l'état du cœur hors de la fenêtre : l'icône de la barre des menus et
+    /// l'assertion de non-veille.
+    fn follow_core(&mut self) {
+        self.show_menu_bar();
+        self.keep_awake();
+    }
+    /// Le Mac ne se met pas en veille pendant un enregistrement ou un traitement : l'assertion
+    /// suit [`Greffier::garder_le_mac_eveille`] (renommée quand la raison change).
+    fn keep_awake(&mut self) {
+        let reason = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
+        if self.awake.as_ref().map(PasDeVeille::raison) == reason {
+            return;
+        }
+        self.awake = None;
+        if let Some(reason) = reason {
+            match PasDeVeille::new(reason) {
+                Ok(a) => self.awake = Some(a),
+                Err(e) => eprintln!("greffier : {e}"),
+            }
+        }
     }
     /// Montre l'état de l'enregistrement dans la barre des menus.
     fn show_menu_bar(&mut self) {
@@ -605,6 +639,7 @@ fn init() -> App {
         process_imported: None,
         menu_bar: None,
         rename: None,
+        awake: None,
     }
 }
 
@@ -679,7 +714,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     s.handle(events);
-    s.show_menu_bar();
+    s.follow_core();
 
     if let Some(t) = &s.toast {
         if clock > t.until {

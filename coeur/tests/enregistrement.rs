@@ -145,6 +145,93 @@ fn un_enregistrement_coupe_garde_la_duree_deja_ecrite_dans_ses_fragments() {
 }
 
 #[test]
+fn les_reperes_et_le_nombre_de_locuteurs_survivent_a_l_arret_de_l_app() {
+    let mut banc = Banc::new();
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(90.0);
+    banc.executer(Commande::PoserRepere);
+    banc.executer(Commande::NombreDeLocuteursEnregistres(Some(3)));
+    banc.avancer(4.0);
+    banc.rouvrir();
+
+    let r = banc.reunion_nommee("2026-11-21 14h02 - Réunion");
+    assert_eq!(r.statut, Statut::EnregistrementInterrompu);
+    let reperes: Vec<(f64, &str)> = r.reperes.iter().map(|x| (x.instant, x.libelle.as_str())).collect();
+    assert_eq!(reperes, [(90.0, "Repère 1")]);
+    assert_eq!(r.nombre_de_locuteurs, Some(3));
+}
+
+#[test]
+fn un_enregistrement_interrompu_se_lit_et_se_traite_jusqu_au_bilan() {
+    let mut banc = Banc::new();
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(75.0);
+    banc.rouvrir();
+
+    let r = banc.reunion_nommee("2026-11-21 14h02 - Réunion");
+    assert!(r.fichiers.contains(&Role::Enregistrement), "{:?}", r.fichiers);
+    assert!((r.duree - 75.0).abs() < 0.05, "durée {}", r.duree);
+    let id = r.id;
+    banc.executer(Commande::Traiter(id));
+    assert_eq!(banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee), [Etape::Transcription, Etape::Relecture, Etape::Bilan]);
+    assert_eq!(banc.reunion(id).repliques.len(), 2);
+
+    // Et elle n'est plus interrompue au lancement suivant.
+    // Le titre du bilan a renommé le dossier.
+    banc.rouvrir();
+    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Point d'équipe - démo").statut, Statut::Terminee);
+}
+
+fn banc_avec_capture(capture: FausseCapture) -> Banc {
+    let mut a = banc::adaptateurs();
+    a.capture = Box::new(capture);
+    Banc::avec(a)
+}
+
+#[test]
+fn une_capture_arretee_par_macos_garde_la_reunion_interrompue_avec_ce_qui_a_ete_capture() {
+    let mut banc = banc_avec_capture(FausseCapture::new(1.0, 0.0).en_panne_a(80.0, "L'écran a été débranché."));
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(30.0);
+    banc.executer(Commande::PoserRepere);
+    let evenements = banc.avancer(60.0);
+
+    assert!(banc.greffier.enregistrement().is_none());
+    let r = &banc.greffier.reunions()[0];
+    let id = r.id;
+    assert_eq!(evenements, [Evenement::EnregistrementInterrompu { reunion: id, message: "L'écran a été débranché.".into() }]);
+    assert_eq!(r.statut, Statut::EnregistrementInterrompu);
+    assert!((r.duree - 80.0).abs() < 0.15, "durée {}", r.duree);
+    assert_eq!(r.reperes.len(), 1);
+    assert!(r.fichiers.contains(&Role::Enregistrement));
+    // Pas de traitement d'office : on le lance quand on veut.
+    banc.avancer(2.0);
+    assert_eq!(banc.reunion(id).statut, Statut::EnregistrementInterrompu);
+    banc.executer(Commande::Traiter(id));
+    banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);
+
+    // Le titre du bilan a renommé le dossier.
+    banc.rouvrir();
+    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Point d'équipe - démo").statut, Statut::Terminee);
+}
+
+#[test]
+fn un_arret_qui_echoue_garde_la_reunion_interrompue_avec_la_duree_de_ses_fragments() {
+    let mut banc = banc_avec_capture(FausseCapture::new(1.0, 0.0).en_echec_a_l_arret("Le fichier n'a pas pu être fini."));
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(70.0);
+    let evenements = banc.executer(Commande::ArreterEnregistrement);
+
+    assert!(banc.greffier.enregistrement().is_none());
+    let r = &banc.greffier.reunions()[0];
+    assert_eq!(evenements, [Evenement::EnregistrementInterrompu { reunion: r.id, message: "Le fichier n'a pas pu être fini.".into() }]);
+    assert_eq!(r.statut, Statut::EnregistrementInterrompu);
+    assert!((r.duree - 70.0).abs() < 0.15, "durée {}", r.duree);
+    banc.rouvrir();
+    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Réunion").statut, Statut::EnregistrementInterrompu);
+}
+
+#[test]
 fn la_fausse_capture_ecrit_un_mp4_dont_on_lit_la_duree() {
     let mut banc = Banc::new();
     let id = banc.enregistrer(75.0);

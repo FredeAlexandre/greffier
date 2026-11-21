@@ -61,11 +61,15 @@ pub struct Niveaux {
     pub son_du_mac: f32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EtatDeCapture {
     /// Durée enregistrée, en secondes.
     pub duree: f64,
     pub niveaux: Niveaux,
+    /// La capture s'est arrêtée d'elle-même (macOS a coupé le flux, l'écran a disparu…). Le cœur
+    /// appelle alors [`Capture::arreter`] pour finir le fichier et garde la réunion
+    /// « enregistrement interrompu ».
+    pub erreur: Option<String>,
 }
 
 /// Où en est une autorisation de macOS.
