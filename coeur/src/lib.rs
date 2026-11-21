@@ -892,6 +892,12 @@ impl Greffier {
     /// Applique le produit d'une étape finie, puis lance la suivante (ou la met en attente
     /// pendant un enregistrement).
     fn appliquer(&mut self, id: IdReunion, etape: Etape, produit: Produit, ev: &mut Vec<Evenement>) {
+        // La session de l'agent est gardée même si son bilan est refusé : on peut la reprendre.
+        if let Produit::Bilan(resultat, _) = &produit
+            && let Ok(r) = self.reunion_mut(id)
+        {
+            r.sessions.bilan = resultat.session.clone();
+        }
         let lu = match &produit {
             Produit::Bilan(_, fichier) => match std::fs::read_to_string(fichier) {
                 Ok(md) => Some(md),
@@ -934,7 +940,6 @@ impl Greffier {
                 r.titre = resultat.titre;
                 r.resume = resultat.resume;
                 r.actions_principales = resultat.actions.into_iter().take(3).collect();
-                r.sessions.bilan = resultat.session;
                 for p in resultat.participants {
                     let index = |etiquette: &str| r.locuteurs.iter().position(|l| l.etiquette == etiquette);
                     let Some(i) = index(&p.locuteur) else { continue };
