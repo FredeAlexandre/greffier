@@ -14,6 +14,7 @@ mod overlays;
 mod pages;
 mod reglages;
 mod sidebar;
+mod surveillance;
 mod timeline;
 mod ui;
 
@@ -95,6 +96,8 @@ pub struct App {
     pub needs_folder: bool,
     /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
     pub folder_error: Option<String>,
+    /// Signale les changements faits dans le dossier de réunions hors de l'app.
+    pub watch: Option<surveillance::Surveillance>,
 }
 
 impl App {
@@ -134,6 +137,15 @@ impl App {
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
+                Evenement::ReunionDisparue(id) => self.forget(id),
+                Evenement::ReunionRelue(id) if self.page == Page::Meeting(id) => {
+                    // Les répliques et les locuteurs ont pu changer.
+                    self.picking = None;
+                    self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
+                    if self.video.is_none() {
+                        self.load_video(id);
+                    }
+                }
                 _ => {}
             }
         }
@@ -221,6 +233,7 @@ impl App {
         }
         self.core = Greffier::ouvrir(&dir, reglages::adaptateurs());
         self.folder = Some(dir);
+        self.watch_folder();
         self.needs_folder = false;
         self.folder_error = None;
         self.video = None;
@@ -268,15 +281,34 @@ impl App {
         self.command(Commande::ArreterTraitement(id));
     }
     pub fn delete(&mut self, id: IdReunion) {
+        self.command(Commande::Supprimer(id));
+        self.forget(id);
+        self.confirm_delete = None;
+    }
+    /// La réunion n'existe plus (supprimée dans l'app ou hors de l'app) : on quitte sa page.
+    fn forget(&mut self, id: IdReunion) {
         if self.video.as_ref().is_some_and(|(v, _)| *v == id) {
             self.video = None;
         }
-        self.command(Commande::Supprimer(id));
         if self.page == Page::Meeting(id) {
             self.page = Page::Overview;
             self.playing = false;
         }
-        self.confirm_delete = None;
+        if self.menu.is_some_and(|(m, _)| m == id) {
+            self.menu = None;
+        }
+        if self.confirm_delete == Some(id) {
+            self.confirm_delete = None;
+        }
+    }
+    /// Surveille le dossier de réunions choisi, une fois l'interface prête à être réveillée.
+    fn watch_folder(&mut self) {
+        self.watch = None;
+        let (Some(dir), Some(waker)) = (&self.folder, &self.waker) else { return };
+        match surveillance::Surveillance::new(dir, waker.clone()) {
+            Ok(w) => self.watch = Some(w),
+            Err(e) => eprintln!("greffier : surveillance du dossier de réunions impossible ({e})"),
+        }
     }
     pub fn add_marker(&mut self) {
         if self.recording() {
@@ -365,6 +397,7 @@ fn init() -> App {
         needs_folder: page == Page::Welcome,
         folder,
         folder_error: None,
+        watch: None,
     }
 }
 
@@ -373,6 +406,7 @@ fn setup(s: &mut App, waker: Waker) {
         p.set_waker(waker.clone());
     }
     s.waker = Some(waker);
+    s.watch_folder();
 }
 
 /// Avance la lecture et fait passer le temps du cœur (enregistrement, file de traitement).
@@ -425,6 +459,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
 
     if s.recording() {
         s.rec_phase += dt;
+    }
+    // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
+    if s.watch.as_ref().is_some_and(surveillance::Surveillance::a_change) {
+        let events = s.core.relire_le_dossier();
+        changed |= !events.is_empty();
+        s.handle(events);
     }
     let events = s.core.avancer(dt);
     if s.core.occupe() || !events.is_empty() {

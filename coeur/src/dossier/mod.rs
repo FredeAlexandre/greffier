@@ -3,10 +3,12 @@
 //!
 //! Ce module nomme les dossiers et les fichiers, et lit tout ce qui existe, y compris les
 //! réunions incomplètes (un enregistrement seul, un enregistrement et sa transcription…).
-//! Le renommage, la surveillance et la corbeille viennent avec les tickets suivants.
+//! Les empreintes des fichiers (`surveillance`) disent ce qui a changé hors de l'app. Le
+//! renommage et la corbeille viennent avec les tickets suivants.
 
 pub mod fiche;
 mod mp4;
+pub mod surveillance;
 pub mod transcription;
 
 use std::path::{Path, PathBuf};
@@ -172,6 +174,11 @@ impl DossierDeReunions {
     /// transcription lisible. Le bilan (écrit par l'agent) et l'enregistrement n'y sont pas.
     /// Chaque fichier est écrit à côté puis renommé, pour qu'un lecteur ne le voie jamais à moitié.
     pub fn ecrire(&self, r: &Reunion) -> Result<(), String> {
+        self.ecrire_les_fichiers(r).map(|_| ())
+    }
+
+    /// Comme [`DossierDeReunions::ecrire`], et rend les rôles des fichiers écrits.
+    pub fn ecrire_les_fichiers(&self, r: &Reunion) -> Result<Vec<Role>, String> {
         let nom = &r.nom_du_dossier;
         let dossier = self.dossier(nom);
         std::fs::create_dir_all(&dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
@@ -179,8 +186,9 @@ impl DossierDeReunions {
         if r.etape_faite.is_some() || !r.repliques.is_empty() {
             ecrire_atomiquement(&self.fichier(nom, Role::TranscriptionStructuree), &TranscriptionStructuree::depuis(r).json())?;
             ecrire_atomiquement(&self.fichier(nom, Role::TranscriptionLisible), &transcription::transcription_lisible(r))?;
+            return Ok(vec![Role::Fiche, Role::TranscriptionStructuree, Role::TranscriptionLisible]);
         }
-        Ok(())
+        Ok(vec![Role::Fiche])
     }
 
     /// Un nom de dossier libre pour une nouvelle réunion (« (2) », « (3) »… si besoin).

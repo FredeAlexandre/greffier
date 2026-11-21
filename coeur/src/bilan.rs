@@ -125,28 +125,36 @@ pub fn avec_liens_de_lecture(md: &str) -> String {
     out
 }
 
-/// Coche ou décoche la `index`-ième case `- [ ]` du Markdown.
-pub fn cocher(md: &mut String, index: usize, faite: bool) {
+/// La position, en octets, du caractère entre les crochets de la `index`-ième case `- [ ]`.
+pub fn position_de_la_case(md: &str, index: usize) -> Option<usize> {
+    let mut debut = 0;
     let mut n = 0;
-    let mut out = String::with_capacity(md.len());
-    for line in md.lines() {
-        if est_une_case(line) {
+    for ligne in md.split_inclusive('\n') {
+        if est_une_case(ligne) {
             if n == index {
-                let trimmed = line.trim_start();
-                let pad = &line[..line.len() - trimmed.len()];
-                out.push_str(pad);
-                out.push_str(if faite { "- [x]" } else { "- [ ]" });
-                out.push_str(&trimmed[5..]);
-                out.push('\n');
-                n += 1;
-                continue;
+                return Some(debut + (ligne.len() - ligne.trim_start().len()) + 3);
             }
             n += 1;
         }
-        out.push_str(line);
-        out.push('\n');
+        debut += ligne.len();
     }
-    *md = out;
+    None
+}
+
+/// Le nombre de cases `- [ ]` du Markdown.
+pub fn nombre_de_cases(md: &str) -> usize {
+    md.lines().filter(|l| est_une_case(l)).count()
+}
+
+/// Coche ou décoche la `index`-ième case `- [ ]` du Markdown, sans toucher au reste. Vrai si
+/// la case a changé.
+pub fn cocher(md: &mut String, index: usize, faite: bool) -> bool {
+    let Some(p) = position_de_la_case(md, index) else { return false };
+    if (md.as_bytes()[p] != b' ') == faite {
+        return false;
+    }
+    md.replace_range(p..p + 1, if faite { "x" } else { " " });
+    true
 }
 
 /// L'index de la case dont le `[` est à `offset` dans `src`.
