@@ -174,6 +174,20 @@ fn les_passages_douteux_sont_reecoutes_puis_tranches_dans_la_meme_session() {
 }
 
 #[test]
+fn la_reecoute_perd_ses_bruits_entre_crochets_comme_la_transcription() {
+    let claude = FauxClaude::repondant(vec![Ok(premiere_passe()), Ok(deuxieme_passe())]);
+    let reecoute = FausseReecoute { textes: vec!["[Musique] pas encore (rires) mardi peut-être".into(), " (bruit de fond) ".into()], ..Default::default() };
+    let r = relire(&claude, &reecoute, demande()).expect("relecture");
+    assert!(
+        claude.appels()[1].prompt.ends_with("  réécoute : « pas encore mardi peut-être »\n- ligne #1 [0:00:00] · extrait : « Zorglube » · ton hypothèse : « ? »\n  réécoute : « (rien d'exploitable) »"),
+        "{}",
+        claude.appels()[1].prompt
+    );
+    assert_eq!(r.passages_corriges[0].reecoute, "pas encore mardi peut-être");
+    assert_eq!(r.passages_a_verifier[0].reecoute, "");
+}
+
+#[test]
 fn un_passage_sans_decision_ou_corrige_en_point_d_interrogation_reste_a_verifier() {
     let deuxieme = json!({ "decisions": [{ "ligne": 1, "extrait": "autre chose", "statut": "corrige", "apres": "? (un nom de client, peut-être)", "raison": "?" }], "lexique": [] });
     let claude = FauxClaude::repondant(vec![Ok(premiere_passe()), Ok(deuxieme)]);

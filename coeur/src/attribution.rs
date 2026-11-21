@@ -70,6 +70,13 @@ pub fn sans_les_bruits(mots: Vec<Mot>) -> Vec<Mot> {
     gardes
 }
 
+/// Un texte (la réécoute d'un extrait) sans ses bruits, mêmes règles que `sans_les_bruits`, ses
+/// espaces ramenés à un seul.
+pub fn texte_sans_les_bruits(texte: &str) -> String {
+    let mots = texte.split_whitespace().map(|t| Mot { debut: 0.0, fin: 0.0, texte: t.to_string(), confiance: 1.0, locuteur: None }).collect();
+    sans_les_bruits(mots).into_iter().map(|m| m.texte).collect::<Vec<_>>().join(" ")
+}
+
 /// `.`, `?`, `!` ou `…`, suivi ou non d'un guillemet fermant.
 fn fin_de_phrase(texte: &str) -> bool {
     let t = texte.trim();

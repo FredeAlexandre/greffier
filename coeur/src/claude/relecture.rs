@@ -247,7 +247,7 @@ pub fn relire(claude: &dyn Claude, reecoute: &dyn Reecoute, d: &DemandeDeRelectu
     }).collect();
     let (reecoutes, pour_l_agent): (Vec<String>, Vec<String>) = match reecoute.reecouter(&d.enregistrement, &extraits, &d.vocabulaire, arret) {
         Ok(textes) => {
-            let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default()).collect();
+            let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| crate::attribution::texte_sans_les_bruits(t)).unwrap_or_default()).collect();
             let lus = textes.iter().map(|t| if t.is_empty() { "(rien d'exploitable)".to_string() } else { t.clone() }).collect();
             (textes, lus)
         }
