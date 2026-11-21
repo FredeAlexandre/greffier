@@ -436,11 +436,8 @@ impl Greffier {
             }
             Commande::Refaire { reunion, etape } => {
                 let r = self.reunion_mut(reunion)?;
-                if r.statut.dans_la_file() || r.statut == Statut::EnregistrementEnCours {
-                    return impossible("la réunion est déjà dans la file");
-                }
-                if etape.precedente().is_some_and(|p| r.etape_faite < Some(p)) {
-                    return impossible("les étapes précédentes ne sont pas faites");
+                if !r.peut_refaire(etape) {
+                    return impossible(if r.statut.dans_la_file() { "la réunion est déjà dans la file" } else { "les étapes précédentes ne sont pas faites" });
                 }
                 r.etape_faite = etape.precedente();
                 self.mettre_en_file(reunion, etape);

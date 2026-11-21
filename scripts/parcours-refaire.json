@@ -1,0 +1,40 @@
+{
+ "events": [
+  {
+   "t": 0.3,
+   "type": "tap",
+   "key": "m2"
+  },
+  {
+   "t": 0.6,
+   "type": "key",
+   "name": "2",
+   "cmd": true
+  },
+  {
+   "t": 1.0,
+   "type": "tap",
+   "key": "redo-menu-button"
+  },
+  {
+   "t": 1.5,
+   "type": "tap",
+   "key": "redo-menu-item1"
+  },
+  {
+   "t": 2.0,
+   "type": "tap",
+   "key": "redo-ppl-plus"
+  },
+  {
+   "t": 2.4,
+   "type": "tap",
+   "key": "redo-ppl-plus"
+  },
+  {
+   "t": 2.8,
+   "type": "tap",
+   "key": "redo-ok"
+  }
+ ]
+}

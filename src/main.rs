@@ -14,6 +14,7 @@ mod import;
 mod meeting;
 mod overlays;
 mod pages;
+mod refaire;
 mod reglages;
 mod sidebar;
 mod surveillance;
@@ -128,6 +129,10 @@ pub struct App {
     pub menu_bar: Option<IconeDeLaBarre>,
     /// La fenêtre « Changer le titre », ouverte quand `Some`.
     pub rename: Option<titre::Renaming>,
+    /// La fenêtre « Refaire la transcription », ouverte quand `Some`.
+    pub redo_transcription: Option<refaire::RedoTranscription>,
+    /// Le menu « Refaire… » de l'onglet Transcription, ouvert.
+    pub redo_menu: bool,
     /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
     /// seulement).
     pub awake: Option<PasDeVeille>,
@@ -221,6 +226,7 @@ impl App {
     pub fn open(&mut self, id: IdReunion) {
         if self.page != Page::Meeting(id) {
             self.page = Page::Meeting(id);
+            self.redo_menu = false;
             self.pos = 0.0;
             self.playing = false;
             self.current = None;
@@ -468,9 +474,6 @@ impl App {
     pub fn process(&mut self, id: IdReunion) {
         self.command(Commande::Traiter(id));
     }
-    pub fn redo_bilan(&mut self, id: IdReunion) {
-        self.command(Commande::Refaire { reunion: id, etape: Etape::Bilan });
-    }
     pub fn stop_processing(&mut self, id: IdReunion) {
         self.command(Commande::ArreterTraitement(id));
     }
@@ -653,6 +656,8 @@ fn init() -> App {
         process_imported: None,
         menu_bar: None,
         rename: None,
+        redo_transcription: None,
+        redo_menu: false,
         awake: None,
     }
 }
@@ -761,7 +766,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.shortcut.is_recording() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -803,7 +808,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Page::Settings => pages::settings(s, &k),
         Page::Installation => pages::installation(s, &k),
         Page::Meeting(_) => match s.meeting() {
-            Some(m) => meeting::page(s, m, &k, cx),
+            Some(m) => meeting::page(s, m, &k, cx, &mut layer),
             None => pages::overview(s, &k),
         },
     };
@@ -826,6 +831,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     overlays::confirm_delete(s, &k, &mut layer);
     overlays::short_recording(s, &k, &mut layer);
     titre::window(s, &k, &mut layer);
+    refaire::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
     // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
@@ -898,6 +904,19 @@ fn scene_failed(s: &mut App) {
     s.process(1);
     s.core.avancer(0.0);
     s.core.avancer(1.0);
+}
+/// Le menu « Refaire… » de l'onglet Transcription.
+fn scene_redo(s: &mut App) {
+    scene_transcript(s);
+    s.redo_menu = true;
+}
+/// « Refaire la transcription… » : le nombre de locuteurs avant de relancer.
+fn scene_redo_transcription(s: &mut App) {
+    scene_transcript(s);
+    s.start_redo_transcription(2);
+    if let Some(r) = &mut s.redo_transcription {
+        r.nombre = Some(4);
+    }
 }
 fn scene_unprocessed(s: &mut App) {
     s.open(1);
@@ -1018,6 +1037,8 @@ fn main() {
             ("queue", scene_queue),
             ("failed", scene_failed),
             ("unprocessed", scene_unprocessed),
+            ("redo", scene_redo),
+            ("redo-transcription", scene_redo_transcription),
             ("settings", scene_settings),
             ("context", scene_context),
             ("rename", scene_rename),

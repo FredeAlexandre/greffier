@@ -4,10 +4,10 @@ use rune::{El, col, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
 use rune_kit::{Kit, MenuItem, context_menu};
 
-use greffier_coeur::{Reunion, Statut};
+use greffier_coeur::{Etape, Reunion, Statut};
 
 use crate::ui::{self, glyph, red, tnum};
-use crate::{App, Page, Tab};
+use crate::{App, Page, Tab, refaire};
 
 fn record_button(s: &App, k: &Kit) -> El {
     let r = red();
@@ -85,16 +85,21 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
                 s.menu = None;
                 s.open(id);
                 s.tab = Tab::Transcript;
-            }))
-            .item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
-                s.menu = None;
-                s.redo_bilan(id);
             }));
     } else if m.statut == Statut::ATraiter {
         menu = menu.item(MenuItem::new("Transcrire et faire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
             s.menu = None;
             s.process(id);
         }));
+    }
+    if refaire::can_redo(m, Etape::Bilan) {
+        menu = menu.item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| s.redo(id, Etape::Bilan)));
+    }
+    if refaire::can_redo(m, Etape::Relecture) {
+        menu = menu.item(MenuItem::new("Refaire la relecture").on_select(move |s: &mut App| s.redo(id, Etape::Relecture)));
+    }
+    if refaire::can_redo(m, Etape::Transcription) {
+        menu = menu.item(MenuItem::new("Refaire la transcription…").on_select(move |s: &mut App| s.start_redo_transcription(id)));
     }
     let busy = matches!(m.statut, Statut::EnCours { .. });
     menu.item(MenuItem::new("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))

@@ -77,7 +77,8 @@ faire que les vérifications). Les scènes et parcours gardent de fausses ressou
 | ⌘1 … ⌘5 | Bilan / Transcription / À vérifier / Locuteurs / Infos |
 | Bilan | Markdown rendu ; les ▶ horodatages lancent la lecture, les cases se cochent, « Refaire le bilan » |
 | ⌘K ou « Rechercher » | cherche dans les titres, bilans et transcriptions ; ↩ ouvre au bon moment |
-| Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan, Finder, supprimer (avec confirmation) |
+| Transcription › « Refaire… » | refaire la relecture (lexique actuel) puis le bilan, ou refaire la transcription avec un autre nombre de locuteurs, puis la relecture et le bilan |
+| Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan / la relecture / la transcription, Finder, supprimer (avec confirmation) |
 
 ## Sans fenêtre
 
