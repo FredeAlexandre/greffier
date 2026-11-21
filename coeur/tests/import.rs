@@ -172,6 +172,18 @@ fn revue_de_release(role: &str) -> PathBuf {
 }
 
 #[test]
+fn un_media_et_un_bilan_sans_transcription_repartent_de_la_transcription() {
+    let mut banc = Banc::new();
+    let dehors = Dehors::new(&banc);
+    let bilan = dehors.ecrire("point.md", "Un bilan écrit ailleurs.\n");
+    let id = importer(&mut banc, Import { bilan: Some(bilan), ..import(dehors.copier(&video(), "point.mp4")) });
+    assert_eq!((banc.reunion(id).statut.clone(), banc.reunion(id).etape_faite), (Statut::ATraiter, None));
+
+    banc.executer(Commande::Traiter(id));
+    assert_eq!(banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee), [Etape::Transcription, Etape::Relecture, Etape::Bilan]);
+}
+
+#[test]
 fn un_media_sa_transcription_et_son_bilan_ne_passent_par_aucune_etape() {
     let mut banc = Banc::new();
     let dehors = Dehors::new(&banc);

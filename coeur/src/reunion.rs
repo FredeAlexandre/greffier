@@ -292,6 +292,12 @@ impl Reunion {
         self
     }
 
+    /// Si `etape` peut être refaite ([`crate::Commande::Refaire`]) : la réunion n'est ni dans la
+    /// file ni en enregistrement, et les étapes d'avant sont faites.
+    pub fn peut_refaire(&self, etape: Etape) -> bool {
+        !self.statut.dans_la_file() && self.statut != Statut::EnregistrementEnCours && etape.precedente().is_none_or(|p| self.etape_faite >= Some(p))
+    }
+
     pub fn passages_en_attente(&self) -> usize {
         self.passages.iter().filter(|p| p.statut == StatutDuPassage::EnAttente).count()
     }

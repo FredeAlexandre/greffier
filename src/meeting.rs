@@ -11,14 +11,14 @@ use greffier_coeur::fictif::PERSONNES;
 use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, Tranche, bilan};
 
 use crate::ui::{self, card, dot, eyebrow, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
-use crate::{App, TABS, Tab, reglages, timeline};
+use crate::{App, TABS, Tab, refaire, reglages, timeline};
 
 /// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
 pub fn playable(m: &Reunion) -> bool {
     m.statut == Statut::Terminee || m.fichiers.contains(&Role::Enregistrement) || !m.repliques.is_empty()
 }
 
-pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
+pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) -> El {
     let view_h = cx.layout_size("meeting").map_or(780.0, |v| v[1]);
     let mut inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
     if m.statut != Statut::Terminee {
@@ -28,7 +28,7 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
         inner = inner
             .child(player(s, m, k, cx, view_h))
             .child(timeline::view(s, m, k, cx))
-            .child(tabs_row(s, m, k))
+            .child(tabs_row(s, m, k, layer))
             .child(match s.tab {
                 Tab::Summary => summary(m, k),
                 Tab::Transcript => transcript(s, m, k, view_h),
@@ -221,7 +221,7 @@ pub fn fullscreen(s: &App, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) {
     );
 }
 
-fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
+fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
     let unconfirmed = m.locuteurs_actifs().filter(|&i| m.locuteurs[i].nom.is_none()).count();
     let speakers = if unconfirmed > 0 { format!("Locuteurs · {unconfirmed}") } else { "Locuteurs".to_string() };
     let labels = ["Bilan".to_string(), "Transcription".to_string(), format!("À vérifier · {}", m.passages_en_attente()), speakers, "Infos".to_string()];
@@ -233,19 +233,25 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
         .key("tabs");
     let id = m.id;
     let trailing = match s.tab {
-        Tab::Summary if m.statut != Statut::Terminee => el(),
+        Tab::Summary if !refaire::can_redo(m, Etape::Bilan) => el(),
         Tab::Summary => Button::new("Refaire le bilan")
             .icon(&ui::SPARK)
             .variant(ButtonVariant::Outline)
             .control_size(ControlSize::Small)
             .help("Relance seulement le bilan IA, avec les noms et corrections actuels")
-            .on_press(move |s: &mut App| s.redo_bilan(id))
+            .on_press(move |s: &mut App| s.redo(id, Etape::Bilan))
             .build(k)
             .key("redo"),
-        Tab::Transcript => Switch::new(s.follow).label("Suivre la lecture").on_toggle(|s: &mut App| s.follow = !s.follow).build(k).key("follow"),
+        Tab::Transcript => {
+            let follow = Switch::new(s.follow).label("Suivre la lecture").on_toggle(|s: &mut App| s.follow = !s.follow).build(k).key("follow");
+            match refaire::transcript_menu(s, m, k, layer) {
+                Some(buttons) => row().gap(16.0).center_y().child(buttons).child(follow),
+                None => follow,
+            }
+        }
         _ => el(),
     };
-    row().w_full().pt(8.0).gap(12.0).center_y().justify_between().child(tabs).child(trailing)
+    row().w_full().pt(8.0).gap(12.0).center_y().justify_between().flex_wrap().child(tabs).child(trailing)
 }
 
 /// Le bilan est le Markdown de l'agent, rendu tel quel. Les horodatages deviennent des liens qui
