@@ -288,23 +288,29 @@ pub fn speaker_name(m: &Reunion, i: usize) -> (String, rune::Color, bool) {
     (p.affiche(), spk_color(p.teinte), p.nom.is_some())
 }
 
-/// Le texte d'une réplique. Le cœur y a déjà mis ce que le passage à vérifier est devenu :
-/// surligné tant qu'il est en attente, souligné une fois remplacé.
+/// Le texte d'une réplique. Le cœur y a déjà mis ce que ses passages à vérifier sont devenus :
+/// surlignés tant qu'ils sont en attente, soulignés une fois remplacés.
 pub fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
     let u = &m.repliques[i];
     let ink = k.c.text_base;
-    if let Some(d) = u.passage.and_then(|di| m.passages.get(di)) {
+    let mut spans: Vec<Span> = Vec::new();
+    for d in u.passages.iter().filter_map(|&di| m.passages.get(di)) {
         let shown = d.texte(&d.statut);
-        let span = match &d.statut {
-            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => u.texte.find(shown).map(|a| Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::EnAttente => u.texte.find(shown).map(|a| Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::OriginalGarde => None,
-        };
-        if let Some(span) = span {
-            return rich(u.texte.clone(), vec![span]).font(k.ty.body).color(ink);
+        let Some(a) = u.texte.find(shown) else { continue };
+        if spans.iter().any(|s| (a as u32) < s.end && s.start < (a + shown.len()) as u32) {
+            continue;
+        }
+        match &d.statut {
+            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => spans.push(Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::EnAttente => spans.push(Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::OriginalGarde => {}
         }
     }
-    text(u.texte.clone()).font(k.ty.body).color(ink).wrap()
+    if spans.is_empty() {
+        return text(u.texte.clone()).font(k.ty.body).color(ink).wrap();
+    }
+    spans.sort_by_key(|s| s.start);
+    rich(u.texte.clone(), spans).font(k.ty.body).color(ink)
 }
 
 fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {

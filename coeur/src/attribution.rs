@@ -170,6 +170,11 @@ fn locuteurs_des_mots(mots: &[Mot], tours: &[TourDeParole], numeros: &[usize]) -
 
 /// Règle 2 : les interruptions de 2 mots ou moins, sans fin de phrase, rendues au locuteur en
 /// cours. Une seule passe, de gauche à droite.
+///
+/// « Au milieu de la phrase de quelqu'un d'autre » se lit comme dans le vault (`assign()`,
+/// repris à l'identique, spec #1) : le même locuteur de part et d'autre et aucune fin de phrase
+/// dans l'interruption. Le vault ne regarde pas si le mot d'avant finit une phrase ; on ne le
+/// regarde pas non plus, pour garder les mêmes répliques que lui.
 fn rendre_les_interruptions(mots: &[Mot], ids: &mut [usize]) {
     let mut i = 0;
     while i < ids.len() {
@@ -192,6 +197,10 @@ fn rendre_les_interruptions(mots: &[Mot], ids: &mut [usize]) {
 /// Règle 3 : chaque changement de locuteur qui ne suit pas une fin de phrase est déplacé sur la
 /// fin de phrase la plus proche à 3 mots près, en arrière d'abord. Les changements déjà faits
 /// comptent pour les suivants.
+///
+/// « La plus proche » suit le vault (`assign()`, repris à l'identique, spec #1) : la plus proche
+/// en arrière (le retard habituel de la séparation) si elle existe, sinon la plus proche en
+/// avant, même quand celle d'avant est plus près.
 fn recaler_sur_les_fins_de_phrase(mots: &[Mot], ids: &mut [usize]) {
     let finit = |k: usize| fin_de_phrase(&mots[k].texte);
     for i in 1..ids.len() {
@@ -230,7 +239,7 @@ fn repliques(mots: &[Mot]) -> Vec<Replique> {
             r.texte.push_str(texte);
             r.fin = r.fin.max(mot.fin);
         } else {
-            repliques.push(Replique { locuteur, debut: mot.debut, fin: mot.fin, texte: texte.to_string(), passage: None });
+            repliques.push(Replique { locuteur, debut: mot.debut, fin: mot.fin, texte: texte.to_string(), passages: vec![] });
         }
     }
     repliques

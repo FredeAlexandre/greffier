@@ -223,6 +223,30 @@ fn un_changement_de_locuteur_juste_avant_une_fin_de_phrase_y_est_repousse() {
 }
 
 #[test]
+fn quand_une_fin_de_phrase_est_a_portee_des_deux_cotes_le_recalage_va_en_arriere() {
+    // « la plus proche, à 3 mots près » = la règle du vault, reprise à l'identique : en arrière
+    // d'abord (le retard habituel de la séparation), même si « voit. », juste après le
+    // changement, est plus près que « Bon. », deux mots avant.
+    let mut mots = phrase(0.0, "Bon. Alors on");
+    mots.extend(phrase(1.2, "voit. Rien de plus."));
+    let tours = vec![tour(0.0, 1.3, "SPEAKER_A"), tour(1.3, 5.0, "SPEAKER_B")];
+    let (banc, id) = transcrire(mots, tours);
+    assert_eq!(repliques(banc.reunion(id)), ["SPEAKER_00 : Bon.", "SPEAKER_01 : Alors on voit. Rien de plus."]);
+}
+
+#[test]
+fn une_interruption_compte_meme_si_la_phrase_d_avant_vient_de_finir() {
+    // Comme le vault : la règle regarde seulement les mots de l'interruption (≤ 2, sans fin de
+    // phrase) et le locuteur de part et d'autre, pas où en est la phrase de l'autre.
+    let mut mots = phrase(0.0, "C'est fini.");
+    mots.extend(phrase(0.8, "Euh bon"));
+    mots.extend(phrase(1.6, "on continue demain."));
+    let tours = vec![tour(0.0, 0.9, "SPEAKER_A"), tour(0.9, 1.7, "SPEAKER_B"), tour(1.7, 5.0, "SPEAKER_A")];
+    let (banc, id) = transcrire(mots, tours);
+    assert_eq!(repliques(banc.reunion(id)), ["SPEAKER_00 : C'est fini. Euh bon on continue demain."]);
+}
+
+#[test]
 fn le_recalage_ne_va_pas_au_dela_de_trois_mots() {
     // Quatre mots entre la fin de phrase et le changement : il reste où il est.
     let mut mots = phrase(0.0, "Voilà.");

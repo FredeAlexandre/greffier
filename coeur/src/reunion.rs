@@ -139,8 +139,8 @@ pub struct Replique {
     pub debut: f64,
     pub fin: f64,
     pub texte: String,
-    /// Le passage à vérifier de cette réplique (index dans `Reunion::passages`).
-    pub passage: Option<usize>,
+    /// Les passages à vérifier de cette réplique (index dans `Reunion::passages`, dans l'ordre).
+    pub passages: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

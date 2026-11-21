@@ -1028,8 +1028,8 @@ fn corriger_la_replique(r: &mut Reunion, replique: usize, texte: String) -> Resu
     }
     let Some(x) = r.repliques.get(replique) else { return impossible("réplique inconnue") };
     let Some((debut, fin, apres)) = difference_en_mots(&x.texte, texte) else { return Ok(()) };
-    // Le passage à vérifier de la réplique se tranche dans son onglet.
-    if let Some(p) = x.passage.and_then(|i| r.passages.get(i)) {
+    // Les passages à vérifier de la réplique se tranchent dans leur onglet.
+    for p in x.passages.iter().filter_map(|&i| r.passages.get(i)) {
         let montre = p.texte(&p.statut);
         if let Some(a) = x.texte.find(montre)
             && debut < a + montre.len()
@@ -1119,7 +1119,7 @@ fn hypothese(h: Option<String>) -> Option<String> {
 /// vraiment écrites dans le lexique.
 fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture, ajoutes: Vec<AjoutAuLexique>) {
     if r.brute.is_empty() {
-        r.brute = r.repliques.iter().map(|x| Replique { passage: None, ..x.clone() }).collect();
+        r.brute = r.repliques.iter().map(|x| Replique { passages: vec![], ..x.clone() }).collect();
     }
     r.repliques = r.brute.clone();
     let mut journal = JournalDeRelecture { ajouts_au_lexique: ajoutes, ..Default::default() };
@@ -1156,10 +1156,12 @@ fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture, ajoute
     r.passages.clear();
     for p in resultat.passages_a_verifier.into_iter().chain(a_verifier) {
         let Some(x) = r.repliques.get_mut(p.replique) else { continue };
-        if x.passage.is_some() || p.extrait.trim().is_empty() {
+        // Chaque passage signalé compte, même à plusieurs dans une réplique ; le même deux fois
+        // n'en fait qu'un.
+        if p.extrait.trim().is_empty() || x.passages.iter().any(|&i| r.passages[i].extrait == p.extrait) {
             continue;
         }
-        x.passage = Some(r.passages.len());
+        x.passages.push(r.passages.len());
         r.passages.push(PassageAVerifier { replique: p.replique, extrait: p.extrait, hypothese: hypothese(p.hypothese), reecoute: p.reecoute, statut: StatutDuPassage::EnAttente });
     }
     // Les corrections faites à la main sur la relecture précédente sont reprises si leur texte est

@@ -103,7 +103,7 @@ fn weave(keys: Vec<Replique>, duration: f64, weights: &[f64], seed: u64) -> Vec<
             sp = rng.pick(weights);
         }
         let text = FILLERS[(rng.next() % FILLERS.len() as u64) as usize].to_string();
-        out.push(Replique { locuteur: sp, debut: t, fin: t + len, texte: text, passage: None });
+        out.push(Replique { locuteur: sp, debut: t, fin: t + len, texte: text, passages: vec![] });
         last = sp;
         t += len + rng.range(0.3, 3.0);
     }
@@ -111,7 +111,7 @@ fn weave(keys: Vec<Replique>, duration: f64, weights: &[f64], seed: u64) -> Vec<
 }
 
 fn u(speaker: usize, start: f64, len: f64, text: &str) -> Replique {
-    Replique { locuteur: speaker, debut: start, fin: start + len, texte: text.to_string(), passage: None }
+    Replique { locuteur: speaker, debut: start, fin: start + len, texte: text.to_string(), passages: vec![] }
 }
 
 fn sp(label: &str, guess: &str, evidence: &str, hue: f32, confirmed: bool) -> Locuteur {
@@ -126,8 +126,8 @@ fn sp(label: &str, guess: &str, evidence: &str, hue: f32, confirmed: bool) -> Lo
 /// Relie chaque passage douteux à la réplique qui contient son extrait.
 fn attach_doubts(utterances: &mut [Replique], doubts: &mut [PassageAVerifier]) {
     for (di, d) in doubts.iter_mut().enumerate() {
-        if let Some(ui) = utterances.iter().position(|x| x.texte.contains(&d.extrait) && x.passage.is_none()) {
-            utterances[ui].passage = Some(di);
+        if let Some(ui) = utterances.iter().position(|x| x.texte.contains(&d.extrait) && x.passages.is_empty()) {
+            utterances[ui].passages.push(di);
             d.replique = ui;
         }
     }

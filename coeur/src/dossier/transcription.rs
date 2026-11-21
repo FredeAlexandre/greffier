@@ -227,7 +227,7 @@ impl TranscriptionStructuree {
             etiquettes.push("SPEAKER_00".into());
         }
         let index = |e: &str| etiquettes.iter().position(|x| x == e).unwrap_or(0);
-        let lire = |x: &RepliqueEcrite| Replique { locuteur: index(&x.locuteur), debut: x.debut, fin: x.fin, texte: x.texte.clone(), passage: None };
+        let lire = |x: &RepliqueEcrite| Replique { locuteur: index(&x.locuteur), debut: x.debut, fin: x.fin, texte: x.texte.clone(), passages: vec![] };
         r.locuteurs = etiquettes.iter().enumerate().map(|(i, e)| Locuteur::new(e.clone(), TEINTES[i % TEINTES.len()])).collect();
         for (e, nom) in self.noms {
             if let Some(l) = r.locuteurs.iter_mut().find(|l| l.etiquette == e) {
@@ -254,10 +254,10 @@ impl TranscriptionStructuree {
         r.passages.clear();
         for p in self.passages {
             let Some(x) = r.repliques.get_mut(p.replique) else { continue };
-            if x.passage.is_some() {
+            if x.passages.iter().any(|&i| r.passages[i].extrait == p.extrait) {
                 continue;
             }
-            x.passage = Some(r.passages.len());
+            x.passages.push(r.passages.len());
             let statut = match (p.statut.as_str(), p.correction) {
                 ("hypothese_acceptee", _) if p.hypothese.is_some() => StatutDuPassage::HypotheseAcceptee,
                 ("original_garde", _) => StatutDuPassage::OriginalGarde,
@@ -277,7 +277,7 @@ pub fn transcription_lisible(r: &Reunion) -> String {
     for x in &r.repliques {
         let nom = r.nom_du_locuteur(x.locuteur).unwrap_or(&r.locuteurs[r.locuteur_affiche(x.locuteur)].etiquette);
         s.push_str(&format!("\n[{}] {nom} : {}\n", horodatage_de_lecture(x.debut), x.texte));
-        if let Some(p) = x.passage.and_then(|i| r.passages.get(i)).filter(|p| p.statut == StatutDuPassage::EnAttente) {
+        for p in x.passages.iter().filter_map(|&i| r.passages.get(i)).filter(|p| p.statut == StatutDuPassage::EnAttente) {
             match &p.hypothese {
                 Some(h) => s.push_str(&format!("> À vérifier : « {} » (hypothèse : « {h} »)\n", p.extrait)),
                 None => s.push_str(&format!("> À vérifier : « {} »\n", p.extrait)),
