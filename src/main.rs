@@ -1,7 +1,7 @@
 //! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
-//! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement ; le
-//! traitement tourne encore sur les faux adaptateurs du prototype. Les ressources (modèles, Python
-//! privé, CLI `claude`) sont les vraies, dans `~/Library/Application Support/Greffier`.
+//! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement et les
+//! traite avec les vrais adaptateurs (whisper.cpp, la CLI `claude`…). Les ressources (modèles,
+//! Python privé, CLI `claude`) sont dans `~/Library/Application Support/Greffier`.
 //!
 //! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
 //! sans fenêtre (`--list-scenes` pour la liste) : sans fenêtre, l'app part des données fictives
@@ -18,6 +18,7 @@ mod reglages;
 mod sidebar;
 mod surveillance;
 mod timeline;
+mod titre;
 mod ui;
 
 use std::path::{Path, PathBuf};
@@ -125,6 +126,8 @@ pub struct App {
     pub process_imported: Option<IdReunion>,
     /// L'icône de la barre des menus (fenêtre seulement, posée au lancement).
     pub menu_bar: Option<IconeDeLaBarre>,
+    /// La fenêtre « Changer le titre », ouverte quand `Some`.
+    pub rename: Option<titre::Renaming>,
     /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
     /// seulement).
     pub awake: Option<PasDeVeille>,
@@ -181,6 +184,7 @@ impl App {
                         self.command(Commande::MarquerLue(reunion));
                     }
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
+                    self.notify_bilan(reunion);
                 }
                 Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
                     // La relecture a pu enrichir le lexique.
@@ -228,6 +232,25 @@ impl App {
         }
         if self.core.reunion(id).is_some_and(|m| m.nouvelle) {
             self.command(Commande::MarquerLue(id));
+        }
+    }
+    /// La notification de macOS « Bilan prêt », quand l'app n'est pas devant (elle a déjà son
+    /// bandeau). Un clic ouvre la réunion (`open_folder_named`), retrouvée par son dossier :
+    /// l'identifiant ne survit pas à un redémarrage de l'app. Seule l'app installée peut poster.
+    fn notify_bilan(&self, id: IdReunion) {
+        if rune::is_headless() || rune_notify::app_focused() {
+            return;
+        }
+        let Some(m) = self.core.reunion(id) else { return };
+        let n = rune_notify::Notification::new(format!("bilan:{}", m.nom_du_dossier), "Bilan prêt")
+            .body(meeting::display_title(m, true))
+            .info("dossier", m.nom_du_dossier.clone());
+        rune_notify::post(&n);
+    }
+    /// Ouvre la réunion dont le dossier porte ce nom (clic sur une notification).
+    pub fn open_folder_named(&mut self, nom: &str) {
+        if let Some(id) = self.core.reunions().iter().find(|r| r.nom_du_dossier == nom).map(|r| r.id) {
+            self.open(id);
         }
     }
     pub fn open_at(&mut self, id: IdReunion, t: f64) {
@@ -511,6 +534,28 @@ impl App {
         self.command(Commande::ChangerReglages(r));
         self.save_settings();
     }
+    /// Le sélecteur de dossier de macOS, pour ouvrir un dossier de contexte à l'agent.
+    pub fn pick_context_folder(&mut self, tx: &mut Tx) {
+        let options = FileDialogOptions { title: "Dossier de contexte de l'agent".into(), directory: self.folder.clone(), ..Default::default() };
+        tx.open_folder(options, |s: &mut App, answer, _| {
+            if let Ok(Some(dir)) = answer {
+                let mut r = s.core.reglages().clone();
+                if !r.dossiers_de_contexte.contains(&dir) {
+                    r.dossiers_de_contexte.push(dir);
+                    s.command(Commande::ChangerReglages(r));
+                    s.save_settings();
+                }
+            }
+        });
+    }
+    pub fn remove_context_folder(&mut self, i: usize) {
+        let mut r = self.core.reglages().clone();
+        if i < r.dossiers_de_contexte.len() {
+            r.dossiers_de_contexte.remove(i);
+            self.command(Commande::ChangerReglages(r));
+            self.save_settings();
+        }
+    }
     pub fn toggle_fullscreen(&mut self, tx: &mut Tx) {
         self.fullscreen = !self.fullscreen && self.meeting().is_some_and(meeting::playable);
         tx.toggle_full_screen();
@@ -607,6 +652,7 @@ fn init() -> App {
         import: None,
         process_imported: None,
         menu_bar: None,
+        rename: None,
         awake: None,
     }
 }
@@ -779,6 +825,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
     overlays::short_recording(s, &k, &mut layer);
+    titre::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
     // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
@@ -856,6 +903,17 @@ fn scene_unprocessed(s: &mut App) {
     s.open(1);
 }
 fn scene_settings(s: &mut App) {
+    s.page = Page::Settings;
+}
+/// La fenêtre « Changer le titre » sur la réunion ouverte.
+fn scene_rename(s: &mut App) {
+    scene_meeting(s);
+    s.start_rename(2);
+}
+/// Les réglages avec deux dossiers de contexte ouverts à l'agent.
+fn scene_context(s: &mut App) {
+    let dossiers = ["/Users/odile/Documents/Notes", "/Users/odile/Projets/Atelier"].map(PathBuf::from).to_vec();
+    s.command(Commande::ChangerReglages(greffier_coeur::Reglages { dossiers_de_contexte: dossiers, ..s.core.reglages().clone() }));
     s.page = Page::Settings;
 }
 /// Le premier lancement : un téléchargement, une installation, un sha256 faux, `claude` absente.
@@ -961,6 +1019,8 @@ fn main() {
             ("failed", scene_failed),
             ("unprocessed", scene_unprocessed),
             ("settings", scene_settings),
+            ("context", scene_context),
+            ("rename", scene_rename),
             ("installation", scene_installation),
             ("search", scene_search),
             ("menu", scene_menu),
@@ -979,11 +1039,22 @@ fn main() {
     let app = rune::App::new(spec).chrome(chrome).menu_item(importer).keep_running();
     let handle = app.handle();
     let shared = handle.clone();
+    let shared_for_clicks = handle.clone();
     handle.update(move |s, _| {
         s.handle = Some(shared);
         s.register_record_shortcut();
         if !rune::is_headless() {
             s.install_menu_bar();
+            // Un clic sur « Bilan prêt » ouvre la réunion, même si la fenêtre était fermée.
+            let h = shared_for_clicks.clone();
+            rune_notify::on_click(move |click| {
+                let Some(nom) = click.get("dossier").map(str::to_owned) else { return };
+                h.open();
+                h.update(move |s: &mut App, _| {
+                    s.open_folder_named(&nom);
+                    rune_notify::bring_to_front();
+                });
+            });
         }
     });
     app.run();

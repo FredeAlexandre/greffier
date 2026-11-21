@@ -231,6 +231,8 @@ pub fn relire(claude: &dyn Claude, reecoute: &dyn Reecoute, d: &DemandeDeRelectu
         repertoire: d.dossier_de_reunions.clone(),
         outils_permis: OUTILS_PERMIS.map(String::from).to_vec(),
         outils_interdits: OUTILS_INTERDITS.map(String::from).to_vec(),
+        ecriture: false,
+        dossiers_en_plus: Vec::new(),
     };
     progres(PALIERS[0]);
     let p1: PremierePasse = lire(claude.demander(&appel(premiere, repliques_numerotees(&d.repliques), schema_de_la_premiere_passe(), Session::Nouvelle(session.clone())), arret)?)?;

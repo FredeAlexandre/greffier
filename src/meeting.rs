@@ -56,10 +56,11 @@ fn header(m: &Reunion, k: &Kit) -> El {
     if people > 0 {
         meta += &format!(" · {people} locuteurs");
     }
+    let id = m.id;
     col()
         .w_full()
         .gap(4.0)
-        .child(text(title).font(title_style(22.0)).color(k.c.text_base).wrap())
+        .child(text(title).font(title_style(22.0)).color(k.c.text_base).wrap().key("meeting-title").help("Changer le titre").on_press(move |s: &mut App| s.start_rename(id)))
         .child(text(meta).font(k.ty.small).color(k.c.text_muted))
 }
 

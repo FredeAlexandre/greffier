@@ -96,7 +96,9 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
             s.process(id);
         }));
     }
-    menu.separator()
+    let busy = matches!(m.statut, Statut::EnCours { .. });
+    menu.item(MenuItem::new("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))
+        .separator()
         .item(MenuItem::new("Afficher dans le Finder").icon(&ui::FOLDER).on_select(|s: &mut App| s.menu = None))
         .item(MenuItem::new("Copier le bilan en Markdown").disabled(!done).on_select(|s: &mut App| s.menu = None))
         .separator()

@@ -306,8 +306,13 @@ pub struct LocuteurPourLAgent {
 pub struct DemandeDeBilan {
     /// Le répertoire de travail de l'agent.
     pub dossier_de_reunions: PathBuf,
+    /// Les dossiers de contexte des réglages, ouverts à l'agent en plus du dossier de réunions.
+    pub dossiers_de_contexte: Vec<PathBuf>,
     /// Le fichier que l'agent doit écrire.
     pub fichier_du_bilan: PathBuf,
+    /// La fiche et la transcription lisible de la réunion, que l'agent lit.
+    pub fiche: PathBuf,
+    pub transcription: PathBuf,
     pub titre: String,
     pub debut: DateHeure,
     pub duree: f64,
