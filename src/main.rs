@@ -642,6 +642,18 @@ fn scene_recording(s: &mut App) {
     s.core.avancer(442.0 / fictif::VITESSE_D_ENREGISTREMENT);
     s.rec_phase = 1.3;
 }
+/// La page d'enregistrement avant le démarrage : sources et autorisations.
+fn scene_record_ready(s: &mut App) {
+    s.page = Page::Recording;
+}
+/// À l'arrêt d'un enregistrement de 12 s (capture au temps réel) : proposé à la suppression.
+fn scene_short_recording(s: &mut App) {
+    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { capture: Box::new(greffier_coeur::faux::FausseCapture::new(1.0, 0.0)), ..fictif::adaptateurs() };
+    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    s.start_recording();
+    s.core.avancer(12.0);
+    s.stop_recording();
+}
 /// La réunion à traiter, transcrite, à 40 % de la relecture.
 fn scene_processing(s: &mut App) {
     s.open(1);
@@ -721,6 +733,8 @@ fn main() {
             ("people", scene_people),
             ("info", scene_info),
             ("recording", scene_recording),
+            ("record-ready", scene_record_ready),
+            ("short-recording", scene_short_recording),
             ("processing", scene_processing),
             ("unprocessed", scene_unprocessed),
             ("settings", scene_settings),

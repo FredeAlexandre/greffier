@@ -199,7 +199,8 @@ pub fn permissions(s: &App, k: &Kit) -> El {
     c
 }
 
-fn shortcut_caps(s: &App) -> Vec<String> {
+/// Les touches du raccourci global d'enregistrement (« ⇧⌘R »).
+pub fn shortcut_caps(s: &App) -> Vec<String> {
     s.shortcut.shortcut().map(|sc| sc.keycaps()).unwrap_or_default()
 }
 
