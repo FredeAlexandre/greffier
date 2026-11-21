@@ -210,3 +210,24 @@ pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
         );
     Dialog::new("delete", "Supprimer la réunion ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.confirm_delete = None).child(body).build(k, layer);
 }
+
+/// À l'arrêt d'un enregistrement de moins d'une minute : sans doute un faux départ.
+pub fn short_recording(s: &App, k: &Kit, layer: &mut Vec<El>) {
+    let Some(id) = s.short_recording else { return };
+    let Some(m) = s.core.reunion(id) else { return };
+    let body = col()
+        .w_full()
+        .px(16.0)
+        .pb(16.0)
+        .gap(14.0)
+        .child(muted(k, format!("L'enregistrement n'a duré que {}. Si c'était un faux départ, il peut partir à la corbeille du Mac.", ui::dur(m.duree))))
+        .child(
+            row().w_full().gap(8.0).justify_end()
+                .child(Button::new("Garder").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.short_recording = None).build(k).key("short-keep"))
+                .child(Button::new("Supprimer").variant(ButtonVariant::Danger).on_press(move |s: &mut App| {
+                    s.short_recording = None;
+                    s.delete(id);
+                }).build(k).key("short-delete")),
+        );
+    Dialog::new("short-recording", "Supprimer cet enregistrement ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.short_recording = None).child(body).build(k, layer);
+}

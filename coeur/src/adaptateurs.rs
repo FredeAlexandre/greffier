@@ -68,8 +68,91 @@ pub struct EtatDeCapture {
     pub niveaux: Niveaux,
 }
 
+/// Où en est une autorisation de macOS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EtatDAutorisation {
+    Accordee,
+    /// Refusée : macOS ne la redemande plus, il faut passer par les Réglages Système.
+    Refusee,
+    /// Jamais demandée : la demander affiche la question de macOS.
+    ADemander,
+}
+
+/// Les autorisations dont chaque source a besoin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Autorisation {
+    Ecran,
+    Micro,
+    SonDuMac,
+}
+
+impl Autorisation {
+    pub const TOUTES: [Autorisation; 3] = [Autorisation::Ecran, Autorisation::SonDuMac, Autorisation::Micro];
+
+    /// Le nom de la source, comme dans l'interface.
+    pub fn nom(self) -> &'static str {
+        match self {
+            Autorisation::Ecran => "Écran",
+            Autorisation::Micro => "Micro",
+            Autorisation::SonDuMac => "Son du Mac",
+        }
+    }
+
+    /// La rubrique de Réglages Système › Confidentialité et sécurité qui la donne.
+    pub fn rubrique(self) -> &'static str {
+        match self {
+            Autorisation::Ecran | Autorisation::SonDuMac => "Enregistrement de l'écran et de l'audio du système",
+            Autorisation::Micro => "Micro",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Autorisations {
+    pub ecran: EtatDAutorisation,
+    pub micro: EtatDAutorisation,
+    pub son_du_mac: EtatDAutorisation,
+}
+
+impl Autorisations {
+    pub const ACCORDEES: Autorisations = Autorisations { ecran: EtatDAutorisation::Accordee, micro: EtatDAutorisation::Accordee, son_du_mac: EtatDAutorisation::Accordee };
+
+    pub fn etat(&self, a: Autorisation) -> EtatDAutorisation {
+        match a {
+            Autorisation::Ecran => self.ecran,
+            Autorisation::Micro => self.micro,
+            Autorisation::SonDuMac => self.son_du_mac,
+        }
+    }
+
+    pub fn etat_mut(&mut self, a: Autorisation) -> &mut EtatDAutorisation {
+        match a {
+            Autorisation::Ecran => &mut self.ecran,
+            Autorisation::Micro => &mut self.micro,
+            Autorisation::SonDuMac => &mut self.son_du_mac,
+        }
+    }
+}
+
+impl Sources {
+    /// Les autorisations nécessaires aux sources activées.
+    pub fn autorisations(&self) -> impl Iterator<Item = Autorisation> {
+        [(self.ecran, Autorisation::Ecran), (self.son_du_mac, Autorisation::SonDuMac), (self.micro, Autorisation::Micro)].into_iter().filter(|(on, _)| *on).map(|(_, a)| a)
+    }
+
+    pub fn aucune(&self) -> bool {
+        !(self.ecran || self.son_du_mac || self.micro)
+    }
+}
+
 /// Enregistre l'écran, le son du Mac et le micro dans un fichier.
 pub trait Capture {
+    /// L'état des autorisations de macOS (lecture rapide : appelée par l'interface).
+    fn autorisations(&self) -> Autorisations {
+        Autorisations::ACCORDEES
+    }
+    /// Affiche la demande de macOS pour cette autorisation, si elle n'a jamais été demandée.
+    fn demander_autorisation(&mut self, _autorisation: Autorisation) {}
     fn demarrer(&mut self, demande: DemandeDeCapture) -> Result<(), String>;
     fn sonder(&mut self, ecoule: f64) -> EtatDeCapture;
     /// Arrête et finit d'écrire le fichier ; rend la durée enregistrée.

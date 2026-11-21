@@ -2,9 +2,9 @@
 //! enregistrement, réglages, et le bandeau de notification.
 
 use rune::{El, ScrollSpec, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Progress, Spinner, Switch};
+use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Progress, ShortcutRecorder, Spinner, Switch};
 
-use greffier_coeur::adaptateurs::{EtatDeRessource, Ressource};
+use greffier_coeur::adaptateurs::{Autorisation, EtatDAutorisation, EtatDeRessource, Ressource};
 use greffier_coeur::{Commande, Statut, bilan};
 
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
@@ -152,13 +152,17 @@ pub fn overview(s: &App, k: &Kit) -> El {
     page("overview", "Réunions", "Tout ce qui a été dit et décidé, enregistré sur ce Mac.", k, col().w_full().gap(16.0).child(stats).child(row().w_full().gap(16.0).items_start().flex_wrap().child(col().grow(3.0).min_w(420.0).child(recent)).child(col().grow(2.0).min_w(320.0).child(chart))))
 }
 
-fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64, seed: f64, on: bool) -> El {
+/// Les barres d'un niveau : leur hauteur suit le niveau (0 à 1, `None` : source coupée), leur
+/// ondulation l'animation.
+fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64, seed: f64, level: Option<f32>) -> El {
+    let on = level.is_some();
+    let level = level.unwrap_or(0.0);
     let mut bars = row().key(key.to_owned()).gap(3.0).center_y().h(36.0);
     for i in 0..28 {
         let f = i as f64;
         let v = if on {
             let wave = ((phase * 7.0 + f * 0.55 + seed).sin() * 0.5 + 0.5) * ((phase * 2.3 + seed * 3.0 + f * 0.13).sin() * 0.5 + 0.5);
-            (0.12 + 0.88 * wave) as f32
+            0.08 + 0.92 * level.clamp(0.0, 1.0) * (0.25 + 0.75 * wave as f32)
         } else {
             0.08
         };
@@ -171,15 +175,67 @@ fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64,
         .child(bars)
 }
 
+/// Les autorisations de macOS dont les sources ont besoin, avec de quoi les demander.
+pub fn permissions(s: &App, k: &Kit) -> El {
+    let etats = s.core.autorisations();
+    let mut c = card(k).key("permissions").child(heading(k, "Autorisations de macOS"));
+    for a in Autorisation::TOUTES {
+        let etat = etats.etat(a);
+        let detail = match etat {
+            EtatDAutorisation::Accordee => "accordée".to_string(),
+            EtatDAutorisation::ADemander => "pas encore demandée".to_string(),
+            EtatDAutorisation::Refusee => format!("refusée : Réglages Système › Confidentialité et sécurité › {}", a.rubrique()),
+        };
+        let mut line = row().key(format!("perm-{}", a.nom())).w_full().gap(8.0).center_y().child(check_row(k, etat == EtatDAutorisation::Accordee, a.nom(), &detail).grow(1.0).min_w(0.0));
+        if etat != EtatDAutorisation::Accordee {
+            let label = if etat == EtatDAutorisation::ADemander { "Autoriser" } else { "Ouvrir les Réglages" };
+            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.command(Commande::DemanderAutorisation(a))).build(k));
+        }
+        c = c.child(line);
+    }
+    if etats.ecran != EtatDAutorisation::Accordee {
+        c = c.child(muted(k, "Le son du Mac passe par l'autorisation de l'écran. Une fois accordée, macOS demande de relancer Greffier."));
+    }
+    c
+}
+
+/// Les autorisations en une ligne, pour les vérifications.
+fn permissions_summary(s: &App, k: &Kit) -> El {
+    let etats = s.core.autorisations();
+    let manquantes: Vec<&str> = Autorisation::TOUTES.into_iter().filter(|a| etats.etat(*a) != EtatDAutorisation::Accordee).map(Autorisation::nom).collect();
+    let detail = if manquantes.is_empty() { "écran, micro, son du système".to_string() } else { format!("manquantes : {}", manquantes.join(", ").to_lowercase()) };
+    check_row(k, manquantes.is_empty(), "Autorisations macOS", &detail)
+}
+
+/// Les touches du raccourci global d'enregistrement (« ⇧⌘R »).
+pub fn shortcut_caps(s: &App) -> Vec<String> {
+    s.shortcut.shortcut().map(|sc| sc.keycaps()).unwrap_or_default()
+}
+
 pub fn recording(s: &App, k: &Kit) -> El {
     let Some(r) = s.core.enregistrement() else {
-        let body = card(k).gap(14.0).items_center().padding(32.0)
+        let caps = shortcut_caps(s);
+        let mut start = card(k).gap(14.0).items_center().padding(32.0)
             .child(glyph(&ui::RECORD, 34.0, red()))
             .child(heading(k, "Prêt à enregistrer"))
             .child(muted(k, "L'écran, le son du Mac (la visio) et ton micro."))
-            .child(Button::new("Démarrer l'enregistrement").icon(&ui::RECORD).variant(ButtonVariant::Danger).on_press(|s: &mut App| s.start_recording()).build(k).key("start"))
-            .child(Keybind::new(&["⇧", "⌘", "R"]).build(k));
-        return page("recording", "Enregistrer", "Un clic ou ⇧⌘R, de n'importe où.", k, body);
+            .child(Button::new("Démarrer l'enregistrement").icon(&ui::RECORD).variant(ButtonVariant::Danger).on_press(|s: &mut App| s.start_recording()).build(k).key("start"));
+        if !caps.is_empty() {
+            start = start.child(Keybind::new(&caps).build(k));
+        }
+        if let Some(e) = &s.record_error {
+            start = start.child(text(e.clone()).key("record-error").font(k.ty.small).color(k.c.danger.fg).wrap());
+        }
+        let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k);
+        let sources = card(k)
+            .child(heading(k, "Sources"))
+            .child(src(0, "Écran"))
+            .child(src(1, "Son du Mac"))
+            .child(src(2, "Micro"))
+            .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+        let subtitle = if caps.is_empty() { "Un clic sur le bouton.".to_string() } else { format!("Un clic ou {}, de n'importe où.", caps.concat()) };
+        let body = col().w_full().gap(16.0).child(start).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(sources)).child(col().grow(1.0).min_w(0.0).child(permissions(s, k))));
+        return page("recording", "Enregistrer", &subtitle, k, body);
     };
     let phase = s.rec_phase;
     let pulse = 0.5 + 0.5 * (phase * 3.0).cos().abs() as f32;
@@ -191,11 +247,11 @@ pub fn recording(s: &App, k: &Kit) -> El {
             row().w_full().gap(14.0).center_y()
                 .child(el().size(14.0, 14.0).radius(7.0).fill(red()).opacity(pulse))
                 .child(text("Enregistrement en cours").font(k.ty.body_medium).color(k.c.text_base).grow(1.0))
-                .child(text("démo : temps accéléré ×20").font(k.ty.text_xsmall).color(k.c.text_faint)),
+                .child(text(if s.folder.is_none() { "démo : temps accéléré ×20" } else { "" }).font(k.ty.text_xsmall).color(k.c.text_faint)),
         )
         .child(text(ui::ts(r.duree)).key("rec-timer").font(tnum(title_style(56.0))).color(k.c.text_base))
-        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", phase, 0.0, s.source(2)))
-        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", phase, 2.1, s.source(1)))
+        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", phase, 0.0, r.sources.micro.then_some(r.niveaux.micro)))
+        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", phase, 2.1, r.sources.son_du_mac.then_some(r.niveaux.son_du_mac)))
         .child(
             row().w_full().gap(10.0).pt(4.0)
                 .child(Button::new("Arrêter l'enregistrement").icon(&ui::STOP).variant(ButtonVariant::Danger).on_press(|s: &mut App| s.stop_recording()).build(k).key("stop"))
@@ -213,9 +269,9 @@ pub fn recording(s: &App, k: &Kit) -> El {
     let people = r.nombre_de_locuteurs;
     let setup = card(k)
         .child(heading(k, "Sources et réglages"))
-        .child(check_row(k, s.source(0), "Écran", "Écran principal · 30 i/s"))
-        .child(check_row(k, s.source(1), "Son du Mac", "Meet, Zoom, toute l'audio du système"))
-        .child(check_row(k, s.source(2), "Micro", "Micro du MacBook Pro"))
+        .child(check_row(k, r.sources.ecran, "Écran", if r.sources.ecran { "Écran principal · 30 i/s" } else { "coupé" }))
+        .child(check_row(k, r.sources.son_du_mac, "Son du Mac", if r.sources.son_du_mac { "Meet, Zoom, toute l'audio du système" } else { "coupé" }))
+        .child(check_row(k, r.sources.micro, "Micro", if r.sources.micro { "Micro par défaut du Mac" } else { "coupé" }))
         .child(
             row().w_full().gap(10.0).center_y().pt(6.0)
                 .child(text("Personnes").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
@@ -238,8 +294,16 @@ pub fn settings(s: &App, k: &Kit) -> El {
         .child(src(0, "Écran"))
         .child(src(1, "Son du Mac"))
         .child(src(2, "Micro"))
-        .child(row().w_full().justify_between().center_y().child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⇧", "⌘", "R"]).build(k)))
-        .child(row().w_full().justify_between().center_y().child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⌘", "M"]).build(k)))
+        .child(
+            row().w_full().justify_between().center_y()
+                .child(col().gap(2.0).child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "Démarre et arrête l'enregistrement, même app en arrière-plan.")))
+                .child(ShortcutRecorder::new("record-shortcut", &s.shortcut, |s: &mut App| &mut s.shortcut).on_change(|s: &mut App, next, _| s.change_shortcut(next)).build(k)),
+        )
+        .child(
+            row().w_full().justify_between().center_y()
+                .child(col().gap(2.0).child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "De n'importe où, pendant l'enregistrement seulement.")))
+                .child(Keybind::new(&["⌘", "M"]).build(k)),
+        )
         .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
     let folder = match (&s.folder, s.needs_folder) {
         (Some(d), _) => reglages::afficher(d),
@@ -271,7 +335,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
     let place: u64 = ressources.iter().map(|r| r.taille).sum();
     let mut health = card(k)
         .child(row().w_full().justify_between().center_y().child(heading(k, "Vérifications")).child(eyebrow(k, &format!("ressources : {}", ui::octets(place)))))
-        .child(check_row(k, true, "Autorisations macOS", "écran, micro, son du système"));
+        .child(permissions_summary(s, k));
     for r in ressources {
         let detail = match &r.etat {
             EtatDeRessource::Prete if r.taille > 0 => format!("{} · {}", ui::octets(r.taille), r.detail),
@@ -287,7 +351,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
                 .child(muted(k, "Modèles, Python privé et lexique sont dans ~/Library/Application Support/Greffier.").grow(1.0).min_w(0.0))
                 .child(Button::new("Ressources…").variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|s: &mut App| s.page = Page::Installation).build(k).key("open-resources")),
         );
-    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(storage).child(ai).child(health))
+    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(health))
 }
 
 /// L'état d'une ressource en quelques mots.

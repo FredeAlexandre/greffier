@@ -34,7 +34,7 @@ fn record_button(s: &App, k: &Kit) -> El {
         .label(label.clone())
         .child(glyph(icon, 14.0, r).opacity(pulse))
         .child(text(label).font(tnum(k.ty.ui_medium)).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
-        .child(text("⇧⌘R").font(k.ty.small).color(k.c.text_faint))
+        .child(text(crate::pages::shortcut_caps(s).concat()).font(k.ty.small).color(k.c.text_faint))
         .on_press(|s: &mut App| {
             if s.recording() {
                 if s.page == Page::Recording { s.stop_recording() } else { s.page = Page::Recording }

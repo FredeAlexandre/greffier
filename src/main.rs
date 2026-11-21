@@ -23,13 +23,14 @@ mod ui;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rune::{AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, PointerPress, Spring, TextEdit, Tx, Waker};
+use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, PointerPress, Shortcut, ShortcutError, ShortcutId, Spring, TextEdit, Tx, Waker};
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
-use rune_kit::{ControlSize, Kit};
+use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
+use greffier_barre::{Choix, IconeDeLaBarre};
 use greffier_coeur::adaptateurs::EtatDeRessource;
 use greffier_coeur::faux::FaussesRessources;
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Role, Tranche, fictif, lexique};
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif, lexique};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -102,6 +103,17 @@ pub struct App {
     pub needs_folder: bool,
     /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
     pub folder_error: Option<String>,
+    /// Pour (dé)poser les raccourcis globaux une fois l'app lancée.
+    pub handle: Option<AppHandle<App>>,
+    /// Le raccourci global qui démarre et arrête l'enregistrement (réglable).
+    pub shortcut: ShortcutRecorderState,
+    pub shortcut_id: Option<ShortcutId>,
+    /// ⌘M pose un repère de n'importe où, le temps de l'enregistrement.
+    pub marker_id: Option<ShortcutId>,
+    /// Pourquoi l'enregistrement n'a pas démarré (autorisation, source…).
+    pub record_error: Option<String>,
+    /// Un enregistrement de moins d'une minute, proposé à la suppression.
+    pub short_recording: Option<IdReunion>,
     /// Ce que compte le lexique, pour les réglages.
     pub lexique: lexique::Resume,
     /// Signale les changements faits dans le dossier de réunions hors de l'app.
@@ -110,6 +122,8 @@ pub struct App {
     pub import: Option<import::Draft>,
     /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
     pub process_imported: Option<IdReunion>,
+    /// L'icône de la barre des menus (fenêtre seulement, posée au lancement).
+    pub menu_bar: Option<IconeDeLaBarre>,
 }
 
 impl App {
@@ -133,15 +147,21 @@ impl App {
     }
     /// Envoie une commande au cœur et donne suite à ses événements.
     pub fn command(&mut self, c: Commande) {
-        match self.core.executer(c) {
-            Ok(events) => self.handle(events),
-            Err(refus) => eprintln!("greffier : {refus}"),
+        if let Err(refus) = self.try_command(c) {
+            eprintln!("greffier : {refus}");
         }
+    }
+    fn try_command(&mut self, c: Commande) -> Result<(), Refus> {
+        let events = self.core.executer(c);
+        self.show_menu_bar();
+        self.handle(events?);
+        Ok(())
     }
     fn handle(&mut self, events: Vec<Evenement>) {
         for e in events {
             match e {
                 Evenement::ReunionEnregistree(id) => self.open(id),
+                Evenement::SuppressionProposee(id) => self.short_recording = Some(id),
                 Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
                     if self.page == Page::Meeting(reunion) {
@@ -250,10 +270,13 @@ impl App {
             self.folder_error = Some(e);
             return;
         }
+        let settings = self.core.reglages().clone();
         self.core = real_core(&dir, true);
+        self.command(Commande::ChangerReglages(settings));
         self.folder = Some(dir);
         self.watch_folder();
         self.needs_folder = false;
+        self.show_menu_bar();
         self.folder_error = None;
         self.video = None;
         self.playing = false;
@@ -276,13 +299,44 @@ impl App {
     pub fn recording(&self) -> bool {
         self.core.enregistrement().is_some()
     }
+    /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
+    /// global, sur le thread de l'interface (`AppHandle::update`), comme lui.
+    fn install_menu_bar(&mut self) {
+        let Some(h) = self.handle.clone() else { return };
+        self.menu_bar = IconeDeLaBarre::new(move |choix| match choix {
+            Choix::Demarrer => h.update(|s: &mut App, _| if !s.recording() { s.toggle_recording() }),
+            Choix::Arreter => h.update(|s: &mut App, _| if s.recording() { s.toggle_recording() }),
+            Choix::Ouvrir => h.open(),
+            Choix::Quitter => h.quit(),
+        });
+        self.show_menu_bar();
+    }
+    /// Montre l'état de l'enregistrement dans la barre des menus.
+    fn show_menu_bar(&mut self) {
+        let etat = match self.core.enregistrement() {
+            Some(r) => greffier_barre::Etat::Enregistrement { duree: r.duree },
+            None => greffier_barre::Etat::Pret { possible: !self.needs_folder },
+        };
+        if let Some(b) = &mut self.menu_bar {
+            b.montrer(etat);
+        }
+    }
     pub fn start_recording(&mut self) {
         if self.needs_folder {
             return;
         }
         if !self.recording() {
             self.rec_phase = 0.0;
-            self.command(Commande::DemarrerEnregistrement);
+            self.record_error = self.try_command(Commande::DemarrerEnregistrement).err().map(|r| r.to_string());
+            if self.recording() {
+                self.register_marker_shortcut(true);
+            } else if let Some(h) = &self.handle {
+                // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
+                h.open();
+            }
+        }
+        if let Some((_, p)) = &self.video {
+            p.pause();
         }
         self.playing = false;
         self.page = Page::Recording;
@@ -290,6 +344,54 @@ impl App {
     pub fn stop_recording(&mut self) {
         if self.recording() {
             self.command(Commande::ArreterEnregistrement);
+        }
+        self.register_marker_shortcut(false);
+    }
+    pub fn toggle_recording(&mut self) {
+        if self.recording() { self.stop_recording() } else { self.start_recording() }
+    }
+    /// ⌘M de n'importe où pendant l'enregistrement (rendu aux autres apps à l'arrêt).
+    fn register_marker_shortcut(&mut self, on: bool) {
+        let Some(h) = &self.handle else { return };
+        match (on, self.marker_id) {
+            (true, None) => match h.register_shortcut("cmd+m".parse().expect("cmd+m"), |s: &mut App, _| s.add_marker()) {
+                Ok(id) => self.marker_id = Some(id),
+                Err(e) => eprintln!("greffier : ⌘M pour les repères : {e}"),
+            },
+            (false, Some(id)) => {
+                let _ = h.unregister_shortcut(id);
+                self.marker_id = None;
+            }
+            _ => {}
+        }
+    }
+    /// Pose le raccourci global d'enregistrement retenu, au lancement.
+    pub fn register_record_shortcut(&mut self) {
+        let shortcut = self.shortcut.shortcut().cloned();
+        if let Err(e) = self.change_shortcut(shortcut.as_ref()) {
+            eprintln!("greffier : raccourci {} : {e}", shortcut.map(|s| s.to_string()).unwrap_or_default());
+            self.shortcut.mark_unregistered();
+        }
+    }
+    /// Remplace le raccourci global d'enregistrement ; garde l'ancien si le nouveau est refusé.
+    pub fn change_shortcut(&mut self, next: Option<&Shortcut>) -> Result<(), ShortcutError> {
+        let h = self.handle.as_ref().ok_or(ShortcutError::NotRunning)?;
+        let new = next.map(|sc| h.register_shortcut(sc.clone(), |s: &mut App, _| s.toggle_recording())).transpose()?;
+        if let Some(old) = self.shortcut_id.take() {
+            let _ = h.unregister_shortcut(old);
+        }
+        self.shortcut_id = new;
+        self.save_settings();
+        Ok(())
+    }
+    /// Retient sources, démarrage automatique et raccourci (pas pour les données fictives).
+    fn save_settings(&mut self) {
+        if rune::is_headless() || self.folder.is_none() && !self.needs_folder {
+            return;
+        }
+        let raccourci = self.shortcut.shortcut().map(|s| s.to_string()).unwrap_or_default();
+        if let Err(e) = reglages::retenir_enregistrement(self.core.reglages(), &raccourci) {
+            eprintln!("greffier : réglages : {e}");
         }
     }
     pub fn process(&mut self, id: IdReunion) {
@@ -352,11 +454,14 @@ impl App {
         let v = [&mut s.ecran, &mut s.son_du_mac, &mut s.micro];
         *v[i] = !*v[i];
         self.command(Commande::ChangerReglages(r));
+        self.record_error = None;
+        self.save_settings();
     }
     pub fn toggle_auto_process(&mut self) {
         let mut r = self.core.reglages().clone();
         r.traiter_a_l_arret = !r.traiter_a_l_arret;
         self.command(Commande::ChangerReglages(r));
+        self.save_settings();
     }
     pub fn toggle_fullscreen(&mut self, tx: &mut Tx) {
         self.fullscreen = !self.fullscreen && self.meeting().is_some_and(meeting::playable);
@@ -404,7 +509,7 @@ fn init() -> App {
     // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
     // jamais d'écriture dans le vrai dossier de réunions ni dans le dossier de l'app.
     let folder = if rune::is_headless() { None } else { reglages::dossier_de_reunions() };
-    let (core, page) = match &folder {
+    let (mut core, page) = match &folder {
         _ if rune::is_headless() => (prototype(), Page::Overview),
         Some(dir) => {
             let core = real_core(dir, true);
@@ -413,6 +518,9 @@ fn init() -> App {
         }
         None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
     };
+    // Sans fenêtre, les réglages par défaut : rendu déterministe.
+    let (settings, shortcut) = if rune::is_headless() { (greffier_coeur::Reglages::default(), reglages::RACCOURCI_PAR_DEFAUT.to_string()) } else { reglages::enregistrement() };
+    let _ = core.executer(Commande::ChangerReglages(settings));
     App {
         core,
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
@@ -440,10 +548,17 @@ fn init() -> App {
         needs_folder: page == Page::Welcome,
         folder,
         folder_error: None,
+        handle: None,
+        shortcut: ShortcutRecorderState::new(shortcut.parse().ok()),
+        shortcut_id: None,
+        marker_id: None,
+        record_error: None,
+        short_recording: None,
         lexique: reglages::lexique(),
         watch: None,
         import: None,
         process_imported: None,
+        menu_bar: None,
     }
 }
 
@@ -518,6 +633,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     s.handle(events);
+    s.show_menu_bar();
 
     if let Some(t) = &s.toast {
         if clock > t.until {
@@ -550,11 +666,12 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.shortcut.is_recording() {
         return false;
     }
-    if ev.is_command('r') && ev.mods.shift {
-        if s.recording() { s.stop_recording() } else { s.start_recording() }
+    // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
+    if ev.is_command('r') && ev.mods.shift && s.shortcut_id.is_none() {
+        s.toggle_recording();
         return true;
     }
     if ev.is_command('m') && s.recording() {
@@ -612,6 +729,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     meeting::fullscreen(s, &k, cx, &mut layer);
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
+    overlays::short_recording(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
     // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
@@ -645,6 +763,18 @@ fn scene_recording(s: &mut App) {
     s.add_marker();
     s.core.avancer(442.0 / fictif::VITESSE_D_ENREGISTREMENT);
     s.rec_phase = 1.3;
+}
+/// La page d'enregistrement avant le démarrage : sources et autorisations.
+fn scene_record_ready(s: &mut App) {
+    s.page = Page::Recording;
+}
+/// À l'arrêt d'un enregistrement de 12 s (capture au temps réel) : proposé à la suppression.
+fn scene_short_recording(s: &mut App) {
+    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { capture: Box::new(greffier_coeur::faux::FausseCapture::new(1.0, 0.0)), ..fictif::adaptateurs() };
+    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    s.start_recording();
+    s.core.avancer(12.0);
+    s.stop_recording();
 }
 /// La réunion à traiter, transcrite, à 40 % de la relecture.
 fn scene_processing(s: &mut App) {
@@ -775,6 +905,8 @@ fn main() {
             ("people", scene_people),
             ("info", scene_info),
             ("recording", scene_recording),
+            ("record-ready", scene_record_ready),
+            ("short-recording", scene_short_recording),
             ("processing", scene_processing),
             ("queue", scene_queue),
             ("failed", scene_failed),
@@ -794,6 +926,17 @@ fn main() {
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
     let importer = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
-    rune::App::new(spec).chrome(chrome).menu_item(importer).run();
+    // Fermer la fenêtre garde l'app (et l'icône de la barre des menus) : ⌘Q la quitte.
+    let app = rune::App::new(spec).chrome(chrome).menu_item(importer).keep_running();
+    let handle = app.handle();
+    let shared = handle.clone();
+    handle.update(move |s, _| {
+        s.handle = Some(shared);
+        s.register_record_shortcut();
+        if !rune::is_headless() {
+            s.install_menu_bar();
+        }
+    });
+    app.run();
 }
 
