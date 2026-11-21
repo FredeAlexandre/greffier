@@ -126,7 +126,7 @@ pub fn attribuer(mots: Vec<Mot>, tours: Vec<TourDeParole>) -> Attribution {
         }
     }
     let rang = |i: usize| ordre.iter().position(|&x| x == i).unwrap_or(0);
-    let locuteurs: Vec<Locuteur> = (0..ordre.len()).map(|i| Locuteur::new(format!("SPEAKER_{i:02}"), TEINTES[i % TEINTES.len()])).collect();
+    let locuteurs: Vec<Locuteur> = (0..ordre.len()).map(|i| Locuteur::new(Locuteur::etiquette_numero(i), TEINTES[i % TEINTES.len()])).collect();
     let tours = tours.into_iter().zip(&numeros).map(|(t, &n)| TourDeParole { locuteur: locuteurs[rang(n)].etiquette.clone(), ..t }).collect();
     let mots: Vec<Mot> = mots.into_iter().zip(&ids).map(|(m, &i)| Mot { locuteur: Some(rang(i)), ..m }).collect();
     let repliques = repliques(&mots);

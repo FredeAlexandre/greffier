@@ -374,7 +374,7 @@ fn info(s: &App, m: &Reunion, k: &Kit) -> El {
     ] {
         processing = processing.child(ui::check_row(k, ok, label, &detail));
     }
-    let folder = format!("{}/", reglages::afficher(&s.core.dossier().dossier(&m.nom_du_dossier)));
+    let folder = format!("{}/", s.core.dossier_de_la_reunion(m.id).map(|d| reglages::afficher(&d)).unwrap_or_default());
     let mut files = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Fichiers dans le dossier de réunions"))
         .child(row().gap(6.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(folder).font(k.ty.small).color(k.c.text_muted).truncate_middle().min_w(0.0)));
     for role in Role::TOUS {
@@ -453,7 +453,7 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
         }
         list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(row().w(18.0).h(18.0).center().child(icon)).child(col_));
     }
-    let eta = ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0));
+    let eta = ui::eta(s, id);
     let (status, action) = match &m.statut {
         Statut::EnAttente(_) => match s.core.rang(id).unwrap_or(0) {
             0 | 1 => (format!("En attente : une autre réunion est en cours de traitement. Environ {eta} avant la fin."), None),

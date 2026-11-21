@@ -17,13 +17,10 @@ pub const AUJOURD_HUI: DateHeure = DateHeure::new(2026, 11, 21, 14, 2);
 /// Le temps de l'enregistrement va 20 fois plus vite que l'horloge, pour la démo.
 pub const VITESSE_D_ENREGISTREMENT: f64 = 20.0;
 
-/// Durée simulée d'une étape, en secondes.
+/// Durée simulée d'une étape, en secondes : son poids (6 s de transcription, 4,5 s de relecture
+/// et de bilan), pour que l'estimation du temps restant tombe juste dans la démo.
 pub fn duree_simulee(etape: Etape) -> f64 {
-    match etape {
-        Etape::Transcription => 6.0,
-        Etape::Relecture => 4.5,
-        Etape::Bilan => 4.5,
-    }
+    etape.poids()
 }
 
 /// Les personnes du lexique, proposées quand on nomme un locuteur.

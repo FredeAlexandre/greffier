@@ -115,6 +115,11 @@ pub struct Locuteur {
 }
 
 impl Locuteur {
+    /// L'étiquette du n-ième locuteur : « SPEAKER_00 », « SPEAKER_01 »…
+    pub fn etiquette_numero(n: usize) -> String {
+        format!("SPEAKER_{n:02}")
+    }
+
     pub fn new(etiquette: impl Into<String>, teinte: f32) -> Locuteur {
         Locuteur { etiquette: etiquette.into(), nom: None, proposition: None, justification: String::new(), teinte, fusionne_dans: None, fusion_proposee: None }
     }

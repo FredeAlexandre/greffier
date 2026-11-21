@@ -51,9 +51,7 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
         Statut::Terminee if m.passages_en_attente() > 0 => format!("{start} · {} · {} à vérifier", ui::dur(m.duree), m.passages_en_attente()),
         Statut::Terminee => format!("{start} · {}", ui::dur(m.duree)),
         Statut::ATraiter => format!("{start} · {} · à traiter", ui::dur(m.duree)),
-        Statut::EnAttente(_) => format!("{start} · {}ᵉ dans la file · {}", s.core.rang(id).map_or(1, |r| r + 1), ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))),
-        Statut::EnCours { etape, progres } => format!("{start} · {} {:.0} % · {}", ui::step(*etape), progres * 100.0, ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))),
-        st => format!("{start} · {}", ui::status(st).to_lowercase()),
+        _ => format!("{start} · {}", ui::status_line(s, m)),
     };
     let title = crate::meeting::display_title(m, false);
     let mut r = SidebarRow::new(title)

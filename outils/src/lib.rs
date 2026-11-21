@@ -5,6 +5,9 @@
 //!   (relecture en deux passes avec réécoute, bilan écrit par l'agent).
 //! - [`mac`] : les [`Outils`](greffier_coeur::ressources::Outils) des ressources (curl, sha256,
 //!   uv embarqué, vérification de `claude`) et l'environnement du Python privé.
+//! - [`processus`] : ce qu'ils partagent (et `greffier-moteurs` avec eux) pour faire tourner un
+//!   travail sur un fil et attendre un programme qu'on peut arrêter.
 
 pub mod claude;
 pub mod mac;
+pub mod processus;

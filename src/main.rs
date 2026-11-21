@@ -284,8 +284,7 @@ impl App {
         if !m.fichiers.contains(&Role::Enregistrement) {
             return;
         }
-        // Un média importé garde son extension (`… - enregistrement.m4a`).
-        let Some(file) = self.core.dossier().enregistrement(&m.nom_du_dossier) else { return };
+        let Some(file) = self.core.fichier_d_enregistrement(id) else { return };
         let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
@@ -508,8 +507,7 @@ impl App {
     }
     /// Montre le dossier de la réunion dans le Finder (sans fenêtre, rien).
     pub fn reveal(&mut self, id: IdReunion) {
-        let Some(m) = self.core.reunion(id) else { return };
-        let dossier = self.core.dossier().dossier(&m.nom_du_dossier);
+        let Some(dossier) = self.core.dossier_de_la_reunion(id) else { return };
         if rune::is_headless() {
             return;
         }

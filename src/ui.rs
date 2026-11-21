@@ -82,6 +82,22 @@ pub fn step(e: Etape) -> &'static str {
     }
 }
 
+/// Le temps restant d'une réunion dans la file (le sien et celui des réunions d'avant), une
+/// minute au moins.
+pub fn eta(s: &App, id: greffier_coeur::IdReunion) -> String {
+    dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))
+}
+
+/// Le statut d'une réunion en une ligne courte, avec où elle en est dans la file : « 2ᵉ dans la
+/// file · 15 min », « Transcription 40 % · 7 min », sinon [`status`] en minuscules.
+pub fn status_line(s: &App, m: &greffier_coeur::Reunion) -> String {
+    match &m.statut {
+        Statut::EnAttente(_) => format!("{}ᵉ dans la file · {}", s.core.rang(m.id).map_or(1, |r| r + 1), eta(s, m.id)),
+        Statut::EnCours { etape, progres } => format!("{} {:.0} % · {}", step(*etape), progres * 100.0, eta(s, m.id)),
+        st => status(st).to_lowercase(),
+    }
+}
+
 /// Le statut d'une réunion dans l'interface.
 pub fn status(s: &Statut) -> String {
     match s {

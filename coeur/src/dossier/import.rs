@@ -14,7 +14,7 @@ use std::time::SystemTime;
 use super::transcription::{self, RepliqueEcrite, TranscriptionStructuree};
 use super::{DossierDeReunions, Role, mp4};
 use crate::adaptateurs::MiseEnMp4;
-use crate::reunion::{Etape, IdReunion, Reunion, Statut};
+use crate::reunion::{Etape, IdReunion, Locuteur, Reunion, Statut};
 use crate::temps::DateHeure;
 
 /// Ce qu'on importe, tel que validé dans la fenêtre d'import.
@@ -160,7 +160,7 @@ fn depuis_les_lignes(lignes: Vec<Ligne>) -> (TranscriptionStructuree, Vec<(Strin
             continue;
         }
         let etiquette = loop {
-            let e = format!("SPEAKER_{n:02}");
+            let e = Locuteur::etiquette_numero(n);
             n += 1;
             if !prises.contains(&e) {
                 break e;

@@ -358,6 +358,17 @@ impl Greffier {
         &self.reglages
     }
 
+    /// Le dossier d'une réunion sur le disque.
+    pub fn dossier_de_la_reunion(&self, id: IdReunion) -> Option<PathBuf> {
+        self.reunion(id).map(|r| self.dossier.dossier(&r.nom_du_dossier))
+    }
+
+    /// Le fichier de l'enregistrement d'une réunion, s'il existe (un média importé qui n'a pas
+    /// pu passer en MP4 garde son extension).
+    pub fn fichier_d_enregistrement(&self, id: IdReunion) -> Option<PathBuf> {
+        self.reunion(id).and_then(|r| self.dossier.enregistrement(&r.nom_du_dossier))
+    }
+
     /// Le lexique des réglages, lu maintenant ; sans lexique (ou illisible), le lexique livré.
     fn texte_du_lexique(&self) -> String {
         self.reglages.lexique.as_ref().and_then(|c| std::fs::read_to_string(c).ok()).unwrap_or_else(|| lexique::LEXIQUE_INITIAL.to_string())
