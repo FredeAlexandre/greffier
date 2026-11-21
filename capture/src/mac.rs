@@ -53,6 +53,8 @@ struct Partage {
     /// Au moins une source audio.
     audio: bool,
     arrete: AtomicBool,
+    /// Le flux s'est arrêté de lui-même : l'erreur est dans `Etat::erreur`.
+    en_panne: AtomicBool,
 }
 
 struct Etat {
@@ -201,6 +203,7 @@ define_class!(
             if let Ok(mut e) = self.ivars().etat.lock() {
                 e.erreur = Some(erreur.localizedDescription().to_string());
             }
+            self.ivars().en_panne.store(true, Ordering::Relaxed);
         }
     }
 );
@@ -327,6 +330,7 @@ impl Capture for CaptureDuMac {
             ecran: sources.ecran,
             audio: sources.micro || sources.son_du_mac,
             arrete: AtomicBool::new(false),
+            en_panne: AtomicBool::new(false),
         });
         let sortie = Sortie::new(partage.clone());
         unsafe {
@@ -374,9 +378,17 @@ impl Capture for CaptureDuMac {
     fn sonder(&mut self, _ecoule: f64) -> EtatDeCapture {
         let Some(c) = &self.en_cours else { return EtatDeCapture::default() };
         let p = &c.partage;
+        // macOS a coupé le flux (écran débranché, autorisation retirée…) : le cœur finit le fichier.
+        let erreur = if p.en_panne.load(Ordering::Relaxed) {
+            let detail = p.etat.lock().ok().and_then(|e| e.erreur.clone()).unwrap_or_default();
+            Some(format!("La capture s'est arrêtée : {detail}"))
+        } else {
+            None
+        };
         EtatDeCapture {
             duree: f64::from_bits(p.duree.load(Ordering::Relaxed)),
             niveaux: Niveaux { micro: f32::from_bits(p.micro.load(Ordering::Relaxed)), son_du_mac: f32::from_bits(p.son_du_mac.load(Ordering::Relaxed)) },
+            erreur,
         }
     }
 
