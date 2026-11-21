@@ -8,10 +8,15 @@ l'utilisateur comme pour ses agents.
 
 ## État
 
-**Cycle 1 en cours.** L'interface existe, écrite avec [Rune](https://github.com/anomalyco/rune), au-dessus
-d'un cœur sans interface ; le cœur tourne sur des données fictives et de faux adaptateurs : capture réelle, import, Whisper, pyannote,
-Claude et écriture des fichiers restent à brancher. Pendant les cycles, l'app ne vise que le Mac de
-son auteur ; la 1.0.0 viendra avec un guide d'installation et des paquets téléchargeables.
+**Cycle 1 construit.** L'interface, écrite avec [Rune](https://github.com/anomalyco/rune), tourne
+au-dessus d'un cœur sans interface branché sur les vrais adaptateurs : capture native de l'écran, du
+son du Mac et du micro (ScreenCaptureKit, MP4 1080p), import d'une réunion passée, transcription
+whisper.cpp intégrée, séparation des locuteurs par pyannote dans un Python privé, relecture et bilan
+par la CLI `claude`, écriture des fichiers dans le dossier de réunions (surveillé pour les
+modifications faites hors de l'app), recherche, corbeille, icône de la barre des menus. Sans fenêtre
+(scènes, parcours), l'app reste sur des données fictives et de faux adaptateurs. Pendant les cycles,
+l'app ne vise que le Mac de son auteur ; la 1.0.0 viendra avec un guide d'installation et des
+paquets téléchargeables.
 
 - User stories, cycles et critères de la 1.0.0 : [docs/user-stories.md](docs/user-stories.md)
 - Vocabulaire du domaine : [GLOSSARY.md](GLOSSARY.md)
@@ -21,7 +26,7 @@ son auteur ; la 1.0.0 viendra avec un guide d'installation et des paquets télé
 
 ```sh
 cargo run            # la fenêtre (première compilation : ~2 min)
-cargo test           # le cœur, sans fenêtre, sur ses faux adaptateurs
+cargo test           # le cœur sur ses faux adaptateurs, et les parties testables des autres crates
 ```
 
 ## Installer l'app
@@ -67,7 +72,7 @@ faire que les vérifications). Les scènes et parcours gardent de fausses ressou
 
 | Geste | Où |
 |---|---|
-| ⇧⌘R ou le bouton rouge | démarre / arrête un enregistrement (temps accéléré ×20) |
+| ⇧⌘R ou le bouton rouge | démarre / arrête un enregistrement (temps accéléré ×20 dans les scènes) |
 | ⌘M pendant l'enregistrement | pose un repère, visible ensuite sur la timeline |
 | Arrêter | la réunion arrive, passe par Transcription → Relecture → Bilan, bandeau « Bilan prêt » |
 | « Réunion du sam. 21/11 » | réunion pas encore traitée : nombre de locuteurs, « Transcrire et faire le bilan » |
@@ -115,21 +120,37 @@ temporaire de pyannote dans le dossier de l'app. `--sans-moteurs` renote les sor
 
 ## Code
 
-- `coeur/` : le cœur, sans interface (crate `greffier-coeur`, sans Rune). Il possède l'état des
-  réunions, de l'enregistrement et de la file de traitement ; on le pilote par commandes
-  (`Greffier::executer`) et on fait passer le temps avec `Greffier::avancer`.
+- `coeur/` : le cœur, sans interface (crate `greffier-coeur`, sans Rune ni `unsafe`). Il possède
+  l'état des réunions, de l'enregistrement et de la file de traitement ; on le pilote par commandes
+  (`Greffier::executer`) et on fait passer le temps avec `Greffier::avancer`. Il ne connaît que les
+  interfaces des adaptateurs.
   - `adaptateurs.rs` : les interfaces de tout ce qui sort du processus (capture, transcripteur,
-    séparateur de locuteurs, agent, ressources, horloge) ; `faux.rs` : leurs faux.
+    séparateur de locuteurs, agent, ressources, corbeille, mise en MP4, horloge) ; `faux.rs` : leurs faux.
   - `reunion.rs` : réunion, statut, locuteurs, répliques, passages à vérifier ; `bilan.rs` : ce
-    qu'on lit dans le bilan Markdown ; `dossier.rs` : le nommage du dossier de réunions.
-  - `ressources.rs` : le catalogue des ressources (URL, tailles, sha256) et l'adaptateur de
-    ressources de l'app ; `mac.rs` : ses vrais outils (curl, sha256, uv embarqué, CLI `claude`).
-  - `lexique.rs` et `ressources/lexique.md` : le lexique livré et sa section Vocabulaire.
+    qu'on lit dans le bilan Markdown ; `attribution.rs` : les mots attribués aux locuteurs et les
+    répliques (règles du vault).
+  - `dossier/` : le dossier de réunions (nommage, fiche, transcriptions, import, renommage,
+    empreintes, durée d'un MP4) ; `surveillance.rs`, `recherche.rs`, `suppression.rs`, `titre.rs` :
+    relire le dossier, chercher, jeter à la corbeille, renommer d'après le titre.
+  - `reglages.rs` : les réglages retenus (`reglages.json` du dossier de l'app) ; `ressources.rs` :
+    le catalogue des ressources (URL, tailles, sha256) et leur adaptateur ; `lexique.rs` et
+    `ressources/lexique.md` : le lexique livré.
   - `fictif.rs` : les données fictives et les faux adaptateurs du prototype.
   - `tests/` : le banc de test (dossier temporaire, faux adaptateurs, commandes, état et fichiers).
+- `outils/` (`greffier-outils`) : les vrais adaptateurs qui pilotent des programmes : `claude/`
+  (l'agent : relecture, bilan, prompts dans `ressources/`), `mac.rs` (curl, sha256, uv embarqué,
+  Python privé), `processus.rs` (travail sur un fil, attente d'un programme qu'on peut arrêter).
+- `moteurs/` (`greffier-moteurs`) : whisper.cpp compilé depuis ses sources, l'audio décodé par
+  AVFoundation, pyannote (`separer.py`) et la réécoute.
+- `capture/` (`greffier-capture`) : ScreenCaptureKit et AVAssetWriter, l'assertion de non-veille,
+  la corbeille du Mac, la mise en MP4 des médias importés. `barre/` (`greffier-barre`) : l'icône de
+  la barre des menus.
 - `src/main.rs` : l'interface autour du cœur : lecture, raccourcis, shell, scènes.
 - `src/meeting.rs` : page réunion, vidéo, onglets. `src/timeline.rs` : la timeline. `src/overlays.rs` : recherche ⌘K, confirmation de suppression.
 - `src/pages.rs` : vue d'ensemble, enregistrement, réglages, premier lancement. `src/sidebar.rs` : barre latérale et menu du clic droit.
+- `src/verifier.rs`, `src/locuteurs.rs`, `src/refaire.rs`, `src/titre.rs`, `src/import.rs` : les
+  onglets À vérifier et Locuteurs, refaire une étape, changer le titre, importer.
+  `src/reglages.rs` : les vrais adaptateurs de l'app ; `src/surveillance.rs` : FSEvents.
 - `scripts/installer_app.py` : empaquetage, signature et installation de `Greffier.app`.
 - `scripts/banc_parite.py` : le banc de parité des moteurs (`moteurs/examples/banc.rs` le moteur).
 - `scripts/publier-pyannote` : publication de la release des fichiers pyannote (`scripts/pyannote/` : licence, attribution).
