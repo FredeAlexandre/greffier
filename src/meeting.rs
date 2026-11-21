@@ -525,15 +525,15 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
         let stepper = row().gap(6.0).center_y()
             .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                 .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteurs { reunion: id, nombre: match people { Some(n) if n > 2 => Some(n - 1), _ => None } })).build(k).key("ppl-minus"))
-            .child(text(people.map_or("Détecté".to_string(), |n| format!("{n} personnes"))).font(k.ty.ui_medium).color(k.c.text_base).w(100.0).align(rune::Align::Center))
+            .child(text(people.map_or("Détecté".to_string(), |n| format!("{n} locuteurs"))).font(k.ty.ui_medium).color(k.c.text_base).w(100.0).align(rune::Align::Center))
             .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                 .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteurs { reunion: id, nombre: Some(people.map_or(2, |n| (n + 1).min(12))) })).build(k).key("ppl-plus"));
         return card(k)
             .gap(14.0)
             .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, "Enregistrée, pas encore traitée")))
             .child(muted(k, "La transcription et les locuteurs tournent sur ton Mac. Seuls la relecture et le bilan partent vers Claude. Compte environ 1 min 30 de transcription pour 10 min de réunion."))
-            .child(row().gap(12.0).center_y().child(text("Personnes").font(k.ty.small_medium).color(k.c.text_muted).w(80.0)).child(stepper))
-            .child(muted(k, "Le bon nombre de personnes améliore beaucoup la séparation des locuteurs. Laisse « Détecté » si tu ne sais pas."))
+            .child(row().gap(12.0).center_y().child(text("Nombre de locuteurs").font(k.ty.small_medium).color(k.c.text_muted).w(130.0)).child(stepper))
+            .child(muted(k, "Indiquer le bon nombre de locuteurs améliore beaucoup leur séparation. Laisse « Détecté » si tu ne sais pas."))
             .child(row().gap(8.0)
                 .child(Button::new("Transcrire et faire le bilan").icon(&ui::SPARK).variant(ButtonVariant::Submit)
                     .on_press(move |s: &mut App| s.process(id)).build(k).key("process")));

@@ -113,12 +113,12 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
-/// sans séparation des locuteurs pour l'instant (un seul locuteur), la vraie capture
+/// la vraie séparation des locuteurs (pyannote dans le Python privé), la vraie capture
 /// (ScreenCaptureKit), l'heure du Mac et les vraies ressources. La relecture et le bilan échouent
 /// avec un message clair tant que l'agent n'est pas branché (plutôt qu'inventer un bilan dans le
 /// vrai dossier de réunions).
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
-    use greffier_coeur::adaptateurs::{Adaptateurs, UnSeulLocuteur};
+    use greffier_coeur::adaptateurs::Adaptateurs;
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
     let app = dossier_de_l_app();
     let ressources = RessourcesDeLApp::new(app.clone(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
@@ -126,10 +126,9 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         horloge: Box::new(HorlogeDuMac),
         ressources: Box::new(ressources),
         transcripteur: Box::new(greffier_moteurs::TranscripteurWhisper::de_l_app(&app)),
-        separateur: Box::new(UnSeulLocuteur),
+        separateur: Box::new(greffier_moteurs::SeparateurPyannote::de_l_app(&app)),
         agent: Box::new(AgentPasEncoreBranche),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
-        ..greffier_coeur::fictif::adaptateurs()
     }
 }
 
