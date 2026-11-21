@@ -8,8 +8,8 @@ l'utilisateur comme pour ses agents.
 
 ## État
 
-**Cycle 1 en cours.** L'interface existe, écrite avec [Rune](https://github.com/anomalyco/rune), mais
-avec des données fictives et des traitements simulés : capture réelle, import, Whisper, pyannote,
+**Cycle 1 en cours.** L'interface existe, écrite avec [Rune](https://github.com/anomalyco/rune), au-dessus
+d'un cœur sans interface ; le cœur tourne sur des données fictives et de faux adaptateurs : capture réelle, import, Whisper, pyannote,
 Claude et écriture des fichiers restent à brancher. Pendant les cycles, l'app ne vise que le Mac de
 son auteur ; la 1.0.0 viendra avec un guide d'installation et des paquets téléchargeables.
 
@@ -21,6 +21,7 @@ son auteur ; la 1.0.0 viendra avec un guide d'installation et des paquets télé
 
 ```sh
 cargo run            # la fenêtre (première compilation : ~2 min)
+cargo test           # le cœur, sans fenêtre, sur ses faux adaptateurs
 ```
 
 ## À essayer
@@ -34,7 +35,7 @@ cargo run            # la fenêtre (première compilation : ~2 min)
 | « Revue de release » | vidéo pleine largeur, timeline par sujet et par locuteur, décisions (◆), repères |
 | Espace, ← → | lecture / pause, ±10 s |
 | Glisser sur les pistes | déplace la lecture ; clic sur un sujet ou un ◆ : y saute |
-| ⌘1 … ⌘5 | Bilan / Transcription / À vérifier / Personnes / Infos |
+| ⌘1 … ⌘5 | Bilan / Transcription / À vérifier / Locuteurs / Infos |
 | Bilan | Markdown rendu ; les ▶ horodatages lancent la lecture, les cases se cochent, « Refaire le bilan » |
 | ⌘K ou « Rechercher » | cherche dans les titres, bilans et transcriptions ; ↩ ouvre au bon moment |
 | Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan, Finder, supprimer (avec confirmation) |
@@ -51,9 +52,16 @@ target/debug/greffier --script scripts/parcours-enregistrement.json --snap fin.p
 
 ## Code
 
-- `src/main.rs` : état, horloge simulée (lecture, enregistrement, file de traitement), raccourcis, shell.
-- `src/data.rs` : modèle (réunion, locuteurs, répliques, passages à vérifier) et données fictives.
-- `src/bilan.rs` : le bilan Markdown — sujets et décisions lus dans le bilan, horodatages en liens, cases à cocher.
+- `coeur/` : le cœur, sans interface (crate `greffier-coeur`, sans Rune). Il possède l'état des
+  réunions, de l'enregistrement et de la file de traitement ; on le pilote par commandes
+  (`Greffier::executer`) et on fait passer le temps avec `Greffier::avancer`.
+  - `adaptateurs.rs` : les interfaces de tout ce qui sort du processus (capture, transcripteur,
+    séparateur de locuteurs, agent, ressources, horloge) ; `faux.rs` : leurs faux.
+  - `reunion.rs` : réunion, statut, locuteurs, répliques, passages à vérifier ; `bilan.rs` : ce
+    qu'on lit dans le bilan Markdown ; `dossier.rs` : le nommage du dossier de réunions.
+  - `fictif.rs` : les données fictives et les faux adaptateurs du prototype.
+  - `tests/` : le banc de test (dossier temporaire, faux adaptateurs, commandes, état et fichiers).
+- `src/main.rs` : l'interface autour du cœur : lecture, raccourcis, shell, scènes.
 - `src/meeting.rs` : page réunion, vidéo, onglets. `src/timeline.rs` : la timeline. `src/overlays.rs` : recherche ⌘K, confirmation de suppression.
 - `src/pages.rs` : vue d'ensemble, enregistrement, réglages. `src/sidebar.rs` : barre latérale et menu du clic droit.
 

@@ -1074,9 +1074,14 @@ dependencies = [
 name = "greffier"
 version = "0.0.1"
 dependencies = [
+ "greffier-coeur",
  "rune",
  "rune-kit",
 ]
+
+[[package]]
+name = "greffier-coeur"
+version = "0.0.1"
 
 [[package]]
 name = "half"

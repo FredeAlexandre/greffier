@@ -4,18 +4,19 @@ use rune::{El, col, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
 use rune_kit::{Kit, MenuItem, context_menu};
 
-use crate::data::{Meeting, Stage};
+use greffier_coeur::{Reunion, Statut};
+
 use crate::ui::{self, glyph, red, tnum};
 use crate::{App, Page, Tab};
 
 fn record_button(s: &App, k: &Kit) -> El {
     let r = red();
-    let (label, icon) = match &s.rec {
-        Some(rec) => (format!("Arrêter · {}", ui::ts(rec.elapsed)), &ui::STOP),
+    let (label, icon) = match s.core.enregistrement() {
+        Some(rec) => (format!("Arrêter · {}", ui::ts(rec.duree)), &ui::STOP),
         None => ("Enregistrer une réunion".to_string(), &ui::RECORD),
     };
-    let recording = s.rec.is_some();
-    let pulse = s.rec.as_ref().map_or(1.0, |r| 0.55 + 0.45 * (r.phase * 3.2).cos().abs() as f32);
+    let recording = s.recording();
+    let pulse = if recording { 0.55 + 0.45 * (s.rec_phase * 3.2).cos().abs() as f32 } else { 1.0 };
     row()
         .key("record")
         .w_full()
@@ -35,7 +36,7 @@ fn record_button(s: &App, k: &Kit) -> El {
         .child(text(label).font(tnum(k.ty.ui_medium)).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
         .child(text("⇧⌘R").font(k.ty.small).color(k.c.text_faint))
         .on_press(|s: &mut App| {
-            if s.rec.is_some() {
+            if s.recording() {
                 if s.page == Page::Recording { s.stop_recording() } else { s.page = Page::Recording }
             } else {
                 s.start_recording()
@@ -43,26 +44,29 @@ fn record_button(s: &App, k: &Kit) -> El {
         })
 }
 
-fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
+fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
     let id = m.id;
-    let subtitle = match m.stage {
-        Stage::Done if m.pending_doubts() > 0 => format!("{} · {} · {} à vérifier", m.start, ui::dur(m.duration), m.pending_doubts()),
-        Stage::Done => format!("{} · {}", m.start, ui::dur(m.duration)),
-        Stage::Recorded => format!("{} · {} · à traiter", m.start, ui::dur(m.duration)),
-        Stage::Queued => format!("{} · en attente", m.start),
-        st => format!("{} · {} {:.0} %", m.start, st.label(), m.progress * 100.0),
+    let start = m.debut.heure_courte();
+    let subtitle = match &m.statut {
+        Statut::Terminee if m.passages_en_attente() > 0 => format!("{start} · {} · {} à vérifier", ui::dur(m.duree), m.passages_en_attente()),
+        Statut::Terminee => format!("{start} · {}", ui::dur(m.duree)),
+        Statut::ATraiter => format!("{start} · {} · à traiter", ui::dur(m.duree)),
+        Statut::EnAttente(_) => format!("{start} · en attente"),
+        Statut::EnCours { etape, progres } => format!("{start} · {} {:.0} %", ui::step(*etape), progres * 100.0),
+        st => format!("{start} · {}", ui::status(st).to_lowercase()),
     };
-    let title = if m.stage == Stage::Done { m.title.clone() } else { format!("Réunion du {}", m.date_label) };
+    let done = m.statut == Statut::Terminee;
+    let title = if done { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
     let mut r = SidebarRow::new(title)
         .height(46.0)
         .subtitle(subtitle)
         .selected(s.page == Page::Meeting(id) || s.menu.is_some_and(|(mid, _)| mid == id))
         .on_select(move |s: &mut App, _| s.open(id));
-    if m.stage.processing() || m.stage == Stage::Queued {
+    if m.statut.dans_la_file() {
         r = r.status(RowStatus::Busy);
-    } else if m.stage == Stage::Recorded {
+    } else if matches!(m.statut, Statut::ATraiter | Statut::Echec { .. } | Statut::EnregistrementInterrompu) {
         r = r.status(RowStatus::Attention);
-    } else if m.unread {
+    } else if m.nouvelle {
         r = r.status(RowStatus::Unread);
     }
     let el = r.build(k).key(format!("m{id}")).on_secondary_press(move |s: &mut App, p, _| s.menu = Some((id, p)));
@@ -70,7 +74,6 @@ fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
     if point.is_none() {
         return el;
     }
-    let done = m.stage == Stage::Done;
     let mut menu = context_menu(format!("menu{id}"), el, point)
         .item(MenuItem::new("Ouvrir").on_select(move |s: &mut App| {
             s.menu = None;
@@ -87,7 +90,7 @@ fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
                 s.menu = None;
                 s.redo_bilan(id);
             }));
-    } else if m.stage == Stage::Recorded {
+    } else if m.statut == Statut::ATraiter {
         menu = menu.item(MenuItem::new("Transcrire et faire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
             s.menu = None;
             s.process(id);
@@ -129,14 +132,15 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("nav-search"),
         )
         .footer(nav("Réglages", &ui::SLIDERS, Page::Settings).build(k).key("nav-settings"));
-    let groups: [(&str, fn(u32) -> bool); 4] = [
+    let groups: [(&str, fn(i64) -> bool); 4] = [
         ("Aujourd'hui", |a| a == 0),
         ("Hier", |a| a == 1),
         ("Cette semaine", |a| (2..=5).contains(&a)),
         ("Semaine dernière", |a| a > 5),
     ];
     for (gi, (name, pred)) in groups.iter().enumerate() {
-        let rows: Vec<El> = s.meetings.iter().filter(|m| pred(m.ago)).map(|m| meeting_row(s, m, k, layer)).collect();
+        let today = s.core.aujourd_hui();
+        let rows: Vec<El> = s.core.reunions().iter().filter(|m| pred(m.debut.jours_jusqu_a(today))).map(|m| meeting_row(s, m, k, layer)).collect();
         if rows.is_empty() {
             continue;
         }

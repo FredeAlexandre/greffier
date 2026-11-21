@@ -2,6 +2,7 @@
 
 use rune::tok::TextStyle;
 use rune::{Color, El, Icon, col, el, icon, oklch, row, text};
+use greffier_coeur::{Etape, Statut};
 use rune_kit::Kit;
 
 use crate::App;
@@ -56,6 +57,28 @@ pub fn dur(t: f64) -> String {
         (0, 0) => format!("{} s", t),
         (0, m) => format!("{m} min"),
         (h, m) => format!("{h} h {m:02}"),
+    }
+}
+
+/// Le nom d'une étape dans l'interface.
+pub fn step(e: Etape) -> &'static str {
+    match e {
+        Etape::Transcription => "Transcription",
+        Etape::Relecture => "Relecture IA",
+        Etape::Bilan => "Bilan IA",
+    }
+}
+
+/// Le statut d'une réunion dans l'interface.
+pub fn status(s: &Statut) -> String {
+    match s {
+        Statut::EnregistrementEnCours => "Enregistrement en cours".into(),
+        Statut::EnregistrementInterrompu => "Enregistrement interrompu".into(),
+        Statut::ATraiter => "À traiter".into(),
+        Statut::EnAttente(_) => "En attente".into(),
+        Statut::EnCours { etape, .. } => step(*etape).into(),
+        Statut::Echec { etape, .. } => format!("Échec : {}", step(*etape)),
+        Statut::Terminee => "Terminée".into(),
     }
 }
 

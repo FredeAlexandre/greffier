@@ -4,7 +4,12 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
+[workspace]
+members = [".", "coeur"]
+default-members = [".", "coeur"]
+
 [dependencies]
+greffier-coeur = { path = "coeur" }
 rune = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", features = ["tooling"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", default-features = false, features = ["markdown"] }
 

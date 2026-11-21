@@ -1,0 +1,8 @@
+[package]
+name = "greffier-coeur"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Le cœur de Greffier : l'état des réunions, la file de traitement et les commandes, sans interface."
+
+[dependencies]
