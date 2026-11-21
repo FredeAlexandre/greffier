@@ -300,6 +300,9 @@ pub struct LocuteurPourLAgent {
     pub justification: String,
     /// La fusion déjà proposée (« SPEAKER_00 »), s'il y en a une.
     pub meme_voix_proposee: Option<String>,
+    /// Fusionné par l'utilisateur dans ce locuteur (« SPEAKER_00 ») : ses répliques sont sous
+    /// celui-ci dans la transcription lisible.
+    pub fusionne_dans: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -328,6 +331,7 @@ pub struct DemandeDeBilan {
 pub struct Participant {
     /// « SPEAKER_00 »
     pub locuteur: String,
+    /// Vide quand l'agent ne sait pas qui c'est (la justification dit pourquoi).
     pub nom_propose: String,
     pub justification: String,
     /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).

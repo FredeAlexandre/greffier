@@ -7,12 +7,11 @@ use std::rc::Rc;
 use rune::{Cx, El, ScrollSpec, Span, SurfaceFit, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Markdown, Progress, SegmentedControl, Spinner, Switch};
 
-use greffier_coeur::fictif::PERSONNES;
 use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, bilan};
 
 use crate::ui::{self, card, dot, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
 use crate::verifier::{self, Cible};
-use crate::{App, TABS, Tab, refaire, reglages, timeline};
+use crate::{App, TABS, Tab, locuteurs, refaire, reglages, timeline};
 
 /// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
 pub fn playable(m: &Reunion) -> bool {
@@ -34,7 +33,7 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>
                 Tab::Summary => summary(m, k),
                 Tab::Transcript => transcript(s, m, k, view_h),
                 Tab::Doubts => verifier::tab(s, m, k),
-                Tab::Speakers => speakers(s, m, k),
+                Tab::Speakers => locuteurs::tab(s, m, k),
                 Tab::Info => info(s, m, k),
             });
     }
@@ -356,73 +355,6 @@ fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
         .scroll_edge_fade(12.0)
         .scroll_margin(120.0)
         .child(col().w_full().padding(8.0).child(lines))
-}
-
-fn speakers(s: &App, m: &Reunion, k: &Kit) -> El {
-    let active: Vec<usize> = m.locuteurs_actifs().collect();
-    let unconfirmed = active.iter().filter(|&&i| m.locuteurs[i].nom.is_none()).count();
-    let intro = if unconfirmed > 0 {
-        format!("{unconfirmed} noms proposés par l'IA à confirmer. Renommer met à jour la transcription ; « Refaire le bilan » les reprend.")
-    } else {
-        "Tous les locuteurs sont nommés.".to_string()
-    };
-    if active.is_empty() {
-        return muted(k, "Pas encore de locuteurs : ils viennent avec la transcription.");
-    }
-    let mut grid = row().w_full().gap(12.0).flex_wrap().items_start();
-    for &si in &active {
-        grid = grid.child(speaker_card(s, m, si, k));
-    }
-    col().w_full().gap(12.0).child(muted(k, intro)).child(grid)
-}
-
-fn speaker_card(s: &App, m: &Reunion, si: usize, k: &Kit) -> El {
-    let spk = &m.locuteurs[si];
-    let id = m.id;
-    let color = spk_color(spk.teinte);
-    let share = (m.temps_de_parole(si) * 100.0).round().max(0.0);
-    let mut card_ = col().key(format!("spk{si}")).grow(1.0).min_w(320.0).gap(8.0).padding(14.0).radius(k.radius.lg).fill(k.c.layer_01).border(1.0, k.c.border_muted)
-        .child(
-            row().gap(8.0).center_y()
-                .child(dot(color, 10.0))
-                .child(col().grow(1.0).min_w(0.0)
-                    .child(text(spk.affiche()).font(k.ty.ui_medium).color(if spk.nom.is_some() { k.c.text_base } else { k.c.text_muted }))
-                    .child(text(format!("{} · {share:.0} % du temps de parole", spk.etiquette)).font(k.ty.text_xsmall).color(k.c.text_faint)))
-                .child(if spk.nom.is_some() { glyph(&ui::CHECK, 13.0, k.c.success.icon) } else { el() }),
-        );
-    if spk.nom.is_none() && !spk.justification.is_empty() {
-        card_ = card_.child(row().gap(6.0).items_start().child(glyph(&ui::SPARK, 10.0, k.c.text_accent).mt(3.0)).child(muted(k, spk.justification.clone()).grow(1.0).min_w(0.0)));
-    }
-    let picking = s.picking == Some(si);
-    let mut buttons = row().gap(6.0).flex_wrap();
-    if let (None, None, Some(guess)) = (&spk.nom, spk.fusion_proposee, &spk.proposition) {
-        let nom = guess.clone();
-        buttons = buttons.child(Button::new(format!("Confirmer « {guess} »")).variant(ButtonVariant::Submit).control_size(ControlSize::Small)
-            .on_press(move |s: &mut App| s.command(Commande::NommerLocuteur { reunion: id, locuteur: si, nom: nom.clone() })).build(k));
-    }
-    if let Some(target) = spk.fusion_proposee {
-        let tname = m.locuteurs[target].affiche();
-        buttons = buttons.child(Button::new(format!("Fusionner avec {tname}")).variant(ButtonVariant::Submit).control_size(ControlSize::Small)
-            .on_press(move |s: &mut App| s.command(Commande::FusionnerLocuteurs { reunion: id, locuteur: si, dans: target })).build(k));
-    }
-    buttons = buttons.child(Button::new(if picking { "Fermer" } else { "Changer" }).variant(ButtonVariant::Ghost).control_size(ControlSize::Small)
-        .on_press(move |s: &mut App| s.picking = if s.picking == Some(si) { None } else { Some(si) }).build(k));
-    card_ = card_.child(buttons);
-    if picking {
-        let mut chips = row().gap(6.0).flex_wrap();
-        for p in PERSONNES {
-            chips = chips.child(
-                row().h(24.0).px(9.0).center_y().radius(12.0).fill(k.c.layer_02).hover(k.c.hover).cursor(rune::Cursor::Pointer)
-                    .child(text(p).font(k.ty.small_medium).color(k.c.text_base))
-                    .on_press(move |s: &mut App| {
-                        s.command(Commande::NommerLocuteur { reunion: id, locuteur: si, nom: p.to_string() });
-                        s.picking = None;
-                    }),
-            );
-        }
-        card_ = card_.child(chips);
-    }
-    card_
 }
 
 fn info(s: &App, m: &Reunion, k: &Kit) -> El {

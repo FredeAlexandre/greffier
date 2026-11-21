@@ -4,12 +4,16 @@
 //! Le JSON garde tout ce que le traitement a produit : les mots (horodatages, confiance,
 //! locuteur), les tours de parole, les répliques, la transcription brute d'avant relecture, le
 //! journal de la relecture, les passages à vérifier et les corrections faites à la main. Les
-//! locuteurs y sont désignés par leur étiquette (« SPEAKER_00 ») ; leurs noms sont dans la fiche.
+//! locuteurs y sont toujours désignés par leur étiquette (« SPEAKER_00 »), même nommés ou
+//! fusionnés ; `noms` et `fusions` donnent la correspondance, la même que dans la fiche (qui fait
+//! foi quand elle existe).
 //!
 //! ```json
 //! {
 //!   "version": 1,
-//!   "locuteurs": ["SPEAKER_00", "SPEAKER_01"],
+//!   "locuteurs": ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"],
+//!   "noms": { "SPEAKER_00": "Alexandre", "SPEAKER_01": "Khalid", "SPEAKER_02": "Alexandre" },
+//!   "fusions": { "SPEAKER_02": "SPEAKER_00" },
 //!   "mots": [{ "debut": 0.0, "fin": 0.25, "texte": "Bonjour", "confiance": 0.9, "locuteur": "SPEAKER_00" }],
 //!   "tours": [{ "debut": 0.0, "fin": 2.0, "locuteur": "SPEAKER_00" }],
 //!   "repliques": [{ "locuteur": "SPEAKER_00", "debut": 0.0, "fin": 2.0, "texte": "Bonjour Khalid." }],
@@ -29,6 +33,8 @@
 //! `corrige_a_la_main` (avec `correction`). `relecture` absente : la relecture n'est pas faite
 //! (une transcription importée est réputée non relue).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, PassageCorrige};
@@ -43,6 +49,12 @@ pub struct TranscriptionStructuree {
     /// Les étiquettes des locuteurs, dans l'ordre (leurs couleurs en dépendent).
     #[serde(default)]
     pub locuteurs: Vec<String>,
+    /// SPEAKER_xx → nom donné par l'utilisateur, fusions comprises.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub noms: BTreeMap<String, String>,
+    /// SPEAKER_xx → SPEAKER_yy : le premier est la même voix que le second, qui le remplace.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fusions: BTreeMap<String, String>,
     #[serde(default)]
     pub mots: Vec<MotEcrit>,
     #[serde(default)]
@@ -173,6 +185,8 @@ impl TranscriptionStructuree {
         TranscriptionStructuree {
             version: VERSION,
             locuteurs: r.locuteurs.iter().map(|l| l.etiquette.clone()).collect(),
+            noms: (0..r.locuteurs.len()).filter_map(|i| Some((etiquette(i), r.nom_du_locuteur(i)?.to_string()))).collect(),
+            fusions: r.locuteurs.iter().filter_map(|l| Some((l.etiquette.clone(), etiquette(l.fusionne_dans?)))).collect(),
             mots: r.mots.iter().map(|m| MotEcrit { debut: m.debut, fin: m.fin, texte: m.texte.clone(), confiance: m.confiance, locuteur: locuteur_du_mot(m) }).collect(),
             tours: r.tours.iter().map(|t| TourEcrit { debut: t.debut, fin: t.fin, locuteur: t.locuteur.clone() }).collect(),
             repliques: r.repliques.iter().map(ecrire).collect(),
@@ -215,6 +229,17 @@ impl TranscriptionStructuree {
         let index = |e: &str| etiquettes.iter().position(|x| x == e).unwrap_or(0);
         let lire = |x: &RepliqueEcrite| Replique { locuteur: index(&x.locuteur), debut: x.debut, fin: x.fin, texte: x.texte.clone(), passage: None };
         r.locuteurs = etiquettes.iter().enumerate().map(|(i, e)| Locuteur::new(e.clone(), TEINTES[i % TEINTES.len()])).collect();
+        for (e, nom) in self.noms {
+            if let Some(l) = r.locuteurs.iter_mut().find(|l| l.etiquette == e) {
+                l.nom = Some(nom).filter(|n| !n.trim().is_empty());
+            }
+        }
+        for (e, dans) in &self.fusions {
+            if let (Some(i), Some(j)) = (etiquettes.iter().position(|x| x == e), etiquettes.iter().position(|x| x == dans)) {
+                r.relire_fusion(i, j);
+            }
+        }
+        r.oublier_les_noms_des_fusionnes();
         r.mots = self.mots.into_iter().map(|m| Mot { locuteur: m.locuteur.as_deref().map(index), debut: m.debut, fin: m.fin, texte: m.texte, confiance: m.confiance }).collect();
         r.tours = self.tours.into_iter().map(|t| TourDeParole { debut: t.debut, fin: t.fin, locuteur: t.locuteur }).collect();
         r.repliques = self.repliques.iter().map(lire).collect();
@@ -250,8 +275,7 @@ impl TranscriptionStructuree {
 pub fn transcription_lisible(r: &Reunion) -> String {
     let mut s = format!("# {} — transcription\n\nRéunion du {:04}-{:02}-{:02} à {}, {}.\n", r.titre, r.debut.annee, r.debut.mois, r.debut.jour, r.debut.heure_courte(), horodatage_de_lecture(r.duree.round()));
     for x in &r.repliques {
-        let l = &r.locuteurs[r.locuteur_affiche(x.locuteur)];
-        let nom = l.nom.as_deref().unwrap_or(&l.etiquette);
+        let nom = r.nom_du_locuteur(x.locuteur).unwrap_or(&r.locuteurs[r.locuteur_affiche(x.locuteur)].etiquette);
         s.push_str(&format!("\n[{}] {nom} : {}\n", horodatage_de_lecture(x.debut), x.texte));
         if let Some(p) = x.passage.and_then(|i| r.passages.get(i)).filter(|p| p.statut == StatutDuPassage::EnAttente) {
             match &p.hypothese {

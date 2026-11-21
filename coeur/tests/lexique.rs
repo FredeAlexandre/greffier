@@ -79,3 +79,10 @@ fn sans_tableau_ni_section_les_erreurs_connues_sont_creees() {
     let (md, _) = lexique::ajouter_erreurs("## Erreurs connues\n\n## Vocabulaire\n\nX.\n", &[ajout("Zorglube", "Zorglub")]);
     assert_eq!(md, "## Erreurs connues\n\n| Entendu | Correct |\n|---|---|\n| Zorglube | Zorglub |\n\n## Vocabulaire\n\nX.\n");
 }
+
+#[test]
+fn les_personnes_du_lexique_sont_les_noms_proposes_pour_les_locuteurs() {
+    let md = "## Personnes\n\n_Une puce par personne._\n\n- Alice : dev\n- **Bob** — produit\n-   Chloé Martin\n- \n\n## Mots justes\n\n- Pas une personne\n";
+    assert_eq!(lexique::personnes(md), ["Alice", "Bob", "Chloé Martin"]);
+    assert!(lexique::personnes(LEXIQUE_INITIAL).is_empty());
+}

@@ -46,6 +46,17 @@ pub fn vocabulaire(md: &str) -> String {
     section(md, "Vocabulaire").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Les noms de la section Personnes (`- Nom : rôle`, `- **Nom** — rôle`), dans l'ordre : ceux
+/// qu'on propose pour nommer un locuteur.
+pub fn personnes(md: &str) -> Vec<String> {
+    section(md, "Personnes")
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("- "))
+        .map(|p| p.split([':', '—', '(']).next().unwrap_or_default().replace("**", "").trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
 /// Ce que compte le lexique, pour les réglages.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Resume {

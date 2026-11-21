@@ -162,3 +162,12 @@ pub fn lexique() -> greffier_coeur::lexique::Resume {
         }
     }
 }
+
+/// Les personnes du lexique, proposées pour nommer les locuteurs ; sans fenêtre, celles des
+/// données fictives.
+pub fn personnes() -> Vec<String> {
+    if rune::is_headless() {
+        return greffier_coeur::fictif::PERSONNES.map(String::from).to_vec();
+    }
+    chemin_du_lexique().and_then(|c| std::fs::read_to_string(c).ok()).map(|md| greffier_coeur::lexique::personnes(&md)).unwrap_or_default()
+}
