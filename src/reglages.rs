@@ -13,7 +13,7 @@ fn maison() -> PathBuf {
 
 /// Le dossier de l'app : modèles, environnement Python, lexique, cache, réglages.
 pub fn dossier_de_l_app() -> PathBuf {
-    maison().join("Library/Application Support/Greffier")
+    greffier_coeur::ressources::dossier_de_l_app()
 }
 
 fn fichier() -> PathBuf {
@@ -69,7 +69,25 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : ceux du prototype pour le traitement (en attendant les vrais),
-/// avec l'heure du Mac.
+/// avec l'heure du Mac et les vraies ressources du dossier de l'app.
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
-    greffier_coeur::adaptateurs::Adaptateurs { horloge: Box::new(HorlogeDuMac), ..greffier_coeur::fictif::adaptateurs() }
+    use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
+    let ressources = RessourcesDeLApp::new(dossier_de_l_app(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
+    greffier_coeur::adaptateurs::Adaptateurs { horloge: Box::new(HorlogeDuMac), ressources: Box::new(ressources), ..greffier_coeur::fictif::adaptateurs() }
+}
+
+/// Le lexique : celui du dossier de l'app (le lexique livré y est écrit s'il manque) ; sans
+/// fenêtre, le lexique livré, sans rien écrire.
+pub fn lexique() -> greffier_coeur::lexique::Resume {
+    use greffier_coeur::lexique;
+    if rune::is_headless() {
+        return lexique::resume(lexique::LEXIQUE_INITIAL);
+    }
+    match lexique::installer(&dossier_de_l_app()).and_then(std::fs::read_to_string) {
+        Ok(md) => lexique::resume(&md),
+        Err(e) => {
+            eprintln!("greffier : lexique : {e}");
+            lexique::resume(lexique::LEXIQUE_INITIAL)
+        }
+    }
 }

@@ -6,7 +6,8 @@
 //! (`reunions`, `enregistrement`…) et appeler ces deux fonctions.
 //!
 //! Tout ce qui sort du processus passe par les [`adaptateurs`] : capture, transcripteur,
-//! séparateur de locuteurs, agent, ressources (et l'horloge).
+//! séparateur de locuteurs, agent, ressources (et l'horloge). Les ressources de l'app (modèles,
+//! Python privé, vérification de `claude`) sont décrites dans [`ressources`].
 
 #![forbid(unsafe_code)]
 
@@ -16,6 +17,9 @@ pub mod bilan;
 pub mod dossier;
 pub mod faux;
 pub mod fictif;
+pub mod lexique;
+pub mod mac;
+pub mod ressources;
 mod reunion;
 mod temps;
 
@@ -78,7 +82,10 @@ pub enum Commande {
     /// La réunion a été ouverte : elle n'est plus nouvelle.
     MarquerLue(IdReunion),
     ChangerReglages(Reglages),
+    /// Télécharge, installe et vérifie les ressources qui manquent.
     InstallerRessources,
+    /// Refait les vérifications des ressources (la CLI `claude`) sans rien télécharger.
+    VerifierRessources,
 }
 
 /// Ce qui s'est passé dans le cœur et que l'interface peut vouloir annoncer.
@@ -216,6 +223,9 @@ pub struct Greffier {
     file: VecDeque<IdReunion>,
     traitement: Option<Traitement>,
     installation: Option<TacheDe<()>>,
+    verification: Option<TacheDe<()>>,
+    /// L'état des ressources, relu à chaque avancée.
+    ressources: Vec<Ressource>,
 }
 
 impl Greffier {
@@ -238,6 +248,8 @@ impl Greffier {
             }
         }
         let prochain_id = reunions.iter().map(|r| r.id + 1).max().unwrap_or(1);
+        let mut adaptateurs = adaptateurs;
+        let ressources = adaptateurs.ressources.etat();
         Greffier {
             dossier: DossierDeReunions::new(dossier),
             adaptateurs,
@@ -248,6 +260,8 @@ impl Greffier {
             file,
             traitement: None,
             installation: None,
+            verification: None,
+            ressources,
         }
     }
 
@@ -283,13 +297,24 @@ impl Greffier {
         self.adaptateurs.horloge.maintenant()
     }
 
-    pub fn ressources(&mut self) -> Vec<Ressource> {
-        self.adaptateurs.ressources.etat()
+    /// Les modèles, l'environnement Python et la vérification de `claude`, avec leur état et la
+    /// place qu'ils prennent.
+    pub fn ressources(&self) -> &[Ressource] {
+        &self.ressources
     }
 
-    /// Vrai tant que le temps compte : enregistrement, traitement, file ou installation.
+    pub fn installation_en_cours(&self) -> bool {
+        self.installation.is_some()
+    }
+
+    pub fn verification_en_cours(&self) -> bool {
+        self.verification.is_some()
+    }
+
+    /// Vrai tant que le temps compte : enregistrement, traitement, file, installation ou
+    /// vérification des ressources.
     pub fn occupe(&self) -> bool {
-        self.enregistrement.is_some() || self.traitement.is_some() || !self.file.is_empty() || self.installation.is_some()
+        self.enregistrement.is_some() || self.traitement.is_some() || !self.file.is_empty() || self.installation.is_some() || self.verification.is_some()
     }
 
     // --- Commandes -----------------------------------------------------------------------
@@ -410,7 +435,18 @@ impl Greffier {
             Commande::ChangerReglages(r) => self.reglages = r,
             Commande::InstallerRessources => {
                 if self.installation.is_none() {
+                    // L'installation refait aussi les vérifications.
+                    if let Some(mut v) = self.verification.take() {
+                        v.arreter();
+                    }
                     self.installation = Some(self.adaptateurs.ressources.installer());
+                    self.ressources = self.adaptateurs.ressources.etat();
+                }
+            }
+            Commande::VerifierRessources => {
+                if self.installation.is_none() && self.verification.is_none() {
+                    self.verification = Some(self.adaptateurs.ressources.verifier());
+                    self.ressources = self.adaptateurs.ressources.etat();
                 }
             }
         }
@@ -512,6 +548,12 @@ impl Greffier {
                 }
             }
         }
+        if let Some(t) = &mut self.verification
+            && !matches!(t.sonder(ecoule), Avancement::EnCours(_))
+        {
+            self.verification = None;
+        }
+        self.ressources = self.adaptateurs.ressources.etat();
         if self.traitement.is_none()
             && self.enregistrement.is_none()
             && let Some(id) = self.file.pop_front()
@@ -540,12 +582,13 @@ impl Greffier {
         let r = self.reunion(id).ok_or("réunion inconnue")?.clone();
         let audio = self.dossier.fichier(&r.nom_du_dossier, Role::Enregistrement);
         let a = &mut self.adaptateurs;
+        self.ressources = a.ressources.etat();
+        let manquantes: Vec<&str> = self.ressources.iter().filter(|x| x.etapes.contains(&etape) && x.etat != EtatDeRessource::Prete).map(|x| x.nom.as_str()).collect();
+        if !manquantes.is_empty() {
+            return Err(format!("Ressources manquantes : {}.", manquantes.join(", ")));
+        }
         Ok(match etape {
             Etape::Transcription => {
-                let manquantes: Vec<String> = a.ressources.etat().into_iter().filter(|x| x.etat != EtatDeRessource::Prete).map(|x| x.nom).collect();
-                if !manquantes.is_empty() {
-                    return Err(format!("Ressources manquantes : {}.", manquantes.join(", ")));
-                }
                 // Le vocabulaire du lexique arrive avec la relecture (#9).
                 let mots = a.transcripteur.transcrire(DemandeDeTranscription { audio: audio.clone(), duree: r.duree, vocabulaire: String::new() });
                 let tours = a.separateur.separer(DemandeDeSeparation { audio, duree: r.duree, nombre_de_locuteurs: r.nombre_de_locuteurs });

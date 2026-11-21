@@ -8,3 +8,4 @@ description = "Le cœur de Greffier : l'état des réunions, la file de traiteme
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"

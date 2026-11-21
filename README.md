@@ -43,7 +43,25 @@ remplace dans `/Applications` (en fermant l'app si elle tourne) puis l'ouvre et 
   au certificat : elles tiennent d'une installation à l'autre. Ne supprimez pas l'identité et ne
   changez pas l'identifiant, sinon il faut les redonner.
 - `--binaire CHEMIN` empaquette un exécutable déjà compilé, `--sans-lancer` n'ouvre pas l'app.
+- Le bundle embarque `uv` (version et sha256 figés dans `scripts/installer_app.py`), téléchargé une
+  fois dans `target/uv-<version>/`, où `cargo run` le trouve aussi.
 - Tests de l'empaquetage : `python3 -m unittest discover -s scripts`.
+
+## Ressources du premier lancement
+
+Au premier lancement, la fenêtre affiche l'état de chaque ressource et les installe toutes dans
+`~/Library/Application Support/Greffier/`, et nulle part ailleurs :
+
+- whisper large-v3 et Silero VAD v5.1.2, depuis Hugging Face ; pyannote `speaker-diarization-community-1`
+  (CC-BY-4.0), depuis la release [`pyannote-community-1`](https://github.com/FredeAlexandre/greffier/releases/tag/pyannote-community-1)
+  du dépôt, publiée avec sa licence et son attribution par `scripts/publier-pyannote`. Chaque fichier
+  est vérifié par un sha256 figé ; un téléchargement interrompu reprend où il s'est arrêté.
+- le Python privé de pyannote, installé par l'uv embarqué à partir de `coeur/ressources/python/uv.lock`.
+- la CLI `claude` est seulement vérifiée (installée et connectée), avec quoi faire sinon.
+- le lexique livré (`coeur/ressources/lexique.md`) y est écrit s'il n'existe pas encore.
+
+Sans fenêtre : `cargo run -p greffier-coeur --example installer_ressources` (`-- --verifier` pour ne
+faire que les vérifications). Les scènes et parcours gardent de fausses ressources.
 
 ## À essayer
 
@@ -80,12 +98,16 @@ target/debug/greffier --script scripts/parcours-enregistrement.json --snap fin.p
     séparateur de locuteurs, agent, ressources, horloge) ; `faux.rs` : leurs faux.
   - `reunion.rs` : réunion, statut, locuteurs, répliques, passages à vérifier ; `bilan.rs` : ce
     qu'on lit dans le bilan Markdown ; `dossier.rs` : le nommage du dossier de réunions.
+  - `ressources.rs` : le catalogue des ressources (URL, tailles, sha256) et l'adaptateur de
+    ressources de l'app ; `mac.rs` : ses vrais outils (curl, sha256, uv embarqué, CLI `claude`).
+  - `lexique.rs` et `ressources/lexique.md` : le lexique livré et sa section Vocabulaire.
   - `fictif.rs` : les données fictives et les faux adaptateurs du prototype.
   - `tests/` : le banc de test (dossier temporaire, faux adaptateurs, commandes, état et fichiers).
 - `src/main.rs` : l'interface autour du cœur : lecture, raccourcis, shell, scènes.
 - `src/meeting.rs` : page réunion, vidéo, onglets. `src/timeline.rs` : la timeline. `src/overlays.rs` : recherche ⌘K, confirmation de suppression.
-- `src/pages.rs` : vue d'ensemble, enregistrement, réglages. `src/sidebar.rs` : barre latérale et menu du clic droit.
+- `src/pages.rs` : vue d'ensemble, enregistrement, réglages, premier lancement. `src/sidebar.rs` : barre latérale et menu du clic droit.
 - `scripts/installer_app.py` : empaquetage, signature et installation de `Greffier.app`.
+- `scripts/publier-pyannote` : publication de la release des fichiers pyannote (`scripts/pyannote/` : licence, attribution).
 
 Rune est épinglé sur une révision de `dev` (pré-release) dans `Cargo.toml` ; on ne la change que
 volontairement ([ADR 0004](docs/adr/0004-interface-en-rune.md)).

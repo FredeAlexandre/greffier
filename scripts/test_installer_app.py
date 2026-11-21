@@ -1,7 +1,9 @@
 """Tests de l'empaquetage de Greffier.app : `python3 -m unittest discover -s scripts`."""
+import hashlib
 import os
 from pathlib import Path
 import plistlib
+import tarfile
 import tempfile
 import unittest
 
@@ -51,6 +53,44 @@ class AppBundleTest(unittest.TestCase):
                     "NSAudioCaptureUsageDescription"):
             with self.subTest(key):
                 self.assertIn("Greffier", info.get(key, ""))
+
+
+class UvEmbarqueTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def archive(self, contenu=b"#!/bin/sh\necho uv\n"):
+        source = self.tmp / "uv"
+        source.write_bytes(contenu)
+        archive = self.tmp / "uv.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(source, arcname="uv-aarch64-apple-darwin/uv")
+        return archive, hashlib.sha256(archive.read_bytes()).hexdigest()
+
+    def test_meme_version_que_le_coeur(self):
+        mac_rs = (Path(__file__).resolve().parent.parent / "coeur/src/mac.rs").read_text()
+        self.assertEqual(installer_app.uv_version_in_core(mac_rs), installer_app.UV_VERSION)
+
+    def test_extrait_uv_d_une_archive_au_bon_sha256(self):
+        archive, sha = self.archive()
+        uv = installer_app.unpack_uv(archive, sha, self.tmp / "extrait")
+        self.assertEqual(uv.read_bytes(), b"#!/bin/sh\necho uv\n")
+        self.assertTrue(os.access(uv, os.X_OK))
+
+    def test_refuse_une_archive_au_mauvais_sha256(self):
+        archive, _ = self.archive()
+        with self.assertRaises(installer_app.Failure):
+            installer_app.unpack_uv(archive, "0" * 64, self.tmp / "extrait")
+        self.assertFalse((self.tmp / "extrait").exists())
+
+    def test_uv_est_a_cote_de_l_executable_dans_le_bundle(self):
+        archive, sha = self.archive()
+        uv = installer_app.unpack_uv(archive, sha, self.tmp / "uv-extrait")
+        binary = self.tmp / "greffier"
+        binary.write_bytes(b"#!/bin/sh\n")
+        app = self.tmp / "Greffier.app"
+        installer_app.write_bundle(app, binary, CARGO_TOML, uv)
+        self.assertTrue(os.access(app / "Contents/MacOS/uv", os.X_OK))
 
 
 class EntitlementsTest(unittest.TestCase):

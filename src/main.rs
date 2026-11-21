@@ -1,6 +1,7 @@
 //! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
 //! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement ; le
-//! traitement tourne encore sur les faux adaptateurs du prototype.
+//! traitement tourne encore sur les faux adaptateurs du prototype. Les ressources (modèles, Python
+//! privé, CLI `claude`) sont les vraies, dans `~/Library/Application Support/Greffier`.
 //!
 //! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
 //! sans fenêtre (`--list-scenes` pour la liste) : sans fenêtre, l'app part des données fictives
@@ -24,7 +25,9 @@ use rune::{AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, Po
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit};
 
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Role, Tranche, fictif};
+use greffier_coeur::adaptateurs::EtatDeRessource;
+use greffier_coeur::faux::FaussesRessources;
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Role, Tranche, fictif, lexique};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -36,6 +39,8 @@ pub enum Page {
     Recording,
     Meeting(IdReunion),
     Settings,
+    /// Le premier lancement : télécharger et vérifier les ressources.
+    Installation,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -95,6 +100,8 @@ pub struct App {
     pub needs_folder: bool,
     /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
     pub folder_error: Option<String>,
+    /// Ce que compte le lexique, pour les réglages.
+    pub lexique: lexique::Resume,
 }
 
 impl App {
@@ -134,6 +141,10 @@ impl App {
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
+                Evenement::RessourcesInstallees => {
+                    self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
+                }
+                Evenement::InstallationEnEchec(message) => eprintln!("greffier : installation des ressources : {message}"),
                 _ => {}
             }
         }
@@ -219,13 +230,15 @@ impl App {
             self.folder_error = Some(e);
             return;
         }
-        self.core = Greffier::ouvrir(&dir, reglages::adaptateurs());
+        self.core = real_core(&dir, true);
         self.folder = Some(dir);
         self.needs_folder = false;
         self.folder_error = None;
         self.video = None;
         self.playing = false;
-        if matches!(self.page, Page::Welcome | Page::Meeting(_)) {
+        if self.page == Page::Welcome && resources_missing(&self.core) {
+            self.page = Page::Installation;
+        } else if matches!(self.page, Page::Welcome | Page::Meeting(_)) {
             self.page = Page::Overview;
         }
     }
@@ -329,14 +342,33 @@ fn prototype() -> Greffier {
     Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions())
 }
 
+/// Le cœur de la fenêtre sur un dossier de réunions, avec les vraies ressources, dont il lance
+/// tout de suite les vérifications.
+fn real_core(folder: &Path, reunions: bool) -> Greffier {
+    let mut core = if reunions { Greffier::ouvrir(folder, reglages::adaptateurs()) } else { Greffier::avec_reunions(folder, reglages::adaptateurs(), vec![]) };
+    if let Err(e) = core.executer(Commande::VerifierRessources) {
+        eprintln!("greffier : {e}");
+    }
+    core
+}
+
+/// L'écran du premier lancement des ressources, tant que la transcription ne peut pas tourner.
+fn resources_missing(core: &Greffier) -> bool {
+    core.ressources().iter().any(|r| r.etapes.contains(&Etape::Transcription) && r.etat != EtatDeRessource::Prete)
+}
+
 fn init() -> App {
     // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
-    // jamais d'écriture dans le vrai dossier de réunions.
+    // jamais d'écriture dans le vrai dossier de réunions ni dans le dossier de l'app.
     let folder = if rune::is_headless() { None } else { reglages::dossier_de_reunions() };
     let (core, page) = match &folder {
         _ if rune::is_headless() => (prototype(), Page::Overview),
-        Some(dir) => (Greffier::ouvrir(dir, reglages::adaptateurs()), Page::Overview),
-        None => (Greffier::avec_reunions(reglages::dossier_propose(), reglages::adaptateurs(), vec![]), Page::Welcome),
+        Some(dir) => {
+            let core = real_core(dir, true);
+            let page = if resources_missing(&core) { Page::Installation } else { Page::Overview };
+            (core, page)
+        }
+        None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
     };
     App {
         core,
@@ -365,6 +397,7 @@ fn init() -> App {
         needs_folder: page == Page::Welcome,
         folder,
         folder_error: None,
+        lexique: reglages::lexique(),
     }
 }
 
@@ -503,6 +536,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Page::Overview => pages::overview(s, &k),
         Page::Recording => pages::recording(s, &k),
         Page::Settings => pages::settings(s, &k),
+        Page::Installation => pages::installation(s, &k),
         Page::Meeting(_) => match s.meeting() {
             Some(m) => meeting::page(s, m, &k, cx),
             None => pages::overview(s, &k),
@@ -569,6 +603,12 @@ fn scene_unprocessed(s: &mut App) {
 }
 fn scene_settings(s: &mut App) {
     s.page = Page::Settings;
+}
+/// Le premier lancement : un téléchargement, une installation, un sha256 faux, `claude` absente.
+fn scene_installation(s: &mut App) {
+    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { ressources: Box::new(FaussesRessources::fixes(fictif::ressources_en_installation())), ..fictif::adaptateurs() };
+    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    s.page = Page::Installation;
 }
 fn scene_search(s: &mut App) {
     s.open_search();
@@ -638,6 +678,7 @@ fn main() {
             ("processing", scene_processing),
             ("unprocessed", scene_unprocessed),
             ("settings", scene_settings),
+            ("installation", scene_installation),
             ("search", scene_search),
             ("menu", scene_menu),
             ("delete", scene_delete),

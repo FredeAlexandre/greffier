@@ -1,5 +1,6 @@
 """Construit Greffier.app, la signe « Greffier Dev » et l'installe dans /Applications."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,15 +10,23 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
+import urllib.request
 
 NAME = "Greffier"
 EXE = "greffier"
 # Ne change jamais : macOS rattache les autorisations à cet identifiant et à l'identité de signature.
 BUNDLE_ID = "io.github.fredealexandre.greffier"
 IDENTITY = "Greffier Dev"
+# L'uv embarqué, qui installe le Python privé de pyannote (ADR 0003). Même version que
+# `VERSION_D_UV` dans coeur/src/mac.rs, qui le cherche à côté de l'exécutable.
+UV_VERSION = "0.13.7"
+UV_ARCHIVE = "uv-aarch64-apple-darwin.tar.gz"
+UV_SHA256 = "81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731"
+UV_URL = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{UV_ARCHIVE}"
 
 
 def project_version(cargo_toml):
@@ -53,12 +62,52 @@ def write_entitlements(path):
         plistlib.dump({"com.apple.security.device.audio-input": True}, file)
 
 
-def write_bundle(app, binary, cargo_toml):
-    """Écrit le bundle non signé `app` autour de l'exécutable `binary`."""
+def uv_version_in_core(mac_rs):
+    """La version d'uv que le cœur attend (`VERSION_D_UV` de coeur/src/mac.rs)."""
+    found = re.search(r'VERSION_D_UV: &str = "([^"]+)"', mac_rs)
+    return found[1] if found else None
+
+
+def unpack_uv(archive, sha256, dest):
+    """Vérifie le sha256 de l'archive d'uv et en extrait l'exécutable `uv` dans `dest`."""
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest != sha256:
+        raise Failure(f"sha256 inattendu pour {archive.name} : {digest} (attendu {sha256}).")
+    with tarfile.open(archive) as tar:
+        member = next((m for m in tar.getmembers() if m.isfile() and Path(m.name).name == "uv"), None)
+        if member is None:
+            raise Failure(f"pas d'exécutable uv dans {archive.name}.")
+        with tar.extractfile(member) as source, open(dest, "wb") as out:
+            shutil.copyfileobj(source, out)
+    dest.chmod(0o755)
+    return dest
+
+
+def fetch_uv(target):
+    """L'uv embarqué, téléchargé une fois dans target/uv-<version>/ (où `cargo run` le trouve aussi)."""
+    folder = target / f"uv-{UV_VERSION}"
+    uv = folder / "uv"
+    if uv.is_file():
+        return uv
+    step(f"Téléchargement d'uv {UV_VERSION}")
+    folder.mkdir(parents=True, exist_ok=True)
+    archive = folder / UV_ARCHIVE
+    with urllib.request.urlopen(UV_URL) as response, archive.open("wb") as out:
+        shutil.copyfileobj(response, out)
+    try:
+        return unpack_uv(archive, UV_SHA256, uv)
+    finally:
+        archive.unlink(missing_ok=True)
+
+
+def write_bundle(app, binary, cargo_toml, uv=None):
+    """Écrit le bundle non signé `app` autour de l'exécutable `binary` (et de l'uv embarqué)."""
     macos = app / "Contents/MacOS"
     macos.mkdir(parents=True)
     (app / "Contents/Resources").mkdir()
     shutil.copy2(binary, macos / EXE)
+    if uv is not None:
+        shutil.copy2(uv, macos / "uv")
     with (app / "Contents/Info.plist").open("wb") as file:
         plistlib.dump(info_plist(project_version(cargo_toml)), file)
 
@@ -148,6 +197,10 @@ def build_binary():
 
 def sign(app, entitlements, identity):
     step(f"Signature avec « {IDENTITY} » ({identity})")
+    # Le code imbriqué d'abord : codesign refuse de signer une app dont un exécutable ne l'est pas.
+    helper = app / "Contents/MacOS/uv"
+    if helper.exists():
+        run("codesign", "--force", "--options", "runtime", "--timestamp=none", "--sign", identity, helper)
     run("codesign", "--force", "--options", "runtime", "--timestamp=none",
         "--entitlements", entitlements, "--sign", identity, app)
     run("codesign", "--verify", "--strict", app)
@@ -223,11 +276,14 @@ def main(argv=None):
         binary = args.binaire or build_binary()
         if not os.access(binary, os.X_OK):
             raise Failure(f"pas d'exécutable à {binary}")
-        step("Construction du bundle")
         target = ROOT / "target"
+        if uv_version_in_core((ROOT / "coeur/src/mac.rs").read_text()) != UV_VERSION:
+            raise Failure(f"coeur/src/mac.rs n'attend pas uv {UV_VERSION} : aligner VERSION_D_UV et UV_VERSION.")
+        uv = fetch_uv(target)
+        step("Construction du bundle")
         app, entitlements = target / f"{NAME}.app", target / f"{NAME}.entitlements"
         shutil.rmtree(app, ignore_errors=True)
-        write_bundle(app, binary, (ROOT / "Cargo.toml").read_text())
+        write_bundle(app, binary, (ROOT / "Cargo.toml").read_text(), uv)
         write_entitlements(entitlements)
         sign(app, entitlements, identity)
         install(app)

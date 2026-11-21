@@ -60,6 +60,19 @@ pub fn dur(t: f64) -> String {
     }
 }
 
+/// 3,1 Go, 33 Mo, 864 Ko (en unités décimales, comme le Finder).
+pub fn octets(n: u64) -> String {
+    let n = n as f64;
+    let (valeur, unite) = match n {
+        n if n >= 1e9 => (n / 1e9, "Go"),
+        n if n >= 1e6 => (n / 1e6, "Mo"),
+        n if n >= 1e3 => (n / 1e3, "Ko"),
+        n => (n, "octets"),
+    };
+    let texte = if valeur >= 10.0 || unite == "octets" { format!("{valeur:.0}") } else { format!("{valeur:.1}") };
+    format!("{} {unite}", texte.replace('.', ","))
+}
+
 /// Le nom d'une étape dans l'interface.
 pub fn step(e: Etape) -> &'static str {
     match e {

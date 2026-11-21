@@ -1,0 +1,32 @@
+pyannote speaker-diarization-community-1
+========================================
+
+Les fichiers de cette release sont ceux du pipeline de séparation des locuteurs
+« speaker-diarization-community-1 » de pyannote, sans aucune modification :
+
+  Œuvre    : pyannote/speaker-diarization-community-1
+  Auteurs  : pyannote (pyannoteAI, Hervé Bredin et contributeurs)
+  Source   : https://huggingface.co/pyannote/speaker-diarization-community-1
+  Révision : 3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+  Licence  : Creative Commons Attribution 4.0 International (CC-BY-4.0),
+             texte complet dans le fichier LICENSE de cette release,
+             https://creativecommons.org/licenses/by/4.0/
+
+Greffier (https://github.com/FredeAlexandre/greffier) les republie ici, tels
+quels, pour que l'app puisse les télécharger sans compte Hugging Face. Seuls
+les noms des fichiers changent, car une release GitHub n'a pas de dossiers :
+
+  config.yaml                     → config.yaml
+  segmentation-pytorch_model.bin  → segmentation/pytorch_model.bin
+  embedding-pytorch_model.bin     → embedding/pytorch_model.bin
+  plda-plda.npz                   → plda/plda.npz
+  plda-xvec_transform.npz         → plda/xvec_transform.npz
+
+Le pipeline s'utilise avec pyannote.audio (https://github.com/pyannote/pyannote-audio,
+licence MIT).
+
+This release redistributes, unmodified, the files of the pyannote
+« speaker-diarization-community-1 » pipeline (https://huggingface.co/pyannote/speaker-diarization-community-1,
+revision 3533c8cf8e369892e6b79ff1bf80f7b0286a54ee) by pyannote, under the
+Creative Commons Attribution 4.0 International license (see LICENSE).
+Only the file names were flattened, as listed above.
