@@ -221,32 +221,23 @@ fn un_media_sa_transcription_et_son_bilan_ne_passent_par_aucune_etape() {
     assert_eq!(greffier_coeur::Reunion { id: avant.id, ..apres }, avant);
 }
 
-/// Une vraie transcription d'une ancienne réunion du vault (lue sur place : le dépôt est public,
-/// elle n'y est pas copiée). Sans le vault sur ce Mac, le test ne vérifie rien.
+/// Un vrai VTT (une ancienne transcription, gardée hors du dépôt) s'importe comme n'importe quel
+/// VTT. Facultatif : `GREFFIER_VTT_REEL=<fichier.vtt> cargo test` ; sans lui, le test ne vérifie
+/// rien. Ne vérifie que ce qui vaut pour tout VTT à étiquettes `[SPEAKER_xx]:`.
 #[test]
-fn un_vtt_reel_du_vault_s_importe_comme_n_importe_quel_vtt() {
-    let Some(maison) = std::env::var_os("HOME") else { return };
-    let vtt = Path::new(&maison).join("Vault/Falcon HQ/Réunions/2026-11-05 11h53 - Réunion/transcription/2026-11-05 11h53.vtt");
-    if !vtt.is_file() {
-        eprintln!("vault absent, test sauté : {}", vtt.display());
-        return;
-    }
+fn un_vtt_reel_s_importe_comme_n_importe_quel_vtt() {
+    let Some(vtt) = std::env::var_os("GREFFIER_VTT_REEL").map(PathBuf::from) else { return };
+    let contenu = std::fs::read_to_string(&vtt).expect("GREFFIER_VTT_REEL lisible");
+    let entrees = contenu.lines().filter(|l| l.contains("-->")).count();
     let mut banc = Banc::new();
     let dehors = Dehors::new(&banc);
-    let id = importer(&mut banc, Import { transcription: Some(vtt.clone()), ..import(dehors.copier(&video(), "2026-11-05 11h53.mp4")) });
+    let id = importer(&mut banc, Import { transcription: Some(vtt.clone()), ..import(dehors.copier(&video(), "reel.mp4")) });
 
     let r = banc.reunion(id);
-    assert_eq!(r.repliques.len(), 111, "une réplique par entrée du VTT");
-    let etiquettes: Vec<&str> = r.locuteurs.iter().map(|l| l.etiquette.as_str()).collect();
-    assert_eq!(etiquettes, ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"]);
-    assert!(r.locuteurs.iter().all(|l| l.nom.is_none()), "des étiquettes, pas des noms");
-    let parle = |i: usize| r.repliques.iter().filter(|x| x.locuteur == i).count();
-    assert_eq!((parle(0), parle(1), parle(2)), (30, 26, 55));
-    let premiere = &r.repliques[0];
-    assert_eq!((premiere.locuteur, premiere.debut, premiere.fin), (2, 0.051, 2.853));
-    assert!(premiere.texte.starts_with("Oui, vas-y"), "le « [SPEAKER_02]: » est retiré du texte : {}", premiere.texte);
-    let derniere = r.repliques.last().unwrap();
-    assert_eq!((derniere.locuteur, derniere.debut, derniere.fin, derniere.texte.as_str()), (1, 423.594, 423.694, "Hop."));
+    assert_eq!(r.repliques.len(), entrees, "une réplique par entrée du VTT");
+    assert!(r.locuteurs.iter().all(|l| l.etiquette.starts_with("SPEAKER_") && l.nom.is_none()), "des étiquettes, pas des noms");
+    assert!(r.repliques.iter().all(|x| !x.texte.starts_with("[SPEAKER_") && x.debut <= x.fin), "le « [SPEAKER_xx]: » est retiré du texte");
+    assert!(r.repliques.windows(2).all(|w| w[0].debut <= w[1].debut));
     assert_eq!(r.etape_faite, Some(Etape::Transcription));
 }
 
