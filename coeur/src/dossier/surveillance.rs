@@ -13,7 +13,7 @@ use super::{DossierDeReunions, Role};
 
 /// Ce qui change quand un fichier est réécrit : date de modification, taille, et inode (une
 /// écriture atomique remplace le fichier).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Empreinte {
     modifie: Option<SystemTime>,
     taille: u64,

@@ -118,7 +118,7 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 /// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
 /// la vraie séparation des locuteurs (pyannote dans le Python privé), la relecture et le bilan
 /// par la CLI `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure
-/// du Mac et les vraies ressources.
+/// du Mac, les vraies ressources et la corbeille du Mac.
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
     use greffier_coeur::adaptateurs::Adaptateurs;
     use greffier_coeur::claude::{AgentClaude, ClaudeDuMac};
@@ -133,7 +133,13 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         separateur: Box::new(greffier_moteurs::SeparateurPyannote::de_l_app(&app)),
         agent: Box::new(AgentClaude::new(Arc::new(ClaudeDuMac::default()), Arc::new(greffier_moteurs::ReecouteWhisper::de_l_app(&app)))),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
+        corbeille: Box::new(greffier_capture::CorbeilleDuMac),
     }
+}
+
+/// Le cache de recherche, dans le dossier de l'app.
+pub fn cache_de_recherche() -> PathBuf {
+    dossier_de_l_app().join("recherche")
 }
 
 /// Le chemin du lexique du dossier de l'app (le lexique livré y est écrit s'il manque).

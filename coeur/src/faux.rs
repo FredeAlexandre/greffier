@@ -474,3 +474,65 @@ impl Horloge for FausseHorloge {
         self.0
     }
 }
+
+/// Une corbeille dans un dossier temporaire (effacé avec la dernière copie) : les dossiers jetés
+/// y sont déplacés et retenus. Les copies partagent la même corbeille, pour regarder dedans après
+/// l'avoir branchée.
+#[derive(Clone)]
+pub struct FausseCorbeille(std::sync::Arc<Poubelle>);
+
+struct Poubelle {
+    dossier: PathBuf,
+    panne: Option<String>,
+    jetes: std::sync::Mutex<Vec<PathBuf>>,
+}
+
+impl Drop for Poubelle {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dossier);
+    }
+}
+
+impl FausseCorbeille {
+    pub fn new() -> FausseCorbeille {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dossier = std::env::temp_dir().join(format!("greffier-corbeille-{}-{n}", std::process::id()));
+        FausseCorbeille(std::sync::Arc::new(Poubelle { dossier, panne: None, jetes: Default::default() }))
+    }
+
+    /// Une corbeille qui refuse tout, avec ce message.
+    pub fn en_panne(self, message: &str) -> FausseCorbeille {
+        let dossier = self.0.dossier.clone();
+        FausseCorbeille(std::sync::Arc::new(Poubelle { dossier, panne: Some(message.into()), jetes: Default::default() }))
+    }
+
+    /// Où sont les dossiers jetés (sous leur nom).
+    pub fn dossier(&self) -> &Path {
+        &self.0.dossier
+    }
+
+    /// Les chemins jetés, dans l'ordre.
+    pub fn jetes(&self) -> Vec<PathBuf> {
+        self.0.jetes.lock().expect("corbeille").clone()
+    }
+}
+
+impl Default for FausseCorbeille {
+    fn default() -> FausseCorbeille {
+        FausseCorbeille::new()
+    }
+}
+
+impl Corbeille for FausseCorbeille {
+    fn jeter(&self, chemin: &Path) -> Result<(), String> {
+        if let Some(m) = &self.0.panne {
+            return Err(m.clone());
+        }
+        let nom = chemin.file_name().ok_or("rien à jeter")?;
+        std::fs::create_dir_all(&self.0.dossier).map_err(|e| e.to_string())?;
+        std::fs::rename(chemin, self.0.dossier.join(nom)).map_err(|e| format!("{} : {e}", chemin.display()))?;
+        self.0.jetes.lock().expect("corbeille").push(chemin.to_path_buf());
+        Ok(())
+    }
+}

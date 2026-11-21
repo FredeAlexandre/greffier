@@ -491,10 +491,34 @@ impl App {
     pub fn stop_processing(&mut self, id: IdReunion) {
         self.command(Commande::ArreterTraitement(id));
     }
+    /// Met la réunion à la corbeille (après confirmation) ; si la corbeille refuse, elle reste et
+    /// un bandeau dit pourquoi.
     pub fn delete(&mut self, id: IdReunion) {
-        self.command(Commande::Supprimer(id));
-        self.forget(id);
         self.confirm_delete = None;
+        match self.try_command(Commande::Supprimer(id)) {
+            Ok(()) => self.forget(id),
+            Err(refus) => self.toast = Some(Toast { text: format!("Suppression impossible : {refus}"), meeting: Some(id), until: self.clock + 8.0 }),
+        }
+    }
+    /// Montre le dossier de la réunion dans le Finder (sans fenêtre, rien).
+    pub fn reveal(&mut self, id: IdReunion) {
+        let Some(m) = self.core.reunion(id) else { return };
+        let dossier = self.core.dossier().dossier(&m.nom_du_dossier);
+        if rune::is_headless() {
+            return;
+        }
+        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-R").arg(&dossier).spawn() {
+            eprintln!("greffier : afficher dans le Finder : {e}");
+        }
+    }
+    /// Copie le bilan, tel qu'il est écrit (Markdown), dans le presse-papiers.
+    pub fn copy_bilan(&mut self, id: IdReunion, tx: &mut Tx) {
+        let Some(m) = self.core.reunion(id) else { return };
+        if m.bilan.trim().is_empty() {
+            return;
+        }
+        tx.copy(m.bilan.clone());
+        self.toast = Some(Toast { text: "Bilan copié en Markdown.".into(), meeting: Some(id), until: self.clock + 4.0 });
     }
     /// La réunion n'existe plus (supprimée dans l'app ou hors de l'app) : on quitte sa page.
     fn forget(&mut self, id: IdReunion) {
@@ -593,11 +617,12 @@ fn prototype() -> Greffier {
 }
 
 /// Le cœur de la fenêtre sur un dossier de réunions, avec les vraies ressources, dont il lance
-/// tout de suite les vérifications.
+/// tout de suite les vérifications, le lexique et le cache de recherche du dossier de l'app.
 fn real_core(folder: &Path, reunions: bool) -> Greffier {
     let mut core = if reunions { Greffier::ouvrir(folder, reglages::adaptateurs()) } else { Greffier::avec_reunions(folder, reglages::adaptateurs(), vec![]) };
     let lexique = reglages::chemin_du_lexique();
-    for c in [Commande::ChangerReglages(greffier_coeur::Reglages { lexique, ..core.reglages().clone() }), Commande::VerifierRessources] {
+    let cache_de_recherche = Some(reglages::cache_de_recherche());
+    for c in [Commande::ChangerReglages(greffier_coeur::Reglages { lexique, cache_de_recherche, ..core.reglages().clone() }), Commande::VerifierRessources] {
         if let Err(e) = core.executer(c) {
             eprintln!("greffier : {e}");
         }
@@ -625,6 +650,8 @@ fn init() -> App {
     };
     // Sans fenêtre, les réglages par défaut : rendu déterministe.
     let (settings, shortcut) = if rune::is_headless() { (greffier_coeur::Reglages::default(), reglages::RACCOURCI_PAR_DEFAUT.to_string()) } else { reglages::enregistrement() };
+    // Le lexique et le cache viennent du dossier de l'app (`real_core`), pas des réglages retenus.
+    let settings = greffier_coeur::Reglages { lexique: core.reglages().lexique.clone(), cache_de_recherche: core.reglages().cache_de_recherche.clone(), ..settings };
     let _ = core.executer(Commande::ChangerReglages(settings));
     App {
         core,
@@ -794,6 +821,11 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
     if ev.is_command('r') && ev.mods.shift && s.shortcut_id.is_none() {
         s.toggle_recording();
+        return true;
+    }
+    // ⌘⌫ : supprimer la réunion ouverte (après confirmation).
+    if ev.mods.cmd && ev.key == Key::Backspace && let Page::Meeting(id) = s.page {
+        s.confirm_delete = Some(id);
         return true;
     }
     if ev.is_command('m') && s.recording() {

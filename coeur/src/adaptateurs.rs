@@ -412,6 +412,15 @@ pub trait Horloge {
     }
 }
 
+// --- Corbeille ------------------------------------------------------------------------------
+
+/// La corbeille du Mac : une réunion supprimée y envoie son dossier entier, pour qu'on puisse
+/// s'en rattraper.
+pub trait Corbeille {
+    /// Met ce dossier (ou fichier) à la corbeille. L'erreur est un message pour l'utilisateur.
+    fn jeter(&self, chemin: &std::path::Path) -> Result<(), String>;
+}
+
 /// Tous les adaptateurs branchés sur le cœur.
 pub struct Adaptateurs {
     pub capture: Box<dyn Capture>,
@@ -420,4 +429,5 @@ pub struct Adaptateurs {
     pub agent: Box<dyn Agent>,
     pub ressources: Box<dyn Ressources>,
     pub horloge: Box<dyn Horloge>,
+    pub corbeille: Box<dyn Corbeille>,
 }

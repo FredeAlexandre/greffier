@@ -80,7 +80,7 @@ faire que les vérifications). Les scènes et parcours gardent de fausses ressou
 | Transcription : clic droit sur une réplique, ou C | corrige son texte (↩ enregistre, esc annule) ; `transcription.md` et `.json` sont réécrits |
 | ⌘K ou « Rechercher » | cherche dans les titres, bilans et transcriptions ; ↩ ouvre au bon moment |
 | Transcription › « Refaire… » | refaire la relecture (lexique actuel) puis le bilan, ou refaire la transcription avec un autre nombre de locuteurs, puis la relecture et le bilan |
-| Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan / la relecture / la transcription, Finder, supprimer (avec confirmation) |
+| Clic droit sur une réunion | menu : ouvrir, lire la transcription, refaire le bilan / la relecture / la transcription, afficher dans le Finder, copier le bilan, supprimer (corbeille du Mac, après confirmation, ou ⌘⌫ sur la réunion ouverte) |
 
 ## Sans fenêtre
 

@@ -4,7 +4,8 @@
 //! Ce module nomme les dossiers et les fichiers, et lit tout ce qui existe, y compris les
 //! réunions incomplètes (un enregistrement seul, un enregistrement et sa transcription…).
 //! Les empreintes des fichiers (`surveillance`) disent ce qui a changé hors de l'app ; le
-//! `renommage` suit le titre. La corbeille vient avec un ticket suivant.
+//! `renommage` suit le titre. Une réunion supprimée part entière à la corbeille du Mac
+//! (adaptateur `Corbeille`, voir `Greffier::supprimer`).
 
 pub mod fiche;
 pub(crate) mod import;
@@ -24,7 +25,7 @@ pub use import::{EXTENSIONS_DE_MEDIA, Import};
 use crate::temps::DateHeure;
 
 /// Le rôle d'un fichier dans le dossier d'une réunion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Role {
     Fiche,
     Bilan,
