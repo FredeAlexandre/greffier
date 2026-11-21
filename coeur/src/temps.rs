@@ -28,6 +28,22 @@ impl DateHeure {
         era * 146_097 + doe - 719_468
     }
 
+    /// L'instant `secondes` après le 1er janvier 1970 à minuit, en temps universel (algorithme
+    /// « civil from days »).
+    pub fn depuis_unix(secondes: i64) -> DateHeure {
+        let (jours, s) = (secondes.div_euclid(86_400), secondes.rem_euclid(86_400));
+        let z = jours + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let jour = (doy - (153 * mp + 2) / 5 + 1) as u8;
+        let mois = if mp < 10 { mp + 3 } else { mp - 9 } as u8;
+        let annee = (yoe + era * 400 + i64::from(mois <= 2)) as i32;
+        DateHeure::new(annee, mois, jour, (s / 3600) as u8, ((s / 60) % 60) as u8)
+    }
+
     /// Nombre de jours du calendrier entre cette date et `plus_tard` (0 le même jour).
     pub fn jours_jusqu_a(&self, plus_tard: DateHeure) -> i64 {
         plus_tard.jours() - self.jours()

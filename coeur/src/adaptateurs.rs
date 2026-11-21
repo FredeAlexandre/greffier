@@ -249,6 +249,15 @@ pub trait Ressources {
 /// L'heure locale : le début des enregistrements et le jour d'aujourd'hui.
 pub trait Horloge {
     fn maintenant(&self) -> DateHeure;
+    /// Un instant (date de création d'un média, de modification d'un fichier) en heure locale.
+    /// Par défaut en temps universel : la vraie horloge y met le fuseau du Mac.
+    fn en_heure_locale(&self, instant: std::time::SystemTime) -> DateHeure {
+        let secondes = match instant.duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        };
+        DateHeure::depuis_unix(secondes)
+    }
 }
 
 /// Tous les adaptateurs branchés sur le cœur.
