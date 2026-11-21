@@ -3,10 +3,13 @@
 //!
 //! Ce module nomme les dossiers et les fichiers, et lit tout ce qui existe, y compris les
 //! réunions incomplètes (un enregistrement seul, un enregistrement et sa transcription…).
-//! Le renommage, la surveillance et la corbeille viennent avec les tickets suivants.
+//! Les empreintes des fichiers (`surveillance`) disent ce qui a changé hors de l'app. Le
+//! renommage et la corbeille viennent avec les tickets suivants.
 
 pub mod fiche;
+pub(crate) mod import;
 mod mp4;
+pub mod surveillance;
 pub mod transcription;
 
 pub use mp4::duree as duree_du_mp4;
@@ -16,6 +19,7 @@ use std::path::{Path, PathBuf};
 use crate::reunion::{Etape, IdReunion, Reunion, Statut};
 use fiche::Fiche;
 use transcription::TranscriptionStructuree;
+pub use import::{EXTENSIONS_DE_MEDIA, Import};
 use crate::temps::DateHeure;
 
 /// Le rôle d'un fichier dans le dossier d'une réunion.
@@ -111,7 +115,22 @@ impl DossierDeReunions {
 
     /// Les fichiers présents dans le dossier d'une réunion.
     pub fn roles_presents(&self, nom: &str) -> Vec<Role> {
-        Role::TOUS.into_iter().filter(|r| self.fichier(nom, *r).is_file()).collect()
+        Role::TOUS.into_iter().filter(|r| if *r == Role::Enregistrement { self.enregistrement(nom).is_some() } else { self.fichier(nom, *r).is_file() }).collect()
+    }
+
+    /// L'enregistrement d'une réunion tel qu'il est sur le disque : `… - enregistrement.mp4`,
+    /// ou un autre média importé qui garde son extension (`… - enregistrement.m4a`).
+    pub fn enregistrement(&self, nom: &str) -> Option<PathBuf> {
+        let mp4 = self.fichier(nom, Role::Enregistrement);
+        if mp4.is_file() {
+            return Some(mp4);
+        }
+        EXTENSIONS_DE_MEDIA.iter().map(|e| self.fichier_d_enregistrement(nom, e)).find(|f| f.is_file())
+    }
+
+    /// `<nom>/<nom> - enregistrement.<extension>`.
+    pub fn fichier_d_enregistrement(&self, nom: &str, extension: &str) -> PathBuf {
+        self.dossier(nom).join(format!("{nom} - enregistrement.{extension}"))
     }
 
     /// Toutes les réunions du dossier, les plus récentes d'abord, numérotées à partir de `premier_id`.
@@ -163,7 +182,7 @@ impl DossierDeReunions {
         }
         r.etape_faite = faite;
         if r.duree <= 0.0 {
-            let video = fichiers.contains(&Role::Enregistrement).then(|| mp4::duree(&self.fichier(nom, Role::Enregistrement))).flatten();
+            let video = self.enregistrement(nom).and_then(|f| mp4::duree(&f));
             r.duree = video.or_else(|| r.repliques.iter().map(|x| x.fin).reduce(f64::max)).unwrap_or(0.0);
         }
         r.fichiers = fichiers;
@@ -174,6 +193,11 @@ impl DossierDeReunions {
     /// transcription lisible. Le bilan (écrit par l'agent) et l'enregistrement n'y sont pas.
     /// Chaque fichier est écrit à côté puis renommé, pour qu'un lecteur ne le voie jamais à moitié.
     pub fn ecrire(&self, r: &Reunion) -> Result<(), String> {
+        self.ecrire_les_fichiers(r).map(|_| ())
+    }
+
+    /// Comme [`DossierDeReunions::ecrire`], et rend les rôles des fichiers écrits.
+    pub fn ecrire_les_fichiers(&self, r: &Reunion) -> Result<Vec<Role>, String> {
         let nom = &r.nom_du_dossier;
         let dossier = self.dossier(nom);
         std::fs::create_dir_all(&dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
@@ -181,8 +205,9 @@ impl DossierDeReunions {
         if r.etape_faite.is_some() || !r.repliques.is_empty() {
             ecrire_atomiquement(&self.fichier(nom, Role::TranscriptionStructuree), &TranscriptionStructuree::depuis(r).json())?;
             ecrire_atomiquement(&self.fichier(nom, Role::TranscriptionLisible), &transcription::transcription_lisible(r))?;
+            return Ok(vec![Role::Fiche, Role::TranscriptionStructuree, Role::TranscriptionLisible]);
         }
-        Ok(())
+        Ok(vec![Role::Fiche])
     }
 
     /// Un nom de dossier libre pour une nouvelle réunion (« (2) », « (3) »… si besoin).

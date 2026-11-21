@@ -6,7 +6,8 @@
 //! (`reunions`, `enregistrement`…) et appeler ces deux fonctions.
 //!
 //! Tout ce qui sort du processus passe par les [`adaptateurs`] : capture, transcripteur,
-//! séparateur de locuteurs, agent, ressources (et l'horloge).
+//! séparateur de locuteurs, agent, ressources (et l'horloge). Les ressources de l'app (modèles,
+//! Python privé, vérification de `claude`) sont décrites dans [`ressources`].
 
 #![forbid(unsafe_code)]
 
@@ -16,10 +17,14 @@ pub mod bilan;
 pub mod dossier;
 pub mod faux;
 pub mod fictif;
+pub mod lexique;
+pub mod mac;
+pub mod ressources;
 mod reunion;
+mod surveillance;
 mod temps;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -78,9 +83,15 @@ pub enum Commande {
     /// La réunion a été ouverte : elle n'est plus nouvelle.
     MarquerLue(IdReunion),
     ChangerReglages(Reglages),
+    /// Télécharge, installe et vérifie les ressources qui manquent.
     InstallerRessources,
     /// Affiche la demande de macOS pour cette autorisation.
     DemanderAutorisation(Autorisation),
+    /// Refait les vérifications des ressources (la CLI `claude`) sans rien télécharger.
+    VerifierRessources,
+    /// Ajoute une réunion à partir de fichiers existants, copiés dans un nouveau dossier de
+    /// réunion (voir [`Greffier::proposer_import`]).
+    Importer(dossier::Import),
 }
 
 /// Ce qui s'est passé dans le cœur et que l'interface peut vouloir annoncer.
@@ -90,6 +101,7 @@ pub enum Evenement {
     /// L'enregistrement a duré moins de [`DUREE_MINIMALE`] : sans doute un faux départ, que
     /// l'interface propose de supprimer. Le traitement suit son cours tant qu'on la garde.
     SuppressionProposee(IdReunion),
+    ReunionImportee(IdReunion),
     EtapeTerminee { reunion: IdReunion, etape: Etape },
     EtapeEnEchec { reunion: IdReunion, etape: Etape, message: String },
     BilanPret { reunion: IdReunion, titre: String },
@@ -97,6 +109,12 @@ pub enum Evenement {
     InstallationEnEchec(String),
     /// Un fichier de la réunion n'a pas pu être écrit dans le dossier de réunions.
     EcritureImpossible { reunion: IdReunion, message: String },
+    /// Un fichier de la réunion a changé hors de l'app : elle a été relue.
+    ReunionRelue(IdReunion),
+    /// Un dossier de réunion est apparu hors de l'app.
+    ReunionApparue(IdReunion),
+    /// Le dossier de la réunion a disparu hors de l'app : elle n'est plus dans la liste.
+    ReunionDisparue(IdReunion),
 }
 
 /// En dessous de cette durée (en secondes), un enregistrement est proposé à la suppression.
@@ -226,6 +244,12 @@ pub struct Greffier {
     file: VecDeque<IdReunion>,
     traitement: Option<Traitement>,
     installation: Option<TacheDe<()>>,
+    verification: Option<TacheDe<()>>,
+    /// L'état des ressources, relu à chaque avancée.
+    ressources: Vec<Ressource>,
+    /// L'empreinte de chaque dossier de réunion au dernier passage du cœur (voir
+    /// [`Greffier::relire_le_dossier`]).
+    empreintes: HashMap<String, dossier::surveillance::Empreintes>,
 }
 
 impl Greffier {
@@ -248,8 +272,12 @@ impl Greffier {
             }
         }
         let prochain_id = reunions.iter().map(|r| r.id + 1).max().unwrap_or(1);
+        let mut adaptateurs = adaptateurs;
+        let ressources = adaptateurs.ressources.etat();
+        let dossier = DossierDeReunions::new(dossier);
+        let empreintes = dossier.toutes_les_empreintes();
         Greffier {
-            dossier: DossierDeReunions::new(dossier),
+            dossier,
             adaptateurs,
             reglages: Reglages::default(),
             reunions,
@@ -258,6 +286,9 @@ impl Greffier {
             file,
             traitement: None,
             installation: None,
+            verification: None,
+            ressources,
+            empreintes,
         }
     }
 
@@ -298,13 +329,31 @@ impl Greffier {
         self.adaptateurs.capture.autorisations()
     }
 
-    pub fn ressources(&mut self) -> Vec<Ressource> {
-        self.adaptateurs.ressources.etat()
+    /// Les modèles, l'environnement Python et la vérification de `claude`, avec leur état et la
+    /// place qu'ils prennent.
+    pub fn ressources(&self) -> &[Ressource] {
+        &self.ressources
     }
 
-    /// Vrai tant que le temps compte : enregistrement, traitement, file ou installation.
+    pub fn installation_en_cours(&self) -> bool {
+        self.installation.is_some()
+    }
+
+    pub fn verification_en_cours(&self) -> bool {
+        self.verification.is_some()
+    }
+
+    /// Ce que la fenêtre d'import propose pour des fichiers déposés ou choisis : le média, la
+    /// transcription et le bilan, la date et le titre, à modifier avant d'envoyer
+    /// [`Commande::Importer`]. N'écrit rien.
+    pub fn proposer_import(&self, fichiers: &[PathBuf]) -> Result<dossier::Import, Refus> {
+        dossier::import::proposer(fichiers, |t| self.adaptateurs.horloge.en_heure_locale(t)).map_err(Refus::Impossible)
+    }
+
+    /// Vrai tant que le temps compte : enregistrement, traitement, file, installation ou
+    /// vérification des ressources.
     pub fn occupe(&self) -> bool {
-        self.enregistrement.is_some() || self.traitement.is_some() || !self.file.is_empty() || self.installation.is_some()
+        self.enregistrement.is_some() || self.traitement.is_some() || !self.file.is_empty() || self.installation.is_some() || self.verification.is_some()
     }
 
     // --- Commandes -----------------------------------------------------------------------
@@ -406,29 +455,50 @@ impl Greffier {
                 };
             }
             Commande::CocherAction { reunion, action, faite } => {
-                let fichier = {
-                    let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
-                    self.dossier.fichier(&r.nom_du_dossier, Role::Bilan)
-                };
-                let r = self.reunion_mut(reunion)?;
-                if action >= bilan::actions(&r.bilan).len() {
+                let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
+                if action >= bilan::nombre_de_cases(&r.bilan) {
                     return impossible("action inconnue");
                 }
-                bilan::cocher(&mut r.bilan, action, faite);
-                // Le fichier du bilan est celui de l'agent : on n'y change que la case.
-                if fichier.exists() {
-                    let mut md = std::fs::read_to_string(&fichier).map_err(|e| Refus::Impossible(e.to_string()))?;
-                    bilan::cocher(&mut md, action, faite);
-                    std::fs::write(&fichier, md).map_err(|e| Refus::Impossible(e.to_string()))?;
+                // Le fichier du bilan est celui de l'agent : on n'y change que la case, et il fait foi.
+                let nom = r.nom_du_dossier.clone();
+                let fichier = self.dossier.cocher_dans_le_bilan(&nom, action, faite).map_err(Refus::Impossible)?;
+                let r = self.reunion_mut(reunion)?;
+                match fichier {
+                    Some(md) => r.poser_bilan(md),
+                    None => _ = bilan::cocher(&mut r.bilan, action, faite),
                 }
+                self.noter(&nom, &[Role::Bilan]);
             }
             Commande::MarquerLue(id) => self.reunion_mut(id)?.nouvelle = false,
             Commande::ChangerReglages(r) => self.reglages = r,
             Commande::DemanderAutorisation(a) => self.adaptateurs.capture.demander_autorisation(a),
             Commande::InstallerRessources => {
                 if self.installation.is_none() {
+                    // L'installation refait aussi les vérifications.
+                    if let Some(mut v) = self.verification.take() {
+                        v.arreter();
+                    }
                     self.installation = Some(self.adaptateurs.ressources.installer());
+                    self.ressources = self.adaptateurs.ressources.etat();
                 }
+            }
+            Commande::VerifierRessources => {
+                if self.installation.is_none() && self.verification.is_none() {
+                    self.verification = Some(self.adaptateurs.ressources.verifier());
+                    self.ressources = self.adaptateurs.ressources.etat();
+                }
+            }
+            Commande::Importer(import) => {
+                let id = self.prochain_id;
+                let r = self.dossier.importer(&import, id).map_err(Refus::Impossible)?;
+                // Les fichiers copiés par Greffier ne sont pas des modifications faites hors de l'app.
+                self.noter(&r.nom_du_dossier.clone(), &Role::TOUS);
+                self.prochain_id += 1;
+                // Les plus récentes d'abord.
+                let place = self.reunions.iter().position(|x| x.debut <= r.debut).unwrap_or(self.reunions.len());
+                self.reunions.insert(place, r);
+                ev.push(Evenement::ReunionImportee(id));
+                self.persister(id, &mut ev);
             }
         }
         if let Some(id) = touchee {
@@ -440,11 +510,13 @@ impl Greffier {
     /// Écrit les fichiers de la réunion (fiche, transcriptions) et note ceux qui sont présents.
     fn persister(&mut self, id: IdReunion, ev: &mut Vec<Evenement>) {
         let Some(r) = self.reunion(id) else { return };
-        let resultat = self.dossier.ecrire(r);
-        let fichiers = self.dossier.roles_presents(&r.nom_du_dossier);
+        let nom = r.nom_du_dossier.clone();
+        let resultat = self.dossier.ecrire_les_fichiers(r);
+        let fichiers = self.dossier.roles_presents(&nom);
         if let Ok(r) = self.reunion_mut(id) {
             r.fichiers = fichiers;
         }
+        self.noter(&nom, resultat.as_deref().unwrap_or_default());
         if let Err(message) = resultat {
             ev.push(Evenement::EcritureImpossible { reunion: id, message });
         }
@@ -546,6 +618,12 @@ impl Greffier {
                 }
             }
         }
+        if let Some(t) = &mut self.verification
+            && !matches!(t.sonder(ecoule), Avancement::EnCours(_))
+        {
+            self.verification = None;
+        }
+        self.ressources = self.adaptateurs.ressources.etat();
         if self.traitement.is_none()
             && self.enregistrement.is_none()
             && let Some(id) = self.file.pop_front()
@@ -572,14 +650,15 @@ impl Greffier {
 
     fn preparer(&mut self, id: IdReunion, etape: Etape) -> Result<Travail, String> {
         let r = self.reunion(id).ok_or("réunion inconnue")?.clone();
-        let audio = self.dossier.fichier(&r.nom_du_dossier, Role::Enregistrement);
+        let audio = self.dossier.enregistrement(&r.nom_du_dossier).unwrap_or_else(|| self.dossier.fichier(&r.nom_du_dossier, Role::Enregistrement));
         let a = &mut self.adaptateurs;
+        self.ressources = a.ressources.etat();
+        let manquantes: Vec<&str> = self.ressources.iter().filter(|x| x.etapes.contains(&etape) && x.etat != EtatDeRessource::Prete).map(|x| x.nom.as_str()).collect();
+        if !manquantes.is_empty() {
+            return Err(format!("Ressources manquantes : {}.", manquantes.join(", ")));
+        }
         Ok(match etape {
             Etape::Transcription => {
-                let manquantes: Vec<String> = a.ressources.etat().into_iter().filter(|x| x.etat != EtatDeRessource::Prete).map(|x| x.nom).collect();
-                if !manquantes.is_empty() {
-                    return Err(format!("Ressources manquantes : {}.", manquantes.join(", ")));
-                }
                 // Le vocabulaire du lexique arrive avec la relecture (#9).
                 let mots = a.transcripteur.transcrire(DemandeDeTranscription { audio: audio.clone(), duree: r.duree, vocabulaire: String::new() });
                 let tours = a.separateur.separer(DemandeDeSeparation { audio, duree: r.duree, nombre_de_locuteurs: r.nombre_de_locuteurs });
@@ -678,6 +757,13 @@ impl Greffier {
         };
         if let Some(manque) = lu.as_deref().and_then(bilan::manques) {
             return self.echec(id, etape, manque, ev);
+        }
+        // Le bilan vient d'être écrit par l'agent pour Greffier : ce n'est pas une modification
+        // faite hors de l'app.
+        if lu.is_some()
+            && let Some(nom) = self.reunion(id).map(|r| r.nom_du_dossier.clone())
+        {
+            self.noter(&nom, &[Role::Bilan]);
         }
         let en_enregistrement = self.enregistrement.is_some();
         let Ok(r) = self.reunion_mut(id) else { return };

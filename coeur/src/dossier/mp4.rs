@@ -128,6 +128,35 @@ fn duree_du_trun(trun: &[u8], defaut: u64) -> Option<u64> {
     Some(total)
 }
 
+/// La date de création inscrite dans `moov/mvhd`, si elle y est (0 veut dire absente).
+pub fn date_de_creation(chemin: &Path) -> Option<std::time::SystemTime> {
+    let moov = moov(chemin)?;
+    let (_, mvhd) = boites(&moov).find(|(n, _)| n == b"mvhd")?;
+    let secondes = if *mvhd.first()? == 1 { u64_a(mvhd, 4)? } else { u32_a(mvhd, 4)? };
+    // Les dates MP4 comptent depuis le 1er janvier 1904.
+    const DE_1904_A_1970: u64 = 2_082_844_800;
+    let unix = secondes.checked_sub(DE_1904_A_1970).filter(|_| secondes > 0)?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix))
+}
+
+/// Le contenu de la boîte `moov`.
+fn moov(chemin: &Path) -> Option<Vec<u8>> {
+    let mut f = File::open(chemin).ok()?;
+    let taille = f.metadata().ok()?.len();
+    let mut pos = 0;
+    while pos + 8 <= taille {
+        f.seek(SeekFrom::Start(pos)).ok()?;
+        let (longueur, nom, entete) = lire_entete(&mut f, taille - pos)?;
+        if &nom == b"moov" {
+            let mut moov = vec![0; usize::try_from(longueur - entete).ok()?];
+            f.read_exact(&mut moov).ok()?;
+            return Some(moov);
+        }
+        pos += longueur;
+    }
+    None
+}
+
 /// (longueur totale, nom, longueur de l'en-tête) de la boîte qui commence ici.
 fn lire_entete(f: &mut File, reste: u64) -> Option<(u64, [u8; 4], u64)> {
     let mut b = [0; 8];

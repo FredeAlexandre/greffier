@@ -5,7 +5,7 @@
 //! [`adaptateurs`] branche les faux adaptateurs du prototype : une capture au temps accéléré, un
 //! transcripteur et un séparateur qui inventent une réunion courte, un agent qui en écrit le bilan.
 
-use crate::adaptateurs::{Adaptateurs, DemandeDeBilan, Participant, ResultatDeRelecture, ResultatDuBilan};
+use crate::adaptateurs::{Adaptateurs, DemandeDeBilan, EtatDeRessource, Participant, Ressource, ResultatDeRelecture, ResultatDuBilan};
 use crate::faux::{FausseCapture, FausseHorloge, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
 use crate::reunion::{Etape, Locuteur, Mot, PassageAVerifier, Repere, Replique, Reunion, Statut, StatutDuPassage, TourDeParole};
 use crate::temps::{DateHeure, hms};
@@ -445,9 +445,41 @@ pub fn adaptateurs() -> Adaptateurs {
             Ok(nouvelle_transcription(d.duree, graine_s - 1).1)
         })),
         agent: Box::new(FauxAgent::new(duree_simulee(Etape::Relecture), |_| Ok(ResultatDeRelecture::default()), duree_simulee(Etape::Bilan), bilan_invente)),
-        ressources: Box::new(FaussesRessources::pretes()),
+        ressources: Box::new(FaussesRessources::fixes(ressources())),
         horloge: Box::new(FausseHorloge(AUJOURD_HUI)),
     }
+}
+
+fn ressource(nom: &str, detail: &str, etat: EtatDeRessource, taille: u64, total: u64, etapes: &[Etape]) -> Ressource {
+    Ressource { nom: nom.into(), detail: detail.into(), etat, taille, total, aide: None, etapes: etapes.to_vec() }
+}
+
+/// Les ressources d'une installation complète, aux tailles réelles.
+pub fn ressources() -> Vec<Ressource> {
+    let t = [Etape::Transcription];
+    vec![
+        ressource("Whisper large-v3", "huggingface.co/ggerganov/whisper.cpp", EtatDeRessource::Prete, 3_095_033_483, 3_095_033_483, &t),
+        ressource("Silero VAD v5.1.2", "huggingface.co/ggml-org/whisper-vad", EtatDeRessource::Prete, 885_098, 885_098, &t),
+        ressource("pyannote community-1", "release GitHub de Greffier · CC-BY-4.0", EtatDeRessource::Prete, 32_955_421, 32_955_421, &t),
+        ressource("Python privé", "pyannote.audio 4.0.7 · installé par uv", EtatDeRessource::Prete, 1_184_312_904, 0, &t),
+        ressource("Claude Code", "2.1.329 · connectée (claude.ai)", EtatDeRessource::Prete, 0, 0, &[Etape::Relecture, Etape::Bilan]),
+    ]
+}
+
+/// Un premier lancement en cours : whisper se télécharge, le Python s'installe, le sha256 d'un
+/// fichier de pyannote n'a pas correspondu et la CLI `claude` n'est pas installée.
+pub fn ressources_en_installation() -> Vec<Ressource> {
+    let mut r = ressources();
+    r[0].etat = EtatDeRessource::EnTelechargement { recu: 1_342_177_280, total: 3_095_033_483 };
+    r[0].taille = 1_342_177_280;
+    r[2].etat = EtatDeRessource::Echec("sha256 incorrect pour modeles/pyannote-community-1/embedding/pytorch_model.bin. Le fichier est supprimé ; il sera retéléchargé au prochain essai.".into());
+    r[2].taille = 6_174_803;
+    r[3].etat = EtatDeRessource::EnInstallation;
+    r[3].taille = 0;
+    r[4].detail = "CLI d'Anthropic".into();
+    r[4].etat = EtatDeRessource::Absente;
+    r[4].aide = Some("La relecture et le bilan passent par Claude Code. L'installer (https://claude.com/claude-code), lancer `claude` une fois pour se connecter, puis cliquer sur « Vérifier à nouveau ».".into());
+    r
 }
 
 /// Le bilan de la revue de release, comme l'agent l'écrit avec le prompt du bilan.

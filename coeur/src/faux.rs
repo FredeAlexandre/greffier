@@ -3,11 +3,13 @@
 //! [`crate::fictif`]).
 
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::adaptateurs::*;
-use crate::reunion::{Mot, TourDeParole};
+use crate::reunion::{Etape, Mot, TourDeParole};
+use crate::ressources::{EtatDeClaude, Outils, sha256};
 use crate::temps::DateHeure;
 
 /// Une tâche qui dure `duree` secondes de temps écoulé, puis rend son résultat.
@@ -249,19 +251,25 @@ impl Agent for FauxAgent {
     }
 }
 
-/// Des ressources prêtes, ou absentes jusqu'à ce qu'une installation de `duree` secondes aboutisse.
+/// Des ressources prêtes, ou absentes jusqu'à ce qu'une installation de `duree` secondes aboutisse,
+/// ou figées dans les états donnés (les scènes de l'interface).
 pub struct FaussesRessources {
     pretes: Rc<Cell<bool>>,
     duree_installation: f64,
     echec: Option<String>,
+    fixes: Option<Vec<Ressource>>,
 }
 
 impl FaussesRessources {
     pub fn pretes() -> FaussesRessources {
-        FaussesRessources { pretes: Rc::new(Cell::new(true)), duree_installation: 0.0, echec: None }
+        FaussesRessources { pretes: Rc::new(Cell::new(true)), duree_installation: 0.0, echec: None, fixes: None }
     }
     pub fn absentes(duree_installation: f64) -> FaussesRessources {
-        FaussesRessources { pretes: Rc::new(Cell::new(false)), duree_installation, echec: None }
+        FaussesRessources { pretes: Rc::new(Cell::new(false)), duree_installation, echec: None, fixes: None }
+    }
+    /// Toujours ces ressources ; installer et vérifier n'y changent rien.
+    pub fn fixes(ressources: Vec<Ressource>) -> FaussesRessources {
+        FaussesRessources { fixes: Some(ressources), ..FaussesRessources::pretes() }
     }
     /// L'installation échoue avec ce message.
     pub fn en_echec(mut self, message: &str) -> FaussesRessources {
@@ -270,7 +278,7 @@ impl FaussesRessources {
     }
 }
 
-const NOMS_DES_RESSOURCES: [&str; 4] = ["whisper large-v3", "Silero VAD", "pyannote community-1", "Python privé"];
+const NOMS_DES_RESSOURCES: [&str; 4] = ["Whisper large-v3", "Silero VAD v5.1.2", "pyannote community-1", "Python privé"];
 
 struct Installation {
     tache: FausseTache<()>,
@@ -289,8 +297,16 @@ impl Tache<()> for Installation {
 
 impl Ressources for FaussesRessources {
     fn etat(&mut self) -> Vec<Ressource> {
+        if let Some(fixes) = &self.fixes {
+            return fixes.clone();
+        }
         let etat = if self.pretes.get() { EtatDeRessource::Prete } else { EtatDeRessource::Absente };
-        NOMS_DES_RESSOURCES.iter().map(|n| Ressource { nom: (*n).into(), etat: etat.clone() }).collect()
+        let ressource = |nom: &str, etapes: Vec<Etape>, etat: EtatDeRessource| Ressource { nom: nom.into(), detail: String::new(), etat, taille: 0, total: 0, aide: None, etapes };
+        NOMS_DES_RESSOURCES
+            .iter()
+            .map(|n| ressource(n, vec![Etape::Transcription], etat.clone()))
+            .chain([ressource("Claude Code", vec![Etape::Relecture, Etape::Bilan], EtatDeRessource::Prete)])
+            .collect()
     }
 
     fn installer(&mut self) -> TacheDe<()> {
@@ -299,6 +315,126 @@ impl Ressources for FaussesRessources {
             None => Ok(()),
         };
         Box::new(Installation { tache: FausseTache::new(self.duree_installation, resultat), pretes: self.pretes.clone() })
+    }
+
+    fn verifier(&mut self) -> TacheDe<()> {
+        FausseTache::boite(0.0, Ok(()))
+    }
+}
+
+/// Les outils des ressources, sans réseau ni uv : des téléchargements servis depuis la mémoire à
+/// `octets_par_seconde` (écrits peu à peu dans le fichier partiel, comme curl), des empreintes
+/// vraies, un Python et une CLI `claude` au résultat donné.
+pub struct FauxOutils {
+    octets_par_seconde: f64,
+    contenus: HashMap<String, Vec<u8>>,
+    coupures: HashMap<String, u64>,
+    corrompus: HashSet<String>,
+    duree_d_empreinte: f64,
+    python: (f64, Result<(), String>),
+    claude: EtatDeClaude,
+}
+
+impl FauxOutils {
+    pub fn new(octets_par_seconde: f64) -> FauxOutils {
+        FauxOutils {
+            octets_par_seconde,
+            contenus: HashMap::new(),
+            coupures: HashMap::new(),
+            corrompus: HashSet::new(),
+            duree_d_empreinte: 0.0,
+            python: (0.0, Ok(())),
+            claude: EtatDeClaude::Connectee { version: "2.1.0".into(), compte: "claude.ai".into() },
+        }
+    }
+    pub fn servir(mut self, url: &str, contenu: &[u8]) -> FauxOutils {
+        self.contenus.insert(url.into(), contenu.to_vec());
+        self
+    }
+    /// Le prochain téléchargement de `url` s'interrompt une fois le fichier partiel à `octets`.
+    pub fn couper_une_fois(mut self, url: &str, octets: u64) -> FauxOutils {
+        self.coupures.insert(url.into(), octets);
+        self
+    }
+    /// Le prochain téléchargement de `url` reçoit des octets faux.
+    pub fn corrompre_une_fois(mut self, url: &str) -> FauxOutils {
+        self.corrompus.insert(url.into());
+        self
+    }
+    pub fn duree_d_empreinte(mut self, secondes: f64) -> FauxOutils {
+        self.duree_d_empreinte = secondes;
+        self
+    }
+    pub fn python(mut self, duree: f64, resultat: Result<(), String>) -> FauxOutils {
+        self.python = (duree, resultat);
+        self
+    }
+    pub fn claude(mut self, etat: EtatDeClaude) -> FauxOutils {
+        self.claude = etat;
+        self
+    }
+}
+
+struct FauxTelechargement {
+    contenu: Vec<u8>,
+    partiel: PathBuf,
+    octets_par_seconde: f64,
+    position: f64,
+    ecrit: u64,
+    coupure: Option<u64>,
+    corrompu: bool,
+}
+
+impl Tache<()> for FauxTelechargement {
+    fn sonder(&mut self, ecoule: f64) -> Avancement<()> {
+        let total = self.contenu.len() as u64;
+        self.position += ecoule * self.octets_par_seconde;
+        let cible = (self.position as u64).min(total).min(self.coupure.unwrap_or(u64::MAX)).max(self.ecrit);
+        let mut octets = self.contenu[self.ecrit as usize..cible as usize].to_vec();
+        if self.corrompu {
+            octets.iter_mut().for_each(|o| *o = !*o);
+        }
+        let ecrit = std::fs::OpenOptions::new().create(true).append(true).open(&self.partiel).and_then(|mut f| std::io::Write::write_all(&mut f, &octets));
+        if let Err(e) = ecrit {
+            return Avancement::Echec(format!("{} : {e}", self.partiel.display()));
+        }
+        self.ecrit = cible;
+        if self.coupure.is_some_and(|c| self.ecrit >= c) {
+            return Avancement::Echec("connexion perdue".into());
+        }
+        if self.ecrit >= total {
+            return Avancement::Fini(());
+        }
+        Avancement::EnCours(self.ecrit as f64 / total.max(1) as f64)
+    }
+}
+
+impl Outils for FauxOutils {
+    fn telecharger(&mut self, url: &str, partiel: &Path, _taille: u64) -> TacheDe<()> {
+        let Some(contenu) = self.contenus.get(url).cloned() else { return FausseTache::boite(0.0, Err(format!("{url} : 404"))) };
+        let deja = std::fs::metadata(partiel).map_or(0, |m| m.len()).min(contenu.len() as u64);
+        Box::new(FauxTelechargement {
+            contenu,
+            partiel: partiel.to_path_buf(),
+            octets_par_seconde: self.octets_par_seconde,
+            position: deja as f64,
+            ecrit: deja,
+            coupure: self.coupures.remove(url),
+            corrompu: self.corrompus.remove(url),
+        })
+    }
+
+    fn empreinte(&mut self, fichier: &Path) -> TacheDe<String> {
+        let resultat = std::fs::read(fichier).map(|o| sha256(&o)).map_err(|e| format!("{} : {e}", fichier.display()));
+        FausseTache::boite(self.duree_d_empreinte, resultat)
+    }
+
+    fn installer_python(&mut self, _projet: &Path, _dossier: &Path) -> TacheDe<()> {
+        FausseTache::boite(self.python.0, self.python.1.clone())
+    }
+
+    fn verifier_claude(&mut self) -> TacheDe<EtatDeClaude> {
+        FausseTache::boite(0.0, Ok(self.claude.clone()))
     }
 }
 

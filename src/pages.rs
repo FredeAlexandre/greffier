@@ -1,14 +1,14 @@
-//! Les autres pages : premier lancement, vue d'ensemble, enregistrement, réglages, et le bandeau
-//! de notification.
+//! Les autres pages : premier lancement (dossier de réunions, ressources), vue d'ensemble,
+//! enregistrement, réglages, et le bandeau de notification.
 
 use rune::{El, ScrollSpec, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, ShortcutRecorder, Switch};
+use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Progress, ShortcutRecorder, Spinner, Switch};
 
-use greffier_coeur::adaptateurs::{Autorisation, EtatDAutorisation};
+use greffier_coeur::adaptateurs::{Autorisation, EtatDAutorisation, EtatDeRessource, Ressource};
 use greffier_coeur::{Commande, Statut, bilan};
 
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
-use crate::{App, reglages};
+use crate::{App, Page, reglages};
 
 fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
     col()
@@ -199,6 +199,14 @@ pub fn permissions(s: &App, k: &Kit) -> El {
     c
 }
 
+/// Les autorisations en une ligne, pour les vérifications.
+fn permissions_summary(s: &App, k: &Kit) -> El {
+    let etats = s.core.autorisations();
+    let manquantes: Vec<&str> = Autorisation::TOUTES.into_iter().filter(|a| etats.etat(*a) != EtatDAutorisation::Accordee).map(Autorisation::nom).collect();
+    let detail = if manquantes.is_empty() { "écran, micro, son du système".to_string() } else { format!("manquantes : {}", manquantes.join(", ").to_lowercase()) };
+    check_row(k, manquantes.is_empty(), "Autorisations macOS", &detail)
+}
+
 /// Les touches du raccourci global d'enregistrement (« ⇧⌘R »).
 pub fn shortcut_caps(s: &App) -> Vec<String> {
     s.shortcut.shortcut().map(|sc| sc.keycaps()).unwrap_or_default()
@@ -317,17 +325,140 @@ pub fn settings(s: &App, k: &Kit) -> El {
     if let Some(e) = &s.folder_error {
         storage = storage.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
     }
+    let l = &s.lexique;
     let ai = card(k)
         .child(heading(k, "IA"))
-        .child(check_row(k, true, "Lexique", "35 erreurs connues, 7 personnes, 40 mots justes"))
+        .child(check_row(k, true, "Lexique", &format!("{} erreurs connues, {} personnes, {} mots justes", l.erreurs_connues, l.personnes, l.mots_justes)))
         .child(check_row(k, true, "Prompt de relecture", "prompt-relecture.md"))
         .child(check_row(k, true, "Prompt du bilan", "prompt-bilan.md"));
-    let health = card(k)
-        .child(row().w_full().justify_between().center_y().child(heading(k, "Vérifications")).child(eyebrow(k, "vérifié il y a 2 min")))
-        .child(check_row(k, true, "Autorisations macOS", "écran, micro, son du système"))
-        .child(check_row(k, true, "Whisper large-v3", "3,1 Go, dans le vault"))
-        .child(check_row(k, true, "pyannote community-1", "35 Mo, puce graphique"))
-        .child(check_row(k, true, "Claude", "connecté (claude.ai)"))
-        .child(check_row(k, true, "Espace disque", "811 Go libres"));
+    let ressources = s.core.ressources();
+    let place: u64 = ressources.iter().map(|r| r.taille).sum();
+    let mut health = card(k)
+        .child(row().w_full().justify_between().center_y().child(heading(k, "Vérifications")).child(eyebrow(k, &format!("ressources : {}", ui::octets(place)))))
+        .child(permissions_summary(s, k));
+    for r in ressources {
+        let detail = match &r.etat {
+            EtatDeRessource::Prete if r.taille > 0 => format!("{} · {}", ui::octets(r.taille), r.detail),
+            EtatDeRessource::Prete => r.detail.clone(),
+            etat => format!("{} · {}", etat_de_ressource(r, etat), r.detail),
+        };
+        health = health.child(check_row(k, r.etat == EtatDeRessource::Prete, &r.nom, &detail));
+    }
+    let health = health
+        .child(check_row(k, true, "Espace disque", "811 Go libres"))
+        .child(
+            row().w_full().gap(10.0).center_y().pt(4.0)
+                .child(muted(k, "Modèles, Python privé et lexique sont dans ~/Library/Application Support/Greffier.").grow(1.0).min_w(0.0))
+                .child(Button::new("Ressources…").variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|s: &mut App| s.page = Page::Installation).build(k).key("open-resources")),
+        );
     page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(health))
+}
+
+/// L'état d'une ressource en quelques mots.
+fn etat_de_ressource(r: &Ressource, etat: &EtatDeRessource) -> String {
+    let pourcent = |recu: u64, total: u64| (recu as f64 / total.max(1) as f64 * 100.0).floor() as u64;
+    match etat {
+        EtatDeRessource::Absente if r.total > 0 => format!("À télécharger · {}", ui::octets(r.total)),
+        EtatDeRessource::Absente if r.aide.is_some() => "Introuvable".into(),
+        EtatDeRessource::Absente => "À installer".into(),
+        EtatDeRessource::Interrompue { recu, total } => format!("Interrompu à {} % · reprendra", pourcent(*recu, *total)),
+        EtatDeRessource::EnTelechargement { recu, total } => format!("{} sur {} · {} %", ui::octets(*recu), ui::octets(*total), pourcent(*recu, *total)),
+        EtatDeRessource::EnVerification => "Vérification…".into(),
+        EtatDeRessource::EnInstallation => "Installation…".into(),
+        EtatDeRessource::Prete if r.taille > 0 => format!("Prête · {}", ui::octets(r.taille)),
+        EtatDeRessource::Prete => "Prête".into(),
+        EtatDeRessource::Echec(_) => "Échec".into(),
+    }
+}
+
+fn ligne_de_ressource(k: &Kit, i: usize, r: &Ressource) -> El {
+    let marque = match &r.etat {
+        EtatDeRessource::Prete => glyph(&ui::CHECK, 15.0, k.c.success.icon),
+        EtatDeRessource::EnTelechargement { .. } | EtatDeRessource::EnVerification | EtatDeRessource::EnInstallation => Spinner::new().size(14.0).build(k),
+        EtatDeRessource::Echec(_) => glyph(&ui::FLAG, 15.0, k.c.danger.icon),
+        _ => glyph(&ui::FLAG, 15.0, k.c.warning.icon),
+    };
+    let couleur_etat = match &r.etat {
+        EtatDeRessource::Prete => k.c.success.fg,
+        EtatDeRessource::Echec(_) => k.c.danger.fg,
+        _ => k.c.text_muted,
+    };
+    let mut texte = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(3.0)
+        .child(
+            row().w_full().gap(10.0).center_y()
+                .child(text(r.nom.clone()).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
+                .child(text(etat_de_ressource(r, &r.etat)).font(tnum(k.ty.small_medium)).color(couleur_etat)),
+        )
+        .child(text(r.detail.clone()).font(k.ty.small).color(k.c.text_faint).truncate());
+    if let EtatDeRessource::EnTelechargement { recu, total } | EtatDeRessource::Interrompue { recu, total } = r.etat {
+        texte = texte.child(el().h(2.0)).child(Progress::new(Some((recu as f64 / total.max(1) as f64) as f32)).build(k));
+    }
+    if let EtatDeRessource::Echec(m) = &r.etat {
+        texte = texte.child(text(m.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
+    }
+    if let Some(aide) = &r.aide {
+        texte = texte.child(muted(k, aide.clone()));
+    }
+    row().key(format!("res{i}")).w_full().gap(12.0).items_start().py(6.0).child(el().w(18.0).pt(2.0).child(marque)).child(texte)
+}
+
+/// Le premier lancement : l'état de chaque ressource, la progression des téléchargements et le
+/// résultat des vérifications.
+pub fn installation(s: &App, k: &Kit) -> El {
+    let ressources = s.core.ressources();
+    let en_cours = s.core.installation_en_cours();
+    let pretes = ressources.iter().all(|r| r.etat == EtatDeRessource::Prete);
+    let a_installer = ressources.iter().any(|r| !matches!(r.etat, EtatDeRessource::Prete) && (r.total > 0 || r.aide.is_none()));
+    let a_telecharger: u64 = ressources
+        .iter()
+        .map(|r| match r.etat {
+            EtatDeRessource::Prete => 0,
+            EtatDeRessource::Interrompue { recu, total } | EtatDeRessource::EnTelechargement { recu, total } => total.saturating_sub(recu),
+            _ => r.total,
+        })
+        .sum();
+
+    let mut liste = card(k).gap(4.0).child(heading(k, "Ressources"));
+    for (i, r) in ressources.iter().enumerate() {
+        liste = liste.child(ligne_de_ressource(k, i, r));
+    }
+
+    let installer = if en_cours {
+        Button::new("Installation en cours…").variant(ButtonVariant::Loading).disabled(true).build(k)
+    } else if a_installer {
+        let libelle = if a_telecharger > 0 { format!("Tout installer ({} à télécharger)", ui::octets(a_telecharger)) } else { "Tout installer".into() };
+        Button::new(libelle).variant(ButtonVariant::Submit).on_press(|s: &mut App| s.command(Commande::InstallerRessources)).build(k)
+    } else {
+        Button::new("Commencer").variant(ButtonVariant::Submit).on_press(|s: &mut App| s.page = Page::Overview).build(k)
+    };
+    let mut actions = row().w_full().gap(10.0).center_y().child(installer.key("install"));
+    if !en_cours {
+        actions = actions.child(
+            Button::new("Vérifier à nouveau")
+                .variant(ButtonVariant::Outline)
+                .disabled(s.core.verification_en_cours())
+                .on_press(|s: &mut App| s.command(Commande::VerifierRessources))
+                .build(k)
+                .key("verify"),
+        );
+    }
+    if !pretes {
+        actions = actions.child(el().grow(1.0)).child(Button::new("Plus tard").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.page = Page::Overview).build(k).key("later"));
+    }
+
+    let dossier = card(k)
+        .child(heading(k, "Où vont les fichiers"))
+        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text("~/Library/Application Support/Greffier").font(k.ty.ui).color(k.c.text_base)))
+        .child(muted(k, "Les modèles, le Python privé de pyannote et le lexique y sont rangés. Rien n'est installé ailleurs sur ce Mac, ni dans le terminal, ni dans ~/.cache. Un téléchargement interrompu reprend là où il s'est arrêté ; chaque fichier est vérifié par son sha256."));
+
+    page(
+        "installation",
+        "Bienvenue dans Greffier",
+        "Avant la première réunion, Greffier installe ses modèles et son environnement de calcul.",
+        k,
+        col().w_full().gap(16.0).child(liste).child(actions).child(dossier),
+    )
 }

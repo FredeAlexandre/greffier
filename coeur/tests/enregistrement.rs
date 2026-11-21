@@ -162,3 +162,15 @@ fn un_mp4_d_avassetwriter_coupe_en_plein_enregistrement_garde_sa_duree() {
     let duree = greffier_coeur::dossier::duree_du_mp4(&fichier).expect("durée");
     assert!((duree - 6.04).abs() < 0.01, "{duree}");
 }
+
+#[test]
+fn ni_l_enregistrement_en_cours_ni_son_arret_ne_passent_pour_des_changements_hors_de_l_app() {
+    let mut banc = Banc::new();
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(30.0);
+    assert_eq!(banc.greffier.relire_le_dossier(), []);
+    banc.avancer(45.0);
+    let id = banc.enregistrer_la_suite();
+    assert_eq!(banc.greffier.relire_le_dossier(), []);
+    assert_eq!(banc.greffier.reunions().iter().filter(|r| r.id == id).count(), 1);
+}

@@ -1,6 +1,7 @@
 //! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
 //! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement ; le
-//! traitement tourne encore sur les faux adaptateurs du prototype.
+//! traitement tourne encore sur les faux adaptateurs du prototype. Les ressources (modèles, Python
+//! privé, CLI `claude`) sont les vraies, dans `~/Library/Application Support/Greffier`.
 //!
 //! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
 //! sans fenêtre (`--list-scenes` pour la liste) : sans fenêtre, l'app part des données fictives
@@ -9,11 +10,13 @@
 
 #![forbid(unsafe_code)]
 
+mod import;
 mod meeting;
 mod overlays;
 mod pages;
 mod reglages;
 mod sidebar;
+mod surveillance;
 mod timeline;
 mod ui;
 
@@ -24,7 +27,9 @@ use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent,
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif};
+use greffier_coeur::adaptateurs::EtatDeRessource;
+use greffier_coeur::faux::FaussesRessources;
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif, lexique};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -36,6 +41,8 @@ pub enum Page {
     Recording,
     Meeting(IdReunion),
     Settings,
+    /// Le premier lancement : télécharger et vérifier les ressources.
+    Installation,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -106,6 +113,14 @@ pub struct App {
     pub record_error: Option<String>,
     /// Un enregistrement de moins d'une minute, proposé à la suppression.
     pub short_recording: Option<IdReunion>,
+    /// Ce que compte le lexique, pour les réglages.
+    pub lexique: lexique::Resume,
+    /// Signale les changements faits dans le dossier de réunions hors de l'app.
+    pub watch: Option<surveillance::Surveillance>,
+    /// La fenêtre d'import, ouverte quand `Some`.
+    pub import: Option<import::Draft>,
+    /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
+    pub process_imported: Option<IdReunion>,
 }
 
 impl App {
@@ -143,6 +158,7 @@ impl App {
             match e {
                 Evenement::ReunionEnregistree(id) => self.open(id),
                 Evenement::SuppressionProposee(id) => self.short_recording = Some(id),
+                Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
                     if self.page == Page::Meeting(reunion) {
                         self.command(Commande::MarquerLue(reunion));
@@ -150,6 +166,19 @@ impl App {
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
+                Evenement::RessourcesInstallees => {
+                    self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
+                }
+                Evenement::InstallationEnEchec(message) => eprintln!("greffier : installation des ressources : {message}"),
+                Evenement::ReunionDisparue(id) => self.forget(id),
+                Evenement::ReunionRelue(id) if self.page == Page::Meeting(id) => {
+                    // Les répliques et les locuteurs ont pu changer.
+                    self.picking = None;
+                    self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
+                    if self.video.is_none() {
+                        self.load_video(id);
+                    }
+                }
                 _ => {}
             }
         }
@@ -181,7 +210,9 @@ impl App {
         if !m.fichiers.contains(&Role::Enregistrement) {
             return;
         }
-        let player = Player::file(self.core.dossier().fichier(&m.nom_du_dossier, Role::Enregistrement));
+        // Un média importé garde son extension (`… - enregistrement.m4a`).
+        let Some(file) = self.core.dossier().enregistrement(&m.nom_du_dossier) else { return };
+        let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
         if let Some(w) = &self.waker {
@@ -236,14 +267,17 @@ impl App {
             return;
         }
         let settings = self.core.reglages().clone();
-        self.core = Greffier::ouvrir(&dir, reglages::adaptateurs());
+        self.core = real_core(&dir, true);
         self.command(Commande::ChangerReglages(settings));
         self.folder = Some(dir);
+        self.watch_folder();
         self.needs_folder = false;
         self.folder_error = None;
         self.video = None;
         self.playing = false;
-        if matches!(self.page, Page::Welcome | Page::Meeting(_)) {
+        if self.page == Page::Welcome && resources_missing(&self.core) {
+            self.page = Page::Installation;
+        } else if matches!(self.page, Page::Welcome | Page::Meeting(_)) {
             self.page = Page::Overview;
         }
     }
@@ -340,15 +374,34 @@ impl App {
         self.command(Commande::ArreterTraitement(id));
     }
     pub fn delete(&mut self, id: IdReunion) {
+        self.command(Commande::Supprimer(id));
+        self.forget(id);
+        self.confirm_delete = None;
+    }
+    /// La réunion n'existe plus (supprimée dans l'app ou hors de l'app) : on quitte sa page.
+    fn forget(&mut self, id: IdReunion) {
         if self.video.as_ref().is_some_and(|(v, _)| *v == id) {
             self.video = None;
         }
-        self.command(Commande::Supprimer(id));
         if self.page == Page::Meeting(id) {
             self.page = Page::Overview;
             self.playing = false;
         }
-        self.confirm_delete = None;
+        if self.menu.is_some_and(|(m, _)| m == id) {
+            self.menu = None;
+        }
+        if self.confirm_delete == Some(id) {
+            self.confirm_delete = None;
+        }
+    }
+    /// Surveille le dossier de réunions choisi, une fois l'interface prête à être réveillée.
+    fn watch_folder(&mut self) {
+        self.watch = None;
+        let (Some(dir), Some(waker)) = (&self.folder, &self.waker) else { return };
+        match surveillance::Surveillance::new(dir, waker.clone()) {
+            Ok(w) => self.watch = Some(w),
+            Err(e) => eprintln!("greffier : surveillance du dossier de réunions impossible ({e})"),
+        }
     }
     pub fn add_marker(&mut self) {
         if self.recording() {
@@ -404,14 +457,33 @@ fn prototype() -> Greffier {
     Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions())
 }
 
+/// Le cœur de la fenêtre sur un dossier de réunions, avec les vraies ressources, dont il lance
+/// tout de suite les vérifications.
+fn real_core(folder: &Path, reunions: bool) -> Greffier {
+    let mut core = if reunions { Greffier::ouvrir(folder, reglages::adaptateurs()) } else { Greffier::avec_reunions(folder, reglages::adaptateurs(), vec![]) };
+    if let Err(e) = core.executer(Commande::VerifierRessources) {
+        eprintln!("greffier : {e}");
+    }
+    core
+}
+
+/// L'écran du premier lancement des ressources, tant que la transcription ne peut pas tourner.
+fn resources_missing(core: &Greffier) -> bool {
+    core.ressources().iter().any(|r| r.etapes.contains(&Etape::Transcription) && r.etat != EtatDeRessource::Prete)
+}
+
 fn init() -> App {
     // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
-    // jamais d'écriture dans le vrai dossier de réunions.
+    // jamais d'écriture dans le vrai dossier de réunions ni dans le dossier de l'app.
     let folder = if rune::is_headless() { None } else { reglages::dossier_de_reunions() };
     let (mut core, page) = match &folder {
         _ if rune::is_headless() => (prototype(), Page::Overview),
-        Some(dir) => (Greffier::ouvrir(dir, reglages::adaptateurs()), Page::Overview),
-        None => (Greffier::avec_reunions(reglages::dossier_propose(), reglages::adaptateurs(), vec![]), Page::Welcome),
+        Some(dir) => {
+            let core = real_core(dir, true);
+            let page = if resources_missing(&core) { Page::Installation } else { Page::Overview };
+            (core, page)
+        }
+        None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
     };
     // Sans fenêtre, les réglages par défaut : rendu déterministe.
     let (settings, shortcut) = if rune::is_headless() { (greffier_coeur::Reglages::default(), reglages::RACCOURCI_PAR_DEFAUT.to_string()) } else { reglages::enregistrement() };
@@ -449,6 +521,10 @@ fn init() -> App {
         marker_id: None,
         record_error: None,
         short_recording: None,
+        lexique: reglages::lexique(),
+        watch: None,
+        import: None,
+        process_imported: None,
     }
 }
 
@@ -457,6 +533,7 @@ fn setup(s: &mut App, waker: Waker) {
         p.set_waker(waker.clone());
     }
     s.waker = Some(waker);
+    s.watch_folder();
 }
 
 /// Avance la lecture et fait passer le temps du cœur (enregistrement, file de traitement).
@@ -510,6 +587,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if s.recording() {
         s.rec_phase += dt;
     }
+    // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
+    if s.watch.as_ref().is_some_and(surveillance::Surveillance::a_change) {
+        let events = s.core.relire_le_dossier();
+        changed |= !events.is_empty();
+        s.handle(events);
+    }
     let events = s.core.avancer(dt);
     if s.core.occupe() || !events.is_empty() {
         active = true;
@@ -548,7 +631,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.short_recording.is_some() || s.shortcut.is_recording() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.shortcut.is_recording() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -588,6 +671,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Page::Overview => pages::overview(s, &k),
         Page::Recording => pages::recording(s, &k),
         Page::Settings => pages::settings(s, &k),
+        Page::Installation => pages::installation(s, &k),
         Page::Meeting(_) => match s.meeting() {
             Some(m) => meeting::page(s, m, &k, cx),
             None => pages::overview(s, &k),
@@ -611,7 +695,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
     overlays::short_recording(s, &k, &mut layer);
-    rune_kit::root(shell, layer)
+    import::window(s, &k, &mut layer);
+    import::process_window(s, &k, &mut layer);
+    // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
+    rune_kit::root(shell, layer).on_drop_files(|s: &mut App, files, _| s.propose_import(files))
 }
 
 fn scene_meeting(s: &mut App) {
@@ -668,6 +755,12 @@ fn scene_unprocessed(s: &mut App) {
 fn scene_settings(s: &mut App) {
     s.page = Page::Settings;
 }
+/// Le premier lancement : un téléchargement, une installation, un sha256 faux, `claude` absente.
+fn scene_installation(s: &mut App) {
+    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { ressources: Box::new(FaussesRessources::fixes(fictif::ressources_en_installation())), ..fictif::adaptateurs() };
+    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    s.page = Page::Installation;
+}
 fn scene_search(s: &mut App) {
     s.open_search();
     if let Some(e) = &mut s.search {
@@ -719,6 +812,31 @@ fn scene_video_only(s: &mut App) {
     }
 }
 
+/// La fenêtre d'import sur la vidéo et la transcription d'une réunion d'exemple.
+fn scene_import(s: &mut App) {
+    scene_folder(s);
+    s.page = Page::Overview;
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("coeur/tests/fixtures/dossier-de-reunions/2026-11-18 09h15 - Réunion");
+    let dir = std::env::temp_dir().join("greffier-prototype-import");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    let media = dir.join("Point banc de test.mp4");
+    let transcription = dir.join("Point banc de test.json");
+    let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - enregistrement.mp4"), &media);
+    let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - transcription.json"), &transcription);
+    s.propose_import(&[media, transcription]);
+    // La date du fichier copié change à chaque rendu : on la fixe.
+    if let Some(d) = &mut s.import {
+        d.date = TextEdit::new("2026-11-18");
+        d.heure = TextEdit::new("09:15");
+    }
+}
+/// Après l'import : la question « maintenant ou plus tard ».
+fn scene_imported(s: &mut App) {
+    scene_import(s);
+    s.confirm_import();
+}
+
 fn main() {
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
@@ -738,6 +856,7 @@ fn main() {
             ("processing", scene_processing),
             ("unprocessed", scene_unprocessed),
             ("settings", scene_settings),
+            ("installation", scene_installation),
             ("search", scene_search),
             ("menu", scene_menu),
             ("delete", scene_delete),
@@ -745,10 +864,13 @@ fn main() {
             ("welcome", scene_welcome),
             ("folder", scene_folder),
             ("video-only", scene_video_only),
+            ("import", scene_import),
+            ("imported", scene_imported),
         ],
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
-    let app = rune::App::new(spec).chrome(chrome);
+    let importer = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
+    let app = rune::App::new(spec).chrome(chrome).menu_item(importer);
     let handle = app.handle();
     let shared = handle.clone();
     handle.update(move |s, _| {
@@ -757,3 +879,4 @@ fn main() {
     });
     app.run();
 }
+
