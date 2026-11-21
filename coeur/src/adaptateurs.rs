@@ -8,6 +8,7 @@
 
 use std::path::PathBuf;
 
+pub use crate::lexique::AjoutAuLexique;
 use crate::reunion::{Etape, Mot, Repere, TourDeParole};
 use crate::temps::DateHeure;
 
@@ -61,11 +62,15 @@ pub struct Niveaux {
     pub son_du_mac: f32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EtatDeCapture {
     /// Durée enregistrée, en secondes.
     pub duree: f64,
     pub niveaux: Niveaux,
+    /// La capture s'est arrêtée d'elle-même (macOS a coupé le flux, l'écran a disparu…). Le cœur
+    /// appelle alors [`Capture::arreter`] pour finir le fichier et garde la réunion
+    /// « enregistrement interrompu ».
+    pub erreur: Option<String>,
 }
 
 /// Où en est une autorisation de macOS.
@@ -226,8 +231,20 @@ pub struct RepliquePourLAgent {
 pub struct DemandeDeRelecture {
     /// Pour la réécoute des passages douteux.
     pub enregistrement: PathBuf,
+    /// Le répertoire de travail de l'agent : il peut y relire les réunions précédentes.
+    pub dossier_de_reunions: PathBuf,
+    /// Le dossier de la réunion dans le dossier de réunions.
+    pub nom_du_dossier: String,
+    pub titre: String,
+    pub debut: DateHeure,
+    /// Le nombre de locuteurs indiqué, s'il l'a été.
+    pub nombre_de_locuteurs: Option<u8>,
+    /// Les répliques à relire : la transcription brute, d'avant toute relecture.
     pub repliques: Vec<RepliquePourLAgent>,
+    /// Le lexique (Markdown), vide s'il n'y en a pas.
     pub lexique: String,
+    /// La section Vocabulaire du lexique : le prompt de la réécoute, comme pour la transcription.
+    pub vocabulaire: String,
 }
 
 /// Une correction sûre : `avant` devient `apres` dans la réplique `replique`.
@@ -245,6 +262,15 @@ pub struct ChangementDeLocuteur {
     pub locuteur: String,
 }
 
+/// Un passage douteux que la réécoute a permis de corriger : `extrait` devient `apres`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PassageCorrige {
+    pub replique: usize,
+    pub extrait: String,
+    pub apres: String,
+    pub reecoute: String,
+}
+
 /// Un passage que la relecture n'a pas su trancher, même après réécoute.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PassageSignale {
@@ -260,8 +286,10 @@ pub struct ResultatDeRelecture {
     pub session: Option<String>,
     pub corrections: Vec<CorrectionSure>,
     pub changements_de_locuteur: Vec<ChangementDeLocuteur>,
+    pub passages_corriges: Vec<PassageCorrige>,
     pub passages_a_verifier: Vec<PassageSignale>,
-    pub ajouts_au_lexique: Vec<String>,
+    /// Les erreurs apprises ; Greffier n'écrit dans le lexique que celles qu'il ne connaît pas.
+    pub ajouts_au_lexique: Vec<AjoutAuLexique>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
