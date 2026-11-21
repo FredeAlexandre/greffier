@@ -16,7 +16,9 @@
 //!   "brute": [ …les répliques d'avant la relecture, absentes si elle n'est pas faite… ],
 //!   "relecture": { "corrections": [{ "replique": 1, "avant": "recète", "apres": "recette" }],
 //!                  "changements_de_locuteur": [{ "replique": 3, "locuteur": "SPEAKER_01" }],
-//!                  "ajouts_au_lexique": ["recette"] },
+//!                  "passages_corriges": [{ "replique": 4, "extrait": "la prod", "apres": "la preprod",
+//!                                          "reecoute": "on bascule la preprod" }],
+//!                  "ajouts_au_lexique": [{ "entendu": "recète", "correct": "recette" }] },
 //!   "passages": [{ "replique": 2, "extrait": "le support", "hypothese": "l'équipe support",
 //!                  "reecoute": "…", "statut": "en_attente" }],
 //!   "corrections_a_la_main": [{ "replique": 0, "avant": "…", "apres": "…" }]
@@ -29,7 +31,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adaptateurs::{ChangementDeLocuteur, CorrectionSure};
+use crate::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, PassageCorrige};
 use crate::reunion::{CorrectionALaMain, JournalDeRelecture, Locuteur, Mot, PassageAVerifier, Replique, Reunion, StatutDuPassage, TEINTES, TourDeParole};
 use crate::temps::horodatage_de_lecture;
 
@@ -106,8 +108,27 @@ pub struct RelectureEcrite {
     pub corrections: Vec<CorrectionEcrite>,
     #[serde(default)]
     pub changements_de_locuteur: Vec<ChangementEcrit>,
+    /// Les passages douteux corrigés après la réécoute.
     #[serde(default)]
-    pub ajouts_au_lexique: Vec<String>,
+    pub passages_corriges: Vec<PassageCorrigeEcrit>,
+    /// Les erreurs écrites dans le lexique.
+    #[serde(default)]
+    pub ajouts_au_lexique: Vec<AjoutEcrit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PassageCorrigeEcrit {
+    pub replique: usize,
+    pub extrait: String,
+    pub apres: String,
+    #[serde(default)]
+    pub reecoute: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AjoutEcrit {
+    pub entendu: String,
+    pub correct: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -155,7 +176,8 @@ impl TranscriptionStructuree {
             relecture: r.relecture.as_ref().map(|j| RelectureEcrite {
                 corrections: j.corrections.iter().map(correction).collect(),
                 changements_de_locuteur: j.changements_de_locuteur.iter().map(|c| ChangementEcrit { replique: c.replique, locuteur: c.locuteur.clone() }).collect(),
-                ajouts_au_lexique: j.ajouts_au_lexique.clone(),
+                passages_corriges: j.passages_corriges.iter().map(|p| PassageCorrigeEcrit { replique: p.replique, extrait: p.extrait.clone(), apres: p.apres.clone(), reecoute: p.reecoute.clone() }).collect(),
+                ajouts_au_lexique: j.ajouts_au_lexique.iter().map(|a| AjoutEcrit { entendu: a.entendu.clone(), correct: a.correct.clone() }).collect(),
             }),
             passages: r
                 .passages
@@ -196,9 +218,10 @@ impl TranscriptionStructuree {
         r.relecture = self.relecture.map(|j| JournalDeRelecture {
             corrections: j.corrections.into_iter().map(|c| CorrectionSure { replique: c.replique, avant: c.avant, apres: c.apres }).collect(),
             changements_de_locuteur: j.changements_de_locuteur.into_iter().map(|c| ChangementDeLocuteur { replique: c.replique, locuteur: c.locuteur }).collect(),
-            ajouts_au_lexique: j.ajouts_au_lexique,
+            passages_corriges: j.passages_corriges.into_iter().map(|p| PassageCorrige { replique: p.replique, extrait: p.extrait, apres: p.apres, reecoute: p.reecoute }).collect(),
+            ajouts_au_lexique: j.ajouts_au_lexique.into_iter().map(|a| AjoutAuLexique { entendu: a.entendu, correct: a.correct }).collect(),
         });
-        r.corrections = r.relecture.as_ref().map_or(0, |j| j.corrections.len() as u32);
+        r.corrections = r.relecture.as_ref().map_or(0, |j| (j.corrections.len() + j.passages_corriges.len()) as u32);
         r.passages.clear();
         for p in self.passages {
             let Some(x) = r.repliques.get_mut(p.replique) else { continue };

@@ -88,3 +88,40 @@ impl Transcripteur for TranscripteurWhisper {
         Box::new(Transcription { etat, arret })
     }
 }
+
+/// La réécoute des passages douteux de la relecture : l'enregistrement est décodé une fois, puis
+/// chaque extrait est retranscrit par whisper.cpp avec les réglages de la transcription (mêmes
+/// modèles, VAD, vocabulaire en prompt).
+pub struct ReecouteWhisper {
+    pub modele: PathBuf,
+    pub vad: PathBuf,
+}
+
+impl ReecouteWhisper {
+    pub fn de_l_app(dossier_de_l_app: &std::path::Path) -> ReecouteWhisper {
+        let t = TranscripteurWhisper::de_l_app(dossier_de_l_app);
+        ReecouteWhisper { modele: t.modele, vad: t.vad }
+    }
+}
+
+impl greffier_coeur::claude::relecture::Reecoute for ReecouteWhisper {
+    fn reecouter(&self, enregistrement: &std::path::Path, extraits: &[(f64, f64)], vocabulaire: &str, arret: &AtomicBool) -> Result<Vec<String>, String> {
+        let echantillons = audio::mixage(enregistrement, arret, |_| {})?;
+        let f = audio::FREQUENCE as f64;
+        let mut textes = Vec::with_capacity(extraits.len());
+        for &(de, a) in extraits {
+            let (i, j) = (((de.max(0.0) * f) as usize).min(echantillons.len()), ((a * f) as usize).min(echantillons.len()));
+            if j <= i {
+                textes.push(String::new());
+                continue;
+            }
+            match whisper::transcrire(&self.modele, &self.vad, &echantillons[i..j], vocabulaire, arret, &mut |_| {}) {
+                Ok(mots) => textes.push(mots.iter().map(|m| m.texte.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ")),
+                Err(e) if arret.load(Ordering::Relaxed) => return Err(e),
+                // Un extrait raté n'empêche pas les autres : l'agent tranchera sans lui.
+                Err(_) => textes.push(String::new()),
+            }
+        }
+        Ok(textes)
+    }
+}
