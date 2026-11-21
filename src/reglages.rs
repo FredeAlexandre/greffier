@@ -66,7 +66,17 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
         let t = chrono::Local::now();
         greffier_coeur::DateHeure::new(t.year(), t.month() as u8, t.day() as u8, t.hour() as u8, t.minute() as u8)
     }
+    fn en_heure_locale(&self, instant: std::time::SystemTime) -> greffier_coeur::DateHeure {
+        use chrono::{Datelike, Timelike};
+        let t: chrono::DateTime<chrono::Local> = instant.into();
+        greffier_coeur::DateHeure::new(t.year(), t.month() as u8, t.day() as u8, t.hour() as u8, t.minute() as u8)
+    }
 }
+
+/// Vrai quand [`adaptateurs`] branche les vraies étapes (transcription, séparation des
+/// locuteurs, relecture, bilan : #7, #8, #9). D'ici là, « Lancer le traitement maintenant »
+/// après un import laisse la réunion à traiter plutôt que d'y écrire une transcription inventée.
+pub const ETAPES_REELLES: bool = false;
 
 /// Les adaptateurs de l'app : ceux du prototype pour le traitement (en attendant les vrais),
 /// avec l'heure du Mac.

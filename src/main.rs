@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+mod import;
 mod meeting;
 mod overlays;
 mod pages;
@@ -95,6 +96,10 @@ pub struct App {
     pub needs_folder: bool,
     /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
     pub folder_error: Option<String>,
+    /// La fenêtre d'import, ouverte quand `Some`.
+    pub import: Option<import::Draft>,
+    /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
+    pub process_imported: Option<IdReunion>,
 }
 
 impl App {
@@ -127,6 +132,7 @@ impl App {
         for e in events {
             match e {
                 Evenement::ReunionEnregistree(id) => self.open(id),
+                Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
                     if self.page == Page::Meeting(reunion) {
                         self.command(Commande::MarquerLue(reunion));
@@ -165,7 +171,9 @@ impl App {
         if !m.fichiers.contains(&Role::Enregistrement) {
             return;
         }
-        let player = Player::file(self.core.dossier().fichier(&m.nom_du_dossier, Role::Enregistrement));
+        // Un média importé garde son extension (`… - enregistrement.m4a`).
+        let Some(file) = self.core.dossier().enregistrement(&m.nom_du_dossier) else { return };
+        let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
         if let Some(w) = &self.waker {
@@ -365,6 +373,8 @@ fn init() -> App {
         needs_folder: page == Page::Welcome,
         folder,
         folder_error: None,
+        import: None,
+        process_imported: None,
     }
 }
 
@@ -464,7 +474,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() {
         return false;
     }
     if ev.is_command('r') && ev.mods.shift {
@@ -525,7 +535,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     meeting::fullscreen(s, &k, cx, &mut layer);
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
-    rune_kit::root(shell, layer)
+    import::window(s, &k, &mut layer);
+    import::process_window(s, &k, &mut layer);
+    // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
+    rune_kit::root(shell, layer).on_drop_files(|s: &mut App, files, _| s.propose_import(files))
 }
 
 fn scene_meeting(s: &mut App) {
@@ -621,6 +634,31 @@ fn scene_video_only(s: &mut App) {
     }
 }
 
+/// La fenêtre d'import sur la vidéo et la transcription d'une réunion d'exemple.
+fn scene_import(s: &mut App) {
+    scene_folder(s);
+    s.page = Page::Overview;
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("coeur/tests/fixtures/dossier-de-reunions/2026-11-18 09h15 - Réunion");
+    let dir = std::env::temp_dir().join("greffier-prototype-import");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    let media = dir.join("Point banc de test.mp4");
+    let transcription = dir.join("Point banc de test.json");
+    let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - enregistrement.mp4"), &media);
+    let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - transcription.json"), &transcription);
+    s.propose_import(&[media, transcription]);
+    // La date du fichier copié change à chaque rendu : on la fixe.
+    if let Some(d) = &mut s.import {
+        d.date = TextEdit::new("2026-11-18");
+        d.heure = TextEdit::new("09:15");
+    }
+}
+/// Après l'import : la question « maintenant ou plus tard ».
+fn scene_imported(s: &mut App) {
+    scene_import(s);
+    s.confirm_import();
+}
+
 fn main() {
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
@@ -645,8 +683,12 @@ fn main() {
             ("welcome", scene_welcome),
             ("folder", scene_folder),
             ("video-only", scene_video_only),
+            ("import", scene_import),
+            ("imported", scene_imported),
         ],
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
-    rune::App::new(spec).chrome(chrome).run();
+    let importer = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
+    rune::App::new(spec).chrome(chrome).menu_item(importer).run();
 }
+
