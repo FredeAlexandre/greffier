@@ -92,7 +92,13 @@ pub enum Commande {
     NommerLocuteur { reunion: IdReunion, locuteur: usize, nom: String },
     /// `locuteur` est la même voix que `dans`, qui le remplace partout.
     FusionnerLocuteurs { reunion: IdReunion, locuteur: usize, dans: usize },
+    /// Tranche un passage à vérifier : le texte de sa réplique prend l'hypothèse ou la correction
+    /// (rouvrir remet l'extrait), et les deux transcriptions sont réécrites, sans le marquage.
     Trancher { reunion: IdReunion, passage: usize, tranche: Tranche },
+    /// Corrige à la main un ou plusieurs mots d'une réplique, dont `texte` est le nouveau texte. Le
+    /// changement, élargi aux mots entiers, est gardé comme correction à la main (et repris si la
+    /// relecture est refaite). Un passage à vérifier se tranche par [`Commande::Trancher`].
+    CorrigerReplique { reunion: IdReunion, replique: usize, texte: String },
     /// Coche ou décoche la `action`-ième case du bilan.
     CocherAction { reunion: IdReunion, action: usize, faite: bool },
     /// La réunion a été ouverte : elle n'est plus nouvelle.
@@ -413,6 +419,7 @@ impl Greffier {
             | Commande::NommerLocuteur { reunion, .. }
             | Commande::FusionnerLocuteurs { reunion, .. }
             | Commande::Trancher { reunion, .. }
+            | Commande::CorrigerReplique { reunion, .. }
             | Commande::CocherAction { reunion, .. } => Some(*reunion),
             Commande::Traiter(id) | Commande::ArreterTraitement(id) | Commande::MarquerLue(id) => Some(*id),
             _ => None,
@@ -448,11 +455,8 @@ impl Greffier {
             }
             Commande::Refaire { reunion, etape } => {
                 let r = self.reunion_mut(reunion)?;
-                if r.statut.dans_la_file() || r.statut == Statut::EnregistrementEnCours {
-                    return impossible("la réunion est déjà dans la file");
-                }
-                if etape.precedente().is_some_and(|p| r.etape_faite < Some(p)) {
-                    return impossible("les étapes précédentes ne sont pas faites");
+                if !r.peut_refaire(etape) {
+                    return impossible(if r.statut.dans_la_file() { "la réunion est déjà dans la file" } else { "les étapes précédentes ne sont pas faites" });
                 }
                 r.etape_faite = etape.precedente();
                 self.mettre_en_file(reunion, etape);
@@ -483,14 +487,13 @@ impl Greffier {
             }
             Commande::Trancher { reunion, passage, tranche } => {
                 let r = self.reunion_mut(reunion)?;
-                let Some(p) = r.passages.get_mut(passage) else { return impossible("passage inconnu") };
-                p.statut = match tranche {
-                    Tranche::AccepterHypothese if p.hypothese.is_none() => return impossible("ce passage n'a pas d'hypothèse"),
-                    Tranche::AccepterHypothese => StatutDuPassage::HypotheseAcceptee,
-                    Tranche::GarderOriginal => StatutDuPassage::OriginalGarde,
-                    Tranche::Corriger(texte) => StatutDuPassage::CorrigeALaMain(texte),
-                    Tranche::Rouvrir => StatutDuPassage::EnAttente,
-                };
+                transcription_modifiable(r)?;
+                trancher(r, passage, tranche)?;
+            }
+            Commande::CorrigerReplique { reunion, replique, texte } => {
+                let r = self.reunion_mut(reunion)?;
+                transcription_modifiable(r)?;
+                corriger_la_replique(r, replique, texte)?;
             }
             Commande::CocherAction { reunion, action, faite } => {
                 let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
@@ -976,6 +979,93 @@ fn reunion_enregistree(id: IdReunion, e: &Enregistrement, duree: f64) -> Reunion
 
 fn locuteur_mut(r: &mut Reunion, i: usize) -> Result<&mut Locuteur, Refus> {
     r.locuteurs.get_mut(i).ok_or(Refus::Impossible("locuteur inconnu".into()))
+}
+
+/// La transcription ne se corrige pas pendant qu'une étape va la refaire : la transcription
+/// repart de zéro, la relecture rouvre tous les passages à vérifier.
+fn transcription_modifiable(r: &Reunion) -> Result<(), Refus> {
+    match r.statut {
+        Statut::EnCours { etape, .. } | Statut::EnAttente(etape) if etape <= Etape::Relecture => {
+            impossible("la transcription est en cours de traitement : attends la fin de la relecture")
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Garde le changement du texte d'une réplique comme correction à la main.
+fn corriger_la_replique(r: &mut Reunion, replique: usize, texte: String) -> Result<(), Refus> {
+    let texte = texte.trim();
+    if texte.is_empty() {
+        return impossible("une réplique ne peut pas être vide");
+    }
+    let Some(x) = r.repliques.get(replique) else { return impossible("réplique inconnue") };
+    let Some((debut, fin, apres)) = difference_en_mots(&x.texte, texte) else { return Ok(()) };
+    // Le passage à vérifier de la réplique se tranche dans son onglet.
+    if let Some(p) = x.passage.and_then(|i| r.passages.get(i)) {
+        let montre = p.texte(&p.statut);
+        if let Some(a) = x.texte.find(montre)
+            && debut < a + montre.len()
+            && a < fin
+        {
+            return impossible("ce passage est à vérifier : il se tranche dans l'onglet À vérifier");
+        }
+    }
+    let avant = x.texte[debut..fin].to_string();
+    r.repliques[replique].texte = texte.to_string();
+    r.corrections_a_la_main.push(CorrectionALaMain { replique, avant, apres });
+    Ok(())
+}
+
+/// Ce qui change de `avant` à `apres`, élargi aux mots entiers : la plage d'octets de `avant` et
+/// le texte qui la remplace. `None` s'ils sont identiques.
+fn difference_en_mots(avant: &str, apres: &str) -> Option<(usize, usize, String)> {
+    if avant == apres {
+        return None;
+    }
+    // Le début commun, puis la fin commune sans chevaucher le début.
+    let mut debut = avant.char_indices().zip(apres.chars()).find(|((_, a), b)| a != b).map_or(avant.len().min(apres.len()), |((i, _), _)| i);
+    while !avant.is_char_boundary(debut) || !apres.is_char_boundary(debut) {
+        debut -= 1;
+    }
+    let mut commun = 0;
+    for (a, b) in avant[debut..].chars().rev().zip(apres[debut..].chars().rev()) {
+        if a != b {
+            break;
+        }
+        commun += a.len_utf8();
+    }
+    let (mut fin_avant, mut fin_apres) = (avant.len() - commun, apres.len() - commun);
+    // Aux mots entiers : le début recule et la fin avance (dans la partie commune) jusqu'à un blanc.
+    while let Some(c) = avant[..debut].chars().next_back().filter(|c| !c.is_whitespace()) {
+        debut -= c.len_utf8();
+    }
+    while let Some(c) = avant[fin_avant..].chars().next().filter(|c| !c.is_whitespace()) {
+        fin_avant += c.len_utf8();
+        fin_apres += c.len_utf8();
+    }
+    Some((debut, fin_avant, apres[debut..fin_apres].to_string()))
+}
+
+/// Tranche un passage à vérifier : le texte de la réplique passe de ce que le passage y montre
+/// (l'extrait, l'hypothèse ou la correction) à ce que la tranche y met.
+fn trancher(r: &mut Reunion, passage: usize, tranche: Tranche) -> Result<(), Refus> {
+    let Some(p) = r.passages.get(passage) else { return impossible("passage inconnu") };
+    let statut = match tranche {
+        Tranche::AccepterHypothese if p.hypothese.is_none() => return impossible("ce passage n'a pas d'hypothèse"),
+        Tranche::AccepterHypothese => StatutDuPassage::HypotheseAcceptee,
+        Tranche::GarderOriginal => StatutDuPassage::OriginalGarde,
+        Tranche::Corriger(texte) if texte.trim().is_empty() => return impossible("la correction est vide"),
+        Tranche::Corriger(texte) => StatutDuPassage::CorrigeALaMain(texte.trim().to_string()),
+        Tranche::Rouvrir => StatutDuPassage::EnAttente,
+    };
+    let (actuel, nouveau) = (p.texte(&p.statut).to_string(), p.texte(&statut).to_string());
+    let replique = p.replique;
+    let Some(x) = r.repliques.get_mut(replique) else { return impossible("réplique inconnue") };
+    if actuel != nouveau && !remplacer(&mut x.texte, &actuel, &nouveau) {
+        return impossible(format!("« {actuel} » n'est plus dans la réplique : elle a été corrigée à la main"));
+    }
+    r.passages[passage].statut = statut;
+    Ok(())
 }
 
 /// Remplace la première occurrence de `avant` par `apres` ; rend `false` si `avant` est vide ou

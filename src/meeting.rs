@@ -8,17 +8,18 @@ use rune::{Cx, El, ScrollSpec, Span, SurfaceFit, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Markdown, Progress, SegmentedControl, Spinner, Switch};
 
 use greffier_coeur::fictif::PERSONNES;
-use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, Tranche, bilan};
+use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, bilan};
 
-use crate::ui::{self, card, dot, eyebrow, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
-use crate::{App, TABS, Tab, reglages, timeline};
+use crate::ui::{self, card, dot, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
+use crate::verifier::{self, Cible};
+use crate::{App, TABS, Tab, refaire, reglages, timeline};
 
 /// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
 pub fn playable(m: &Reunion) -> bool {
     m.statut == Statut::Terminee || m.fichiers.contains(&Role::Enregistrement) || !m.repliques.is_empty()
 }
 
-pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
+pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) -> El {
     let view_h = cx.layout_size("meeting").map_or(780.0, |v| v[1]);
     let mut inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
     if m.statut != Statut::Terminee {
@@ -28,11 +29,11 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
         inner = inner
             .child(player(s, m, k, cx, view_h))
             .child(timeline::view(s, m, k, cx))
-            .child(tabs_row(s, m, k))
+            .child(tabs_row(s, m, k, layer))
             .child(match s.tab {
                 Tab::Summary => summary(m, k),
                 Tab::Transcript => transcript(s, m, k, view_h),
-                Tab::Doubts => doubts(m, k),
+                Tab::Doubts => verifier::tab(s, m, k),
                 Tab::Speakers => speakers(s, m, k),
                 Tab::Info => info(s, m, k),
             });
@@ -221,7 +222,7 @@ pub fn fullscreen(s: &App, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) {
     );
 }
 
-fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
+fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
     let unconfirmed = m.locuteurs_actifs().filter(|&i| m.locuteurs[i].nom.is_none()).count();
     let speakers = if unconfirmed > 0 { format!("Locuteurs · {unconfirmed}") } else { "Locuteurs".to_string() };
     let labels = ["Bilan".to_string(), "Transcription".to_string(), format!("À vérifier · {}", m.passages_en_attente()), speakers, "Infos".to_string()];
@@ -233,19 +234,30 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit) -> El {
         .key("tabs");
     let id = m.id;
     let trailing = match s.tab {
-        Tab::Summary if m.statut != Statut::Terminee => el(),
+        Tab::Summary if !refaire::can_redo(m, Etape::Bilan) => el(),
         Tab::Summary => Button::new("Refaire le bilan")
             .icon(&ui::SPARK)
             .variant(ButtonVariant::Outline)
             .control_size(ControlSize::Small)
             .help("Relance seulement le bilan IA, avec les noms et corrections actuels")
-            .on_press(move |s: &mut App| s.redo_bilan(id))
+            .on_press(move |s: &mut App| s.redo(id, Etape::Bilan))
             .build(k)
             .key("redo"),
-        Tab::Transcript => Switch::new(s.follow).label("Suivre la lecture").on_toggle(|s: &mut App| s.follow = !s.follow).build(k).key("follow"),
+        Tab::Transcript => {
+            let follow = Switch::new(s.follow).label("Suivre la lecture").on_toggle(|s: &mut App| s.follow = !s.follow).build(k).key("follow");
+            let trailing = row()
+                .gap(16.0)
+                .center_y()
+                .child(text("Clic droit ou C : corriger la réplique").font(k.ty.small).color(k.c.text_faint))
+                .child(follow);
+            match refaire::transcript_menu(s, m, k, layer) {
+                Some(buttons) => row().gap(16.0).center_y().flex_wrap().child(buttons).child(trailing),
+                None => trailing,
+            }
+        }
         _ => el(),
     };
-    row().w_full().pt(8.0).gap(12.0).center_y().justify_between().child(tabs).child(trailing)
+    row().w_full().pt(8.0).gap(12.0).center_y().justify_between().flex_wrap().child(tabs).child(trailing)
 }
 
 /// Le bilan est le Markdown de l'agent, rendu tel quel. Les horodatages deviennent des liens qui
@@ -272,36 +284,25 @@ fn summary(m: &Reunion, k: &Kit) -> El {
     col().key("bilan").w_full().pt(4.0).child(md)
 }
 
-fn speaker_name(m: &Reunion, i: usize) -> (String, rune::Color, bool) {
+pub fn speaker_name(m: &Reunion, i: usize) -> (String, rune::Color, bool) {
     let p = &m.locuteurs[m.locuteur_affiche(i)];
     (p.affiche(), spk_color(p.teinte), p.nom.is_some())
 }
 
-fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
+/// Le texte d'une réplique. Le cœur y a déjà mis ce que le passage à vérifier est devenu :
+/// surligné tant qu'il est en attente, souligné une fois remplacé.
+pub fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
     let u = &m.repliques[i];
     let ink = k.c.text_base;
-    if let Some(di) = u.passage {
-        let d = &m.passages[di];
-        let fixed = match &d.statut {
-            StatutDuPassage::HypotheseAcceptee => d.hypothese.clone(),
-            StatutDuPassage::CorrigeALaMain(t) => Some(t.clone()),
-            _ => None,
+    if let Some(d) = u.passage.and_then(|di| m.passages.get(di)) {
+        let shown = d.texte(&d.statut);
+        let span = match &d.statut {
+            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => u.texte.find(shown).map(|a| Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::EnAttente => u.texte.find(shown).map(|a| Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::OriginalGarde => None,
         };
-        match &d.statut {
-            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => {
-                let fixed = fixed.unwrap_or_default();
-                let t = u.texte.replacen(&d.extrait, &fixed, 1);
-                if let Some(a) = t.find(&fixed) {
-                    return rich(t.clone(), vec![Span { underline: Some(k.c.success.icon), ..Span::new(a, a + fixed.len()) }]).font(k.ty.body).color(ink);
-                }
-            }
-            StatutDuPassage::EnAttente => {
-                if let Some(a) = u.texte.find(&d.extrait) {
-                    let span = Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + d.extrait.len()) };
-                    return rich(u.texte.clone(), vec![span]).font(k.ty.body).color(ink);
-                }
-            }
-            StatutDuPassage::OriginalGarde => {}
+        if let Some(span) = span {
+            return rich(u.texte.clone(), vec![span]).font(k.ty.body).color(ink);
         }
     }
     text(u.texte.clone()).font(k.ty.body).color(ink).wrap()
@@ -331,12 +332,17 @@ fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
                 .cursor(rune::Cursor::Pointer)
                 .on_press(move |s: &mut App| s.seek(start))
                 .on_double_press(move |s: &mut App| s.seek_and_play(start))
+                .on_secondary_press(move |s: &mut App, _, _| s.start_correction(Cible::Replique(i)))
                 .child(
                     col().w(116.0).gap(2.0)
                         .child(text(name).font(k.ty.small_medium).color(if sure { color } else { color.alpha(0.7) }).truncate())
                         .child(text(ui::ts(u.debut)).font(tnum(k.ty.text_xsmall)).color(k.c.text_faint)),
                 )
-                .child(utterance_text(m, i, k).grow(1.0).min_w(0.0)),
+                .child(if s.correction.as_ref().is_some_and(|c| c.cible == Cible::Replique(i)) {
+                    verifier::editor(s, k, &format!("fix{i}")).grow(1.0).min_w(0.0)
+                } else {
+                    utterance_text(m, i, k).grow(1.0).min_w(0.0)
+                }),
         );
     }
     // Sa propre zone de défilement, pour suivre la lecture sans faire défiler la vidéo.
@@ -350,67 +356,6 @@ fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
         .scroll_edge_fade(12.0)
         .scroll_margin(120.0)
         .child(col().w_full().padding(8.0).child(lines))
-}
-
-fn doubts(m: &Reunion, k: &Kit) -> El {
-    let total = m.passages.len();
-    let left = m.passages_en_attente();
-    let mut c = col().w_full().gap(12.0);
-    c = c.child(
-        col().w_full().gap(8.0)
-            .child(text(format!("{left} passages à vérifier sur {total}")).font(k.ty.body_medium).color(k.c.text_base))
-            .child(muted(k, "La relecture IA a corrigé seule ce qui était sûr. Restent ces passages : écoute, puis garde l'hypothèse de l'IA ou le texte d'origine."))
-            .child(Progress::new(Some(if total == 0 { 1.0 } else { (total - left) as f32 / total as f32 })).build(k)),
-    );
-    if total == 0 {
-        return c.child(muted(k, "Rien à vérifier."));
-    }
-    for (di, d) in m.passages.iter().enumerate() {
-        let u = &m.repliques[d.replique];
-        let (name, color, _) = speaker_name(m, u.locuteur);
-        let start = u.debut;
-        if d.statut != StatutDuPassage::EnAttente {
-            let (label, fg) = match &d.statut {
-                StatutDuPassage::HypotheseAcceptee => (format!("« {} » → « {} »", d.extrait, d.hypothese.clone().unwrap_or_default()), k.c.success.icon),
-                StatutDuPassage::CorrigeALaMain(t) => (format!("« {} » → « {t} »", d.extrait), k.c.success.icon),
-                _ => (format!("« {} » gardé tel quel", d.extrait), k.c.text_muted),
-            };
-            c = c.child(
-                row().key(format!("dz{di}")).w_full().gap(10.0).center_y().px(12.0).py(8.0).radius(k.radius.md).fill(k.c.layer_01)
-                    .child(glyph(&ui::CHECK, 13.0, fg))
-                    .child(text(ui::ts(start)).font(tnum(k.ty.small)).color(k.c.text_faint))
-                    .child(text(label).font(k.ty.small).color(k.c.text_muted).truncate().grow(1.0).min_w(0.0))
-                    .child(Button::new("Annuler").variant(ButtonVariant::GhostFaint).control_size(ControlSize::Small)
-                        .on_press(move |s: &mut App| s.resolve_doubt(di, Tranche::Rouvrir)).build(k)),
-            );
-            continue;
-        }
-        let accept = match &d.hypothese {
-            Some(h) => Button::new(format!("Remplacer par « {h} »")).variant(ButtonVariant::Submit).control_size(ControlSize::Small)
-                .on_press(move |s: &mut App| s.resolve_doubt(di, Tranche::AccepterHypothese)).build(k),
-            None => Button::new("Pas d'hypothèse").variant(ButtonVariant::Outline).control_size(ControlSize::Small).disabled(true).build(k),
-        };
-        c = c.child(
-            card(k).key(format!("dc{di}"))
-                .child(row().gap(10.0).center_y()
-                    .child(ts_chip(k, start, format!("dts{di}")))
-                    .child(dot(color, 8.0))
-                    .child(text(name).font(k.ty.small_medium).color(k.c.text_base)))
-                .child(utterance_text(m, d.replique, k))
-                .child(
-                    col().gap(4.0).padding(10.0).radius(k.radius.md).fill(k.c.layer_02)
-                        .child(row().gap(6.0).center_y().child(glyph(&ui::SPARK, 11.0, k.c.text_accent)).child(eyebrow(k, "Réécoute du passage")))
-                        .child(text(d.reecoute.clone()).font(k.ty.small).color(k.c.text_muted).wrap()),
-                )
-                .child(row().gap(8.0).flex_wrap()
-                    .child(Button::new("Écouter").icon(&ui::PLAY).variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                        .on_press(move |s: &mut App| s.seek_and_play((start - 2.0).max(0.0))).build(k))
-                    .child(accept)
-                    .child(Button::new("Garder l'original").variant(ButtonVariant::Ghost).control_size(ControlSize::Small)
-                        .on_press(move |s: &mut App| s.resolve_doubt(di, Tranche::GarderOriginal)).build(k))),
-        );
-    }
-    c
 }
 
 fn speakers(s: &App, m: &Reunion, k: &Kit) -> El {
