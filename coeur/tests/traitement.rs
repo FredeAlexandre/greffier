@@ -1,8 +1,10 @@
-//! La file de traitement : une réunion à la fois, Transcription → Relecture → Bilan, arrêt.
+//! La file de traitement : une réunion à la fois, Transcription → Relecture → Bilan, arrêt, pause
+//! pendant un enregistrement.
 
 mod banc;
 
 use banc::Banc;
+use greffier_coeur::faux::FausseCapture;
 use greffier_coeur::{Commande, Etape, Statut};
 
 #[test]
@@ -165,4 +167,20 @@ fn refaire_le_bilan_ne_rejoue_que_le_bilan() {
     assert_eq!(banc.reunion(id).statut, Statut::EnAttente(Etape::Bilan));
     let etapes = banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);
     assert_eq!(etapes, [Etape::Bilan]);
+}
+
+#[test]
+fn la_file_reprend_aussi_quand_l_enregistrement_est_interrompu() {
+    let mut a = banc::adaptateurs();
+    a.capture = Box::new(FausseCapture::new(1.0, 0.0).en_panne_a(20.0, "Flux coupé."));
+    let mut banc = Banc::avec(a);
+    let id = banc.reunion_a_traiter();
+    banc.executer(Commande::Traiter(id));
+    banc.executer(Commande::DemarrerEnregistrement);
+    banc.avancer(15.0);
+    assert_eq!(banc.reunion(id).statut, Statut::EnAttente(Etape::Transcription));
+
+    banc.avancer(5.5);
+    assert!(banc.greffier.enregistrement().is_none());
+    assert!(banc.reunion(id).statut.en_traitement(), "{:?}", banc.reunion(id).statut);
 }
