@@ -173,6 +173,16 @@ fn impossible<T>(message: impl Into<String>) -> Result<T, Refus> {
     Err(Refus::Impossible(message.into()))
 }
 
+/// Ce qui doit rester éveillé, et pourquoi (voir [`Greffier::garder_le_mac_eveille`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Eveil {
+    /// Le nom de l'assertion de non-veille (« Greffier enregistre une réunion »).
+    pub raison: &'static str,
+    /// L'écran aussi : une fois l'écran éteint, ScreenCaptureKit ne capture plus rien. Sinon,
+    /// seul le Mac reste éveillé et l'écran peut s'éteindre.
+    pub ecran: bool,
+}
+
 /// L'enregistrement en cours.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Enregistrement {
@@ -401,13 +411,13 @@ impl Greffier {
     }
 
     /// Pourquoi le Mac ne doit pas se mettre en veille automatiquement, tant qu'il ne le doit
-    /// pas : pendant un enregistrement, et pendant un traitement (une réunion en cours ou en
-    /// attente dans la file). L'interface en fait une assertion de non-veille de macOS.
-    pub fn garder_le_mac_eveille(&self) -> Option<&'static str> {
+    /// pas : pendant un enregistrement (l'écran aussi), et pendant un traitement (une réunion en
+    /// cours ou en attente dans la file). L'interface en fait une assertion de non-veille de macOS.
+    pub fn garder_le_mac_eveille(&self) -> Option<Eveil> {
         if self.enregistrement.is_some() {
-            Some("Greffier enregistre une réunion")
+            Some(Eveil { raison: "Greffier enregistre une réunion", ecran: true })
         } else if self.traitement.is_some() || !self.file.is_empty() {
-            Some("Greffier traite une réunion")
+            Some(Eveil { raison: "Greffier traite une réunion", ecran: false })
         } else {
             None
         }

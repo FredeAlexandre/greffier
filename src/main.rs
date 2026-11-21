@@ -392,16 +392,17 @@ impl App {
         self.show_menu_bar();
         self.keep_awake();
     }
-    /// Le Mac ne se met pas en veille pendant un enregistrement ou un traitement : l'assertion
-    /// suit [`Greffier::garder_le_mac_eveille`] (renommée quand la raison change).
+    /// Le Mac ne se met pas en veille pendant un enregistrement (l'écran non plus) ou un
+    /// traitement : l'assertion suit [`Greffier::garder_le_mac_eveille`] (refaite quand la raison
+    /// change).
     fn keep_awake(&mut self) {
-        let reason = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
-        if self.awake.as_ref().map(PasDeVeille::raison) == reason {
+        let eveil = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
+        if self.awake.as_ref().map(|a| (a.raison(), a.ecran())) == eveil.map(|e| (e.raison, e.ecran)) {
             return;
         }
         self.awake = None;
-        if let Some(reason) = reason {
-            match PasDeVeille::new(reason) {
+        if let Some(eveil) = eveil {
+            match PasDeVeille::new(eveil.raison, eveil.ecran) {
                 Ok(a) => self.awake = Some(a),
                 Err(e) => eprintln!("greffier : {e}"),
             }
