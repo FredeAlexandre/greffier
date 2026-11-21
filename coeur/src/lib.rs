@@ -12,7 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod adaptateurs;
-mod attribution;
+pub mod attribution;
 pub mod bilan;
 pub mod claude;
 pub mod dossier;

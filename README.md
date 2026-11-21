@@ -89,6 +89,27 @@ target/debug/greffier --snap out.png --scene meeting --theme dark
 target/debug/greffier --script scripts/parcours-enregistrement.json --snap fin.png --at 20
 ```
 
+## Banc de parité des moteurs
+
+À lancer à la main, hors de la suite automatique (lent, il lui faut les modèles installés) : il fait
+passer les trois extraits de 5 minutes du banc d'essai par les vrais moteurs de Greffier (whisper.cpp,
+pyannote, attribution du cœur) et les compare au pipeline du vault sur les erreurs de mots, les
+termes clés, les erreurs de locuteur et la durée. Il tranche aussi l'extraction audio (AVFoundation
+face à ffmpeg sur le même média).
+
+```sh
+scripts/banc-parite --extraits <dossier des extraits> --banc <dossier du banc d'essai>
+```
+
+`--extraits` (ou `GREFFIER_BANC_EXTRAITS`) contient `extrait-{A,B,C}.m4a` et leurs références
+`Extrait {A,B,C}.md` ; `--banc` (ou `GREFFIER_BANC`) est le banc d'essai du vault (`scripts/bench.py`,
+dont le barème est repris tel quel, `audio/`, `sorties/`). Rien n'en est copié dans le dépôt : le
+rapport et les sorties vont dans `<banc>/greffier/` (`rapport.md`, `scores.json`), le WAV
+temporaire de pyannote dans le dossier de l'app. `--sans-moteurs` renote les sorties déjà là ;
+`--lexique` change le vocabulaire donné à whisper (par défaut le lexique de l'app). Il faut
+`ffmpeg` (témoin du décodage) et `bun` (attribution du vault). Un seul média :
+`cargo run --release -p greffier-moteurs --example banc -- <média> <sortie.json> [--locuteurs N]`.
+
 ## Code
 
 - `coeur/` : le cœur, sans interface (crate `greffier-coeur`, sans Rune). Il possède l'état des
@@ -107,6 +128,7 @@ target/debug/greffier --script scripts/parcours-enregistrement.json --snap fin.p
 - `src/meeting.rs` : page réunion, vidéo, onglets. `src/timeline.rs` : la timeline. `src/overlays.rs` : recherche ⌘K, confirmation de suppression.
 - `src/pages.rs` : vue d'ensemble, enregistrement, réglages, premier lancement. `src/sidebar.rs` : barre latérale et menu du clic droit.
 - `scripts/installer_app.py` : empaquetage, signature et installation de `Greffier.app`.
+- `scripts/banc_parite.py` : le banc de parité des moteurs (`moteurs/examples/banc.rs` le moteur).
 - `scripts/publier-pyannote` : publication de la release des fichiers pyannote (`scripts/pyannote/` : licence, attribution).
 
 Rune est épinglé sur une révision de `dev` (pré-release) dans `Cargo.toml` ; on ne la change que
