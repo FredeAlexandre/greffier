@@ -10,8 +10,8 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use super::{AppelAClaude, Claude, Session};
-use crate::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan};
-use crate::temps::horodatage_de_lecture;
+use greffier_coeur::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan};
+use greffier_coeur::horodatage_de_lecture;
 
 /// Le prompt du bilan, livré avec l'app.
 pub const PROMPT_DU_BILAN: &str = include_str!("../../ressources/prompt-bilan.md");
@@ -133,9 +133,9 @@ pub fn faire(claude: &dyn Claude, d: &DemandeDeBilan, arret: &AtomicBool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adaptateurs::LocuteurPourLAgent;
-    use crate::reunion::Repere;
-    use crate::temps::DateHeure;
+    use greffier_coeur::adaptateurs::LocuteurPourLAgent;
+    use greffier_coeur::Repere;
+    use greffier_coeur::DateHeure;
     use std::path::PathBuf;
 
     fn demande() -> DemandeDeBilan {

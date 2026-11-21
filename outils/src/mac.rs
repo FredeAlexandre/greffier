@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
-use crate::adaptateurs::{Avancement, Tache, TacheDe};
-use crate::ressources::{EtatDeClaude, Outils, hex};
+use greffier_coeur::adaptateurs::{Avancement, Tache, TacheDe};
+use greffier_coeur::ressources::{EtatDeClaude, Outils, hex};
 
 /// La version d'uv livrée avec l'app (`scripts/installer_app.py` la télécharge).
 pub const VERSION_D_UV: &str = "0.13.7";
@@ -267,7 +267,7 @@ impl Outils for OutilsDuMac {
             .spawn();
         match enfant {
             Ok(enfant) => Box::new(Curl { enfant, partiel: partiel.to_path_buf(), taille }),
-            Err(e) => crate::faux::FausseTache::boite(0.0, Err(format!("curl : {e}"))),
+            Err(e) => greffier_coeur::faux::FausseTache::boite(0.0, Err(format!("curl : {e}"))),
         }
     }
 

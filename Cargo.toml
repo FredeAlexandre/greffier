@@ -5,11 +5,12 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur", "moteurs", "capture", "barre"]
-default-members = [".", "coeur", "moteurs", "capture", "barre"]
+members = [".", "coeur", "outils", "moteurs", "capture", "barre"]
+default-members = [".", "coeur", "outils", "moteurs", "capture", "barre"]
 
 [dependencies]
 greffier-coeur = { path = "coeur" }
+greffier-outils = { path = "outils" }
 greffier-moteurs = { path = "moteurs" }
 greffier-capture = { path = "capture" }
 greffier-barre = { path = "barre" }

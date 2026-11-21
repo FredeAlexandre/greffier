@@ -18,8 +18,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{AppelAClaude, Claude, Session, nouvelle_session};
-use crate::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent, ResultatDeRelecture};
-use crate::temps::horodatage_de_lecture;
+use greffier_coeur::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent, ResultatDeRelecture};
+use greffier_coeur::horodatage_de_lecture;
 
 /// Le prompt de la relecture livré avec l'app.
 pub const PROMPT: &str = include_str!("../../ressources/prompt-relecture.md");
@@ -243,11 +243,11 @@ pub fn relire(claude: &dyn Claude, reecoute: &dyn Reecoute, d: &DemandeDeRelectu
     progres(PALIERS[1]);
     let extraits: Vec<(f64, f64)> = doutes.iter().map(|x| {
         let r = replique(x.ligne).expect("ligne vérifiée");
-        crate::reunion::extrait_a_reecouter(r.debut, r.fin, &r.texte, &x.extrait)
+        greffier_coeur::extrait_a_reecouter(r.debut, r.fin, &r.texte, &x.extrait)
     }).collect();
     let (reecoutes, pour_l_agent): (Vec<String>, Vec<String>) = match reecoute.reecouter(&d.enregistrement, &extraits, &d.vocabulaire, arret) {
         Ok(textes) => {
-            let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| crate::attribution::texte_sans_les_bruits(t)).unwrap_or_default()).collect();
+            let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| greffier_coeur::attribution::texte_sans_les_bruits(t)).unwrap_or_default()).collect();
             let lus = textes.iter().map(|t| if t.is_empty() { "(rien d'exploitable)".to_string() } else { t.clone() }).collect();
             (textes, lus)
         }

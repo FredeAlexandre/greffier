@@ -6,20 +6,21 @@
 //! (`reunions`, `enregistrement`…) et appeler ces deux fonctions.
 //!
 //! Tout ce qui sort du processus passe par les [`adaptateurs`] : capture, transcripteur,
-//! séparateur de locuteurs, agent, ressources (et l'horloge). Les ressources de l'app (modèles,
-//! Python privé, vérification de `claude`) sont décrites dans [`ressources`].
+//! séparateur de locuteurs, agent, ressources, corbeille, mise en MP4 (et l'horloge). Le cœur ne
+//! connaît que ces interfaces ; les vrais adaptateurs sont dans d'autres crates
+//! (`greffier-outils` : la CLI `claude`, curl, uv ; `greffier-moteurs` : whisper.cpp, pyannote ;
+//! `greffier-capture` : ScreenCaptureKit, corbeille, mise en MP4). Les ressources de l'app
+//! (modèles, Python privé, vérification de `claude`) sont décrites dans [`ressources`].
 
 #![forbid(unsafe_code)]
 
 pub mod adaptateurs;
 pub mod attribution;
 pub mod bilan;
-pub mod claude;
 pub mod dossier;
 pub mod faux;
 pub mod fictif;
 pub mod lexique;
-pub mod mac;
 pub mod recherche;
 pub mod reglages;
 pub mod ressources;

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::adaptateurs::{Agent, Avancement, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, Tache, TacheDe};
+use greffier_coeur::adaptateurs::{Agent, Avancement, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, Tache, TacheDe};
 
 /// Le modèle demandé à la CLI.
 pub const MODELE: &str = "opus";

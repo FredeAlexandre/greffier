@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use greffier_coeur::TourDeParole;
 use greffier_coeur::adaptateurs::{Avancement, DemandeDeSeparation, Separateur, Tache, TacheDe};
-use greffier_coeur::mac;
+use greffier_outils::mac;
 use greffier_coeur::ressources::MODELE_PYANNOTE;
 
 use crate::audio;

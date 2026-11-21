@@ -4,7 +4,7 @@ Qui parle quand : la séparation des locuteurs d'un WAV 16 kHz mono 16 bits, par
     python -I -c "<ce script>" AUDIO.wav SORTIE.json MODELE [--locuteurs N]
 
 Lancé par Greffier (moteurs/src/pyannote.rs) dans son Python privé, avec l'environnement de
-`greffier_coeur::mac::environnement_python` (hors ligne, rien d'écrit hors du dossier de l'app),
+`greffier_outils::mac::environnement_python` (hors ligne, rien d'écrit hors du dossier de l'app),
 pendant que whisper.cpp transcrit. MODELE est le dossier pyannote-community-1 installé au premier
 lancement ; il est lu hors ligne, sans jeton.
 

@@ -70,11 +70,11 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 /// du Mac, les vraies ressources et la corbeille du Mac.
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
     use greffier_coeur::adaptateurs::Adaptateurs;
-    use greffier_coeur::claude::{AgentClaude, ClaudeDuMac};
+    use greffier_outils::claude::{AgentClaude, ClaudeDuMac};
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
     use std::sync::Arc;
     let app = dossier_de_l_app();
-    let ressources = RessourcesDeLApp::new(app.clone(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
+    let ressources = RessourcesDeLApp::new(app.clone(), Catalogue::de_greffier(), greffier_outils::mac::OutilsDuMac::new());
     Adaptateurs {
         horloge: Box::new(HorlogeDuMac),
         ressources: Box::new(ressources),

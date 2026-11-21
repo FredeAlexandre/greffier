@@ -2,13 +2,13 @@
 //! une réunion inventée : enregistrement factice, transcription écrite à la main, relecture qui ne
 //! change rien, puis le vrai bilan. Le dossier de réunions donné est créé s'il manque.
 //!
-//! `cargo run -p greffier-coeur --example bilan -- <dossier de réunions> [<dossier de contexte>…]`
+//! `cargo run -p greffier-outils --example bilan -- <dossier de réunions> [<dossier de contexte>…]`
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use greffier_coeur::adaptateurs::*;
-use greffier_coeur::claude::{AgentClaude, ClaudeDuMac, relecture::Reecoute};
+use greffier_outils::claude::{AgentClaude, ClaudeDuMac, relecture::Reecoute};
 use greffier_coeur::faux::{FausseCapture, FausseHorloge, FausseTache, FaussesRessources, FauxSeparateur, FauxTranscripteur};
 use greffier_coeur::{Commande, DateHeure, Evenement, Greffier, Mot, Reglages, Statut, TourDeParole};
 

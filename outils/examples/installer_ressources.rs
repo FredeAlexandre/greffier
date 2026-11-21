@@ -1,6 +1,6 @@
 //! Installe les vraies ressources sans fenêtre, par le cœur, et affiche leur état :
 //!
-//!     cargo run -p greffier-coeur --example installer_ressources [-- --verifier]
+//!     cargo run -p greffier-outils --example installer_ressources [-- --verifier]
 //!
 //! Le dossier est celui de l'app (`~/Library/Application Support/Greffier`). L'uv embarqué est
 //! pris dans `target/uv-<version>/uv`, où `scripts/installer-app` le dépose. `--verifier` ne fait
@@ -9,7 +9,7 @@
 use std::time::{Duration, Instant};
 
 use greffier_coeur::adaptateurs::{Adaptateurs, EtatDeRessource};
-use greffier_coeur::mac::{OutilsDuMac, VERSION_D_UV};
+use greffier_outils::mac::{OutilsDuMac, VERSION_D_UV};
 use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp, dossier_de_l_app};
 use greffier_coeur::{Commande, Evenement, Greffier, fictif};
 

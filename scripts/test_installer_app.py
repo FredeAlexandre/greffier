@@ -68,7 +68,7 @@ class UvEmbarqueTest(unittest.TestCase):
         return archive, hashlib.sha256(archive.read_bytes()).hexdigest()
 
     def test_meme_version_que_le_coeur(self):
-        mac_rs = (Path(__file__).resolve().parent.parent / "coeur/src/mac.rs").read_text()
+        mac_rs = (Path(__file__).resolve().parent.parent / "outils/src/mac.rs").read_text()
         self.assertEqual(installer_app.uv_version_in_core(mac_rs), installer_app.UV_VERSION)
 
     def test_extrait_uv_d_une_archive_au_bon_sha256(self):

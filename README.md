@@ -60,7 +60,7 @@ Au premier lancement, la fenêtre affiche l'état de chaque ressource et les ins
 - la CLI `claude` est seulement vérifiée (installée et connectée), avec quoi faire sinon.
 - le lexique livré (`coeur/ressources/lexique.md`) y est écrit s'il n'existe pas encore.
 
-Sans fenêtre : `cargo run -p greffier-coeur --example installer_ressources` (`-- --verifier` pour ne
+Sans fenêtre : `cargo run -p greffier-outils --example installer_ressources` (`-- --verifier` pour ne
 faire que les vérifications). Les scènes et parcours gardent de fausses ressources.
 
 ## À essayer

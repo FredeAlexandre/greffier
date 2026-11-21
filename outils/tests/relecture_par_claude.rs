@@ -8,8 +8,8 @@ use std::sync::atomic::AtomicBool;
 
 use greffier_coeur::DateHeure;
 use greffier_coeur::adaptateurs::{ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent};
-use greffier_coeur::claude::relecture::{self, Reecoute};
-use greffier_coeur::claude::{self, AppelAClaude, Claude, Session};
+use greffier_outils::claude::relecture::{self, Reecoute};
+use greffier_outils::claude::{self, AppelAClaude, Claude, Session};
 use greffier_coeur::lexique::AjoutAuLexique;
 use serde_json::{Value, json};
 

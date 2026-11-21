@@ -1,15 +1,15 @@
 //! Essai à la main de la relecture par la vraie CLI `claude`, sur une petite transcription
 //! inventée, sans réécoute (les extraits rendent « rien d'exploitable »).
 //!
-//! `cargo run -p greffier-coeur --example relire [-- <répertoire de travail>]`
+//! `cargo run -p greffier-outils --example relire [-- <répertoire de travail>]`
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use greffier_coeur::DateHeure;
 use greffier_coeur::adaptateurs::{DemandeDeRelecture, RepliquePourLAgent};
-use greffier_coeur::claude::ClaudeDuMac;
-use greffier_coeur::claude::relecture::{self, Reecoute};
+use greffier_outils::claude::ClaudeDuMac;
+use greffier_outils::claude::relecture::{self, Reecoute};
 
 struct SansReecoute;
 
