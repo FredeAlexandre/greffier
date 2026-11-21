@@ -1,6 +1,8 @@
 //! Une réunion et tout ce qui en est tiré : locuteurs, répliques, passages à vérifier, repères,
 //! bilan, et son statut dans le traitement. Le cœur seul les modifie ; l'interface les lit.
 
+use crate::adaptateurs::{ChangementDeLocuteur, CorrectionSure};
+use crate::dossier::Role;
 use crate::temps::DateHeure;
 
 /// L'identifiant d'une réunion dans le cœur, stable tant que l'app tourne.
@@ -176,6 +178,23 @@ pub struct Decision {
     pub texte: String,
 }
 
+/// Ce que la relecture a changé, gardé dans la transcription structurée.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct JournalDeRelecture {
+    /// Les corrections sûres appliquées.
+    pub corrections: Vec<CorrectionSure>,
+    pub changements_de_locuteur: Vec<ChangementDeLocuteur>,
+    pub ajouts_au_lexique: Vec<String>,
+}
+
+/// Une correction faite à la main dans la transcription : `avant` devient `apres`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CorrectionALaMain {
+    pub replique: usize,
+    pub avant: String,
+    pub apres: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Sessions {
     pub relecture: Option<String>,
@@ -202,6 +221,11 @@ pub struct Reunion {
     pub passages: Vec<PassageAVerifier>,
     /// Corrections sûres appliquées par la relecture.
     pub corrections: u32,
+    /// Les répliques d'avant la relecture (vide tant qu'elle n'est pas faite).
+    pub brute: Vec<Replique>,
+    /// Le journal de la relecture, quand elle est faite.
+    pub relecture: Option<JournalDeRelecture>,
+    pub corrections_a_la_main: Vec<CorrectionALaMain>,
     /// Le bilan en Markdown, tel que l'agent l'a écrit (cases cochées comprises).
     pub bilan: String,
     /// Tirés du bilan : chapitres et décisions de la timeline.
@@ -212,6 +236,8 @@ pub struct Reunion {
     pub sessions: Sessions,
     /// Le bilan est prêt et la réunion n'a pas encore été ouverte.
     pub nouvelle: bool,
+    /// Les fichiers présents dans son dossier, au dernier passage du cœur.
+    pub fichiers: Vec<Role>,
 }
 
 impl Reunion {
@@ -233,6 +259,9 @@ impl Reunion {
             repliques: vec![],
             passages: vec![],
             corrections: 0,
+            brute: vec![],
+            relecture: None,
+            corrections_a_la_main: vec![],
             bilan: String::new(),
             sujets: vec![],
             decisions: vec![],
@@ -240,6 +269,7 @@ impl Reunion {
             actions_principales: vec![],
             sessions: Sessions::default(),
             nouvelle: false,
+            fichiers: vec![],
         }
     }
 
