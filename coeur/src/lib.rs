@@ -82,9 +82,13 @@ pub enum Commande {
     /// Arrête le traitement (ou sort la réunion de la file) : elle redevient à traiter.
     ArreterTraitement(IdReunion),
     Supprimer(IdReunion),
+    /// Confirme ou corrige le nom d'un locuteur (celui qui le remplace s'il est fusionné).
     NommerLocuteur { reunion: IdReunion, locuteur: usize, nom: String },
-    /// `locuteur` est la même voix que `dans`, qui le remplace partout.
+    /// `locuteur` est la même voix que `dans`, qui le remplace partout (fusions suivies des deux
+    /// côtés) et prend son nom s'il n'en a pas.
     FusionnerLocuteurs { reunion: IdReunion, locuteur: usize, dans: usize },
+    /// Défait la fusion de `locuteur` : il retrouve ses répliques, sans nom.
+    SeparerLocuteur { reunion: IdReunion, locuteur: usize },
     Trancher { reunion: IdReunion, passage: usize, tranche: Tranche },
     /// Coche ou décoche la `action`-ième case du bilan.
     CocherAction { reunion: IdReunion, action: usize, faite: bool },
@@ -400,6 +404,7 @@ impl Greffier {
             | Commande::Refaire { reunion, .. }
             | Commande::NommerLocuteur { reunion, .. }
             | Commande::FusionnerLocuteurs { reunion, .. }
+            | Commande::SeparerLocuteur { reunion, .. }
             | Commande::Trancher { reunion, .. }
             | Commande::CocherAction { reunion, .. } => Some(*reunion),
             Commande::Traiter(id) | Commande::ArreterTraitement(id) | Commande::MarquerLue(id) => Some(*id),
@@ -459,19 +464,40 @@ impl Greffier {
                 self.reunions.retain(|r| r.id != id);
             }
             Commande::NommerLocuteur { reunion, locuteur, nom } => {
-                let l = locuteur_mut(self.reunion_mut(reunion)?, locuteur)?;
-                l.nom = Some(nom);
+                let nom = nom.trim();
+                if nom.is_empty() {
+                    return impossible("le nom est vide");
+                }
+                let r = self.reunion_mut(reunion)?;
+                locuteur_mut(r, locuteur)?;
+                // Un locuteur fusionné porte le nom de celui qui le remplace.
+                let i = r.locuteur_affiche(locuteur);
+                let l = &mut r.locuteurs[i];
+                l.nom = Some(nom.to_string());
                 l.fusion_proposee = None;
             }
             Commande::FusionnerLocuteurs { reunion, locuteur, dans } => {
                 let r = self.reunion_mut(reunion)?;
+                locuteur_mut(r, locuteur)?;
                 locuteur_mut(r, dans)?;
-                if r.locuteur_affiche(dans) == locuteur_mut(r, locuteur).map(|_| locuteur)? {
-                    return impossible("un locuteur ne peut pas être fusionné dans lui-même");
+                let (i, j) = (r.locuteur_affiche(locuteur), r.locuteur_affiche(dans));
+                if !r.fusionner(i, j) {
+                    return impossible("ces deux locuteurs sont déjà la même voix");
                 }
-                let l = &mut r.locuteurs[locuteur];
-                l.fusionne_dans = Some(dans);
-                l.fusion_proposee = None;
+                // Le nom suit la voix : celui qui reste prend le nom de l'autre s'il n'en a pas.
+                // Un locuteur fusionné n'a pas de nom à lui.
+                let nom = r.locuteurs[i].nom.take();
+                if r.locuteurs[j].nom.is_none() {
+                    r.locuteurs[j].nom = nom;
+                }
+                r.locuteurs[locuteur].fusion_proposee = None;
+                r.locuteurs[i].fusion_proposee = None;
+            }
+            Commande::SeparerLocuteur { reunion, locuteur } => {
+                let l = locuteur_mut(self.reunion_mut(reunion)?, locuteur)?;
+                if l.fusionne_dans.take().is_none() {
+                    return impossible("ce locuteur n'est pas fusionné");
+                }
             }
             Commande::Trancher { reunion, passage, tranche } => {
                 let r = self.reunion_mut(reunion)?;
@@ -780,6 +806,7 @@ impl Greffier {
                             proposition: l.proposition.clone(),
                             justification: l.justification.clone(),
                             meme_voix_proposee: l.fusion_proposee.map(|j| r.locuteurs[j].etiquette.clone()),
+                            fusionne_dans: l.fusionne_dans.map(|j| r.locuteurs[r.locuteur_affiche(j)].etiquette.clone()),
                         })
                         .collect(),
                     reperes: r.reperes.clone(),
@@ -889,9 +916,10 @@ impl Greffier {
                 for p in resultat.participants {
                     let index = |etiquette: &str| r.locuteurs.iter().position(|l| l.etiquette == etiquette);
                     let Some(i) = index(&p.locuteur) else { continue };
-                    let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| *j != i);
+                    let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| r.locuteur_affiche(*j) != r.locuteur_affiche(i));
                     let l = &mut r.locuteurs[i];
-                    l.proposition = Some(p.nom_propose);
+                    // Un nom vide : l'agent n'a pas su qui c'est, sa justification dit pourquoi.
+                    l.proposition = Some(p.nom_propose).filter(|n| !n.trim().is_empty());
                     l.justification = p.justification;
                     l.fusion_proposee = meme;
                 }

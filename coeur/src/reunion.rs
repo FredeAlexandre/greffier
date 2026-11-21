@@ -304,6 +304,44 @@ impl Reunion {
         i
     }
 
+    /// Le nom donné au locuteur affiché pour un index brut (fusions suivies).
+    pub fn nom_du_locuteur(&self, i: usize) -> Option<&str> {
+        self.locuteurs[self.locuteur_affiche(i)].nom.as_deref()
+    }
+
+    /// Après avoir relu noms et fusions : un locuteur fusionné n'a pas de nom à lui (les fichiers
+    /// lui donnent celui de la voix qui le remplace).
+    pub(crate) fn oublier_les_noms_des_fusionnes(&mut self) {
+        for l in &mut self.locuteurs {
+            if l.fusionne_dans.is_some() {
+                l.nom = None;
+            }
+        }
+    }
+
+    /// Fusionne le locuteur `i` dans `j` : celui qu'affiche `i` est désormais remplacé partout par
+    /// celui qu'affiche `j` (les fusions déjà faites suivent). Rend `false`, sans rien changer, si
+    /// c'est déjà la même voix ou si un index est inconnu : une fusion ne fait jamais de boucle.
+    pub fn fusionner(&mut self, i: usize, j: usize) -> bool {
+        if i >= self.locuteurs.len() || j >= self.locuteurs.len() {
+            return false;
+        }
+        let (i, j) = (self.locuteur_affiche(i), self.locuteur_affiche(j));
+        if i == j {
+            return false;
+        }
+        self.locuteurs[i].fusionne_dans = Some(j);
+        true
+    }
+
+    /// Relit une fusion écrite (fiche, transcription structurée) telle quelle : `i` pointe sur `j`,
+    /// sauf si `i` est déjà fusionné ou si cela ferait une boucle.
+    pub(crate) fn relire_fusion(&mut self, i: usize, j: usize) {
+        if i < self.locuteurs.len() && j < self.locuteurs.len() && self.locuteurs[i].fusionne_dans.is_none() && self.locuteur_affiche(j) != i {
+            self.locuteurs[i].fusionne_dans = Some(j);
+        }
+    }
+
     /// Les locuteurs qui n'ont pas été fusionnés dans un autre.
     pub fn locuteurs_actifs(&self) -> impl Iterator<Item = usize> + '_ {
         (0..self.locuteurs.len()).filter(|&i| self.locuteurs[i].fusionne_dans.is_none())

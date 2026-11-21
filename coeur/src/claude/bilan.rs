@@ -31,10 +31,11 @@ pub fn prompt(d: &DemandeDeBilan) -> String {
     let locuteurs = ou_aucun(
         d.locuteurs
             .iter()
-            .map(|l| match (&l.nom, &l.proposition) {
-                (Some(nom), _) => format!("- {} : nommé « {nom} » par l'utilisateur (sûr)", l.etiquette),
-                (None, Some(p)) => format!("- {} : sans nom (proposé au bilan précédent : « {p} »)", l.etiquette),
-                (None, None) => format!("- {} : sans nom", l.etiquette),
+            .map(|l| match (&l.fusionne_dans, &l.nom, &l.proposition) {
+                (Some(dans), ..) => format!("- {} : même voix que {dans} (fusionné par l'utilisateur : ses répliques sont sous {dans} dans la transcription)", l.etiquette),
+                (None, Some(nom), _) => format!("- {} : nommé « {nom} » par l'utilisateur (sûr)", l.etiquette),
+                (None, None, Some(p)) => format!("- {} : sans nom (proposé au bilan précédent : « {p} »)", l.etiquette),
+                (None, None, None) => format!("- {} : sans nom", l.etiquette),
             })
             .collect(),
     );
@@ -98,7 +99,7 @@ pub fn resultat(reponse: &serde_json::Value, session: &str) -> Result<ResultatDu
     let participants = liste("participants")
         .iter()
         .map(|p| Participant { locuteur: texte(p, "locuteur"), nom_propose: texte(p, "nom"), justification: texte(p, "justification"), meme_voix_que: Some(texte(p, "meme_voix_que")).filter(|m| !m.is_empty()) })
-        .filter(|p| !p.locuteur.is_empty() && !p.nom_propose.is_empty())
+        .filter(|p| !p.locuteur.is_empty() && (!p.nom_propose.is_empty() || !p.justification.is_empty()))
         .collect();
     Ok(ResultatDuBilan { session: Some(session.to_string()), titre, resume: texte(reponse, "resume"), actions, participants })
 }
@@ -143,8 +144,9 @@ mod tests {
             duree: 3723.0,
             repliques: vec![],
             locuteurs: vec![
-                LocuteurPourLAgent { etiquette: "SPEAKER_00".into(), nom: Some("Odile".into()), proposition: None, justification: String::new(), meme_voix_proposee: None },
-                LocuteurPourLAgent { etiquette: "SPEAKER_01".into(), nom: None, proposition: Some("Bastien".into()), justification: String::new(), meme_voix_proposee: None },
+                LocuteurPourLAgent { etiquette: "SPEAKER_00".into(), nom: Some("Odile".into()), proposition: None, justification: String::new(), meme_voix_proposee: None, fusionne_dans: None },
+                LocuteurPourLAgent { etiquette: "SPEAKER_01".into(), nom: None, proposition: Some("Bastien".into()), justification: String::new(), meme_voix_proposee: None, fusionne_dans: None },
+                LocuteurPourLAgent { etiquette: "SPEAKER_02".into(), nom: None, proposition: None, justification: String::new(), meme_voix_proposee: None, fusionne_dans: Some("SPEAKER_00".into()) },
             ],
             reperes: vec![Repere { instant: 312.0, libelle: "Repère 1".into() }],
             bilan_actuel: None,
@@ -160,7 +162,11 @@ mod tests {
         assert!(p.contains("- Transcription : `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - transcription.md`"), "{p}");
         assert!(p.contains("Crée `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - bilan.md`"), "{p}");
         assert!(p.contains("- Date : 2026-11-21, début 14:02, durée 1:02:03"), "{p}");
-        assert!(p.contains("- SPEAKER_00 : nommé « Odile » par l'utilisateur (sûr)\n- SPEAKER_01 : sans nom (proposé au bilan précédent : « Bastien »)"), "{p}");
+        assert!(
+            p.contains("- SPEAKER_00 : nommé « Odile » par l'utilisateur (sûr)\n- SPEAKER_01 : sans nom (proposé au bilan précédent : « Bastien »)\n- SPEAKER_02 : même voix que SPEAKER_00 (fusionné par l'utilisateur : ses répliques sont sous SPEAKER_00 dans la transcription)"),
+            "{p}"
+        );
+        assert!(p.contains("`participants` : pour chaque locuteur de la liste qui n'est pas fusionné"), "une proposition par locuteur : {p}");
         assert!(p.contains("- (0:05:12) Repère 1"), "{p}");
         assert!(p.contains("- `/Users/odile/Notes`"), "{p}");
         assert!(!p.contains("Un bilan existe déjà"));
@@ -234,7 +240,9 @@ mod tests {
             "actions": ["- [ ] Odile — envoyer le devis — lundi", "Bastien — relire", "C", "D"],
             "participants": [
                 {"locuteur": "SPEAKER_01", "nom": "Bastien", "justification": "Odile l'appelle Bastien (0:00:04).", "meme_voix_que": ""},
-                {"locuteur": "SPEAKER_02", "nom": "Bastien", "justification": "Même voix.", "meme_voix_que": "SPEAKER_01"}
+                {"locuteur": "SPEAKER_02", "nom": "Bastien", "justification": "Même voix.", "meme_voix_que": "SPEAKER_01"},
+                {"locuteur": "SPEAKER_03", "nom": " ", "justification": "Personne ne le nomme.", "meme_voix_que": ""},
+                {"locuteur": "", "nom": "Odile", "justification": "Sans locuteur.", "meme_voix_que": ""}
             ]
         });
         let r = resultat(&reponse, "s-1").unwrap();
@@ -244,6 +252,8 @@ mod tests {
         assert_eq!(r.actions, ["Odile — envoyer le devis — lundi", "Bastien — relire", "C"]);
         assert_eq!(r.participants[0].meme_voix_que, None);
         assert_eq!(r.participants[1].meme_voix_que.as_deref(), Some("SPEAKER_01"));
+        assert_eq!(r.participants.len(), 3, "un locuteur sans nom proposé garde sa justification");
+        assert_eq!((r.participants[2].nom_propose.as_str(), r.participants[2].justification.as_str()), ("", "Personne ne le nomme."));
         assert!(resultat(&serde_json::json!({"titre": " ", "resume": "", "actions": [], "participants": []}), "s").is_err());
     }
 }
