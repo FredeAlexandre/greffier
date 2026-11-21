@@ -30,11 +30,6 @@ const DEUXIEME_PASSE: &str = "## Deuxième passe";
 /// Au plus autant de passages douteux réécoutés.
 pub const PASSAGES_AU_PLUS: usize = 30;
 
-/// Marge de la réécoute autour de la réplique, et longueur maximale d'un extrait (Whisper entend
-/// 30 s d'un coup), en secondes.
-const MARGE: f64 = 1.5;
-const EXTRAIT_AU_PLUS: f64 = 28.0;
-
 /// Les paliers d'avancement : première passe, réécoute, deuxième passe.
 pub const PALIERS: [f64; 3] = [0.0, 0.6, 0.75];
 
@@ -197,18 +192,6 @@ fn repliques_numerotees(repliques: &[RepliquePourLAgent]) -> String {
     lignes.join("\n")
 }
 
-/// L'extrait à réécouter : ±1,5 s autour de la réplique ; plus de 28 s, 26 s centrées sur
-/// l'endroit de l'extrait dans la réplique.
-fn a_reecouter(r: &RepliquePourLAgent, extrait: &str) -> (f64, f64) {
-    let (mut de, mut a) = (r.debut - MARGE, r.fin + MARGE);
-    if a - de > EXTRAIT_AU_PLUS {
-        let position = r.texte.find(extrait).map_or(0, |i| r.texte[..i].chars().count());
-        let centre = r.debut + position as f64 / r.texte.chars().count().max(1) as f64 * (r.fin - r.debut);
-        (de, a) = (centre - 12.0, centre + 14.0);
-    }
-    (de.max(0.0), a)
-}
-
 /// Une hypothèse qui n'en est pas une (vide, « ? », « ? (peut-être…) ») ne compte pas.
 fn hypothese(h: &str) -> Option<String> {
     let h = h.trim();
@@ -256,7 +239,10 @@ pub fn relire(claude: &dyn Claude, reecoute: &dyn Reecoute, d: &DemandeDeRelectu
     }
 
     progres(PALIERS[1]);
-    let extraits: Vec<(f64, f64)> = doutes.iter().map(|x| a_reecouter(replique(x.ligne).expect("ligne vérifiée"), &x.extrait)).collect();
+    let extraits: Vec<(f64, f64)> = doutes.iter().map(|x| {
+        let r = replique(x.ligne).expect("ligne vérifiée");
+        crate::reunion::extrait_a_reecouter(r.debut, r.fin, &r.texte, &x.extrait)
+    }).collect();
     let (reecoutes, pour_l_agent): (Vec<String>, Vec<String>) = match reecoute.reecouter(&d.enregistrement, &extraits, &d.vocabulaire, arret) {
         Ok(textes) => {
             let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default()).collect();
