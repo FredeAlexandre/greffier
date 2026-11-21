@@ -1,6 +1,7 @@
 //! Le bilan par Claude : le prompt livré avec l'app (`ressources/prompt-bilan.md`), rempli pour la
 //! réunion ; l'agent démarre dans le dossier de réunions, les dossiers de contexte lui sont
-//! ouverts (`--add-dir`), il peut lire et écrire mais ni lancer de commandes ni aller sur le web.
+//! ouverts en lecture (`--add-dir`), il peut lire et écrire mais ni lancer de commandes ni aller
+//! sur le web.
 //! Il écrit le fichier du bilan lui-même et renvoie titre, résumé, 3 actions au plus et ses
 //! propositions de noms pour les locuteurs.
 
@@ -72,8 +73,16 @@ pub fn prompt(d: &DemandeDeBilan) -> String {
 }
 
 /// L'appel à la CLI pour ce bilan : une nouvelle session dans le dossier de réunions, les
-/// dossiers de contexte ouverts en plus, l'écriture permise.
+/// dossiers de contexte ouverts en plus, l'écriture permise sauf dans les dossiers de contexte
+/// (ils se lisent : règles `Write(//chemin/**)` et `Edit(//chemin/**)` de la CLI, `//` = chemin
+/// absolu). Un dossier de contexte qui contient le dossier de réunions reste ouvert à l'écriture,
+/// le bilan s'y écrit.
 pub fn appel(d: &DemandeDeBilan, session: &str) -> AppelAClaude {
+    let mut outils_interdits: Vec<String> = OUTILS_INTERDITS.map(String::from).to_vec();
+    for dossier in d.dossiers_de_contexte.iter().filter(|c| !d.dossier_de_reunions.starts_with(c)) {
+        let motif = format!("/{}/**", dossier.display().to_string().trim_end_matches('/'));
+        outils_interdits.extend([format!("Write({motif})"), format!("Edit({motif})")]);
+    }
     AppelAClaude {
         prompt: prompt(d),
         entree: String::new(),
@@ -81,7 +90,7 @@ pub fn appel(d: &DemandeDeBilan, session: &str) -> AppelAClaude {
         session: Session::Nouvelle(session.into()),
         repertoire: d.dossier_de_reunions.clone(),
         outils_permis: OUTILS_PERMIS.map(String::from).to_vec(),
-        outils_interdits: OUTILS_INTERDITS.map(String::from).to_vec(),
+        outils_interdits,
         ecriture: true,
         dossiers_en_plus: d.dossiers_de_contexte.clone(),
     }
@@ -189,13 +198,19 @@ mod tests {
         assert_eq!(apres("--add-dir"), Some("/Users/odile/Notes"));
         let i = a.iter().position(|x| x == "--allowedTools").unwrap();
         assert_eq!(a[i + 1..i + 6], ["Read", "Glob", "Grep", "Write", "Edit"]);
+        // Les dossiers de contexte se lisent, ne s'écrivent pas.
         let i = a.iter().position(|x| x == "--disallowedTools").unwrap();
-        assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task"]);
+        assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task", "Write(//Users/odile/Notes/**)", "Edit(//Users/odile/Notes/**)"]);
         assert!(serde_json::from_str::<serde_json::Value>(SCHEMA).is_ok());
         assert_eq!(appel(&demande(), "s").repertoire, PathBuf::from("/Users/odile/Réunions"));
 
         let sans_contexte = appel(&DemandeDeBilan { dossiers_de_contexte: vec![], ..demande() }, "s").arguments();
         assert!(!sans_contexte.contains(&"--add-dir".to_string()));
+
+        // Un dossier de contexte qui contient le dossier de réunions n'est pas fermé à l'écriture :
+        // le bilan s'y écrit.
+        let parent = appel(&DemandeDeBilan { dossiers_de_contexte: vec![PathBuf::from("/Users/odile")], ..demande() }, "s");
+        assert_eq!(parent.outils_interdits, ["Bash", "WebFetch", "WebSearch", "Task"]);
     }
 
     /// Une fausse CLI : écrit (ou non) le fichier du bilan, et rend la réponse donnée.
