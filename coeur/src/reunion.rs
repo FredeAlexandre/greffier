@@ -1,7 +1,7 @@
 //! Une réunion et tout ce qui en est tiré : locuteurs, répliques, passages à vérifier, repères,
 //! bilan, et son statut dans le traitement. Le cœur seul les modifie ; l'interface les lit.
 
-use crate::adaptateurs::{ChangementDeLocuteur, CorrectionSure};
+use crate::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, PassageCorrige};
 use crate::dossier::Role;
 use crate::temps::DateHeure;
 
@@ -184,7 +184,10 @@ pub struct JournalDeRelecture {
     /// Les corrections sûres appliquées.
     pub corrections: Vec<CorrectionSure>,
     pub changements_de_locuteur: Vec<ChangementDeLocuteur>,
-    pub ajouts_au_lexique: Vec<String>,
+    /// Les passages douteux corrigés après la réécoute.
+    pub passages_corriges: Vec<PassageCorrige>,
+    /// Les erreurs écrites dans le lexique.
+    pub ajouts_au_lexique: Vec<AjoutAuLexique>,
 }
 
 /// Une correction faite à la main dans la transcription : `avant` devient `apres`.

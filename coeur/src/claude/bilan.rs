@@ -5,17 +5,19 @@
 //! propositions de noms pour les locuteurs.
 
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::sync::atomic::AtomicBool;
+use std::time::SystemTime;
 
-use super::{Appel, MODELE};
-use crate::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan, TacheDe};
+use super::{AppelAClaude, Claude, Session};
+use crate::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan};
 use crate::temps::horodatage_de_lecture;
 
 /// Le prompt du bilan, livré avec l'app.
 pub const PROMPT_DU_BILAN: &str = include_str!("../../ressources/prompt-bilan.md");
 
-/// Le délai au-delà duquel le bilan est abandonné.
-pub const DELAI: Duration = Duration::from_secs(45 * 60);
+/// Lecture et écriture ; ni commandes, ni web, ni sous-agents.
+pub const OUTILS_PERMIS: [&str; 5] = ["Read", "Glob", "Grep", "Write", "Edit"];
+pub const OUTILS_INTERDITS: [&str; 4] = ["Bash", "WebFetch", "WebSearch", "Task"];
 
 /// La réponse structurée demandée à l'agent.
 pub const SCHEMA: &str = r#"{"type":"object","properties":{"titre":{"type":"string","description":"Titre de la réunion en quelques mots"},"resume":{"type":"string","description":"Résumé de 3 à 5 lignes, sans titre ni liste"},"actions":{"type":"array","items":{"type":"string"},"maxItems":3,"description":"Les 3 actions les plus importantes : Qui — quoi — échéance"},"participants":{"type":"array","items":{"type":"object","properties":{"locuteur":{"type":"string"},"nom":{"type":"string"},"justification":{"type":"string"},"meme_voix_que":{"type":"string"}},"required":["locuteur","nom","justification","meme_voix_que"],"additionalProperties":false}}},"required":["titre","resume","actions","participants"],"additionalProperties":false}"#;
@@ -68,15 +70,20 @@ pub fn prompt(d: &DemandeDeBilan) -> String {
     texte
 }
 
-/// Les arguments de `claude` pour ce bilan.
-pub fn arguments(d: &DemandeDeBilan, session: &str) -> Vec<String> {
-    let mut a: Vec<String> = ["-p", &prompt(d), "--model", MODELE, "--session-id", session, "--output-format", "json", "--json-schema", SCHEMA, "--permission-mode", "acceptEdits"].map(String::from).to_vec();
-    if !d.dossiers_de_contexte.is_empty() {
-        a.push("--add-dir".into());
-        a.extend(d.dossiers_de_contexte.iter().map(|c| c.display().to_string()));
+/// L'appel à la CLI pour ce bilan : une nouvelle session dans le dossier de réunions, les
+/// dossiers de contexte ouverts en plus, l'écriture permise.
+pub fn appel(d: &DemandeDeBilan, session: &str) -> AppelAClaude {
+    AppelAClaude {
+        prompt: prompt(d),
+        entree: String::new(),
+        schema: SCHEMA.into(),
+        session: Session::Nouvelle(session.into()),
+        repertoire: d.dossier_de_reunions.clone(),
+        outils_permis: OUTILS_PERMIS.map(String::from).to_vec(),
+        outils_interdits: OUTILS_INTERDITS.map(String::from).to_vec(),
+        ecriture: true,
+        dossiers_en_plus: d.dossiers_de_contexte.clone(),
     }
-    a.extend(["--allowedTools", "Read", "Glob", "Grep", "Write", "Edit", "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Task"].map(String::from));
-    a
 }
 
 /// Lit la réponse structurée de l'agent.
@@ -100,19 +107,17 @@ fn modifie(fichier: &Path) -> Option<SystemTime> {
     std::fs::metadata(fichier).and_then(|m| m.modified()).ok()
 }
 
-/// Lance le bilan sur un fil. Échoue si l'agent ne réécrit pas le fichier du bilan.
-pub(crate) fn faire(d: DemandeDeBilan) -> TacheDe<ResultatDuBilan> {
-    crate::mac::sur_un_fil(move |_, arret| {
-        let session = super::nouvelle_session();
-        let avant = modifie(&d.fichier_du_bilan);
-        let appel = Appel { repertoire: d.dossier_de_reunions.clone(), arguments: arguments(&d, &session), delai: DELAI };
-        let reponse = super::appeler(&appel, arret)?;
-        let apres = modifie(&d.fichier_du_bilan);
-        if apres.is_none() || apres == avant {
-            return Err("Claude a terminé sans écrire le bilan.".into());
-        }
-        resultat(&reponse, &session)
-    })
+/// Fait le bilan : l'agent écrit le fichier, puis rend sa réponse. Échoue si le fichier du bilan
+/// n'a pas été (ré)écrit.
+pub fn faire(claude: &dyn Claude, d: &DemandeDeBilan, arret: &AtomicBool) -> Result<ResultatDuBilan, String> {
+    let session = super::nouvelle_session();
+    let avant = modifie(&d.fichier_du_bilan);
+    let reponse = claude.demander(&appel(d, &session), arret)?;
+    let apres = modifie(&d.fichier_du_bilan);
+    if apres.is_none() || apres == avant {
+        return Err("Claude a terminé sans écrire le bilan.".into());
+    }
+    resultat(&reponse, &session)
 }
 
 #[cfg(test)]
@@ -168,21 +173,57 @@ mod tests {
 
     #[test]
     fn l_agent_lit_et_ecrit_sans_commandes_ni_web_avec_les_dossiers_de_contexte() {
-        let a = arguments(&demande(), "s-1");
+        let a = appel(&demande(), "s-1").arguments();
         let apres = |drapeau: &str| a.iter().position(|x| x == drapeau).map(|i| a[i + 1].as_str());
         assert_eq!(a[0], "-p");
         assert_eq!(apres("--model"), Some("opus"));
         assert_eq!(apres("--session-id"), Some("s-1"));
         assert_eq!(apres("--output-format"), Some("json"));
+        assert_eq!(apres("--permission-mode"), Some("acceptEdits"));
         assert_eq!(apres("--add-dir"), Some("/Users/odile/Notes"));
         let i = a.iter().position(|x| x == "--allowedTools").unwrap();
         assert_eq!(a[i + 1..i + 6], ["Read", "Glob", "Grep", "Write", "Edit"]);
         let i = a.iter().position(|x| x == "--disallowedTools").unwrap();
         assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task"]);
         assert!(serde_json::from_str::<serde_json::Value>(SCHEMA).is_ok());
+        assert_eq!(appel(&demande(), "s").repertoire, PathBuf::from("/Users/odile/Réunions"));
 
-        let sans_contexte = arguments(&DemandeDeBilan { dossiers_de_contexte: vec![], ..demande() }, "s");
+        let sans_contexte = appel(&DemandeDeBilan { dossiers_de_contexte: vec![], ..demande() }, "s").arguments();
         assert!(!sans_contexte.contains(&"--add-dir".to_string()));
+    }
+
+    /// Une fausse CLI : écrit (ou non) le fichier du bilan, et rend la réponse donnée.
+    struct FausseCli {
+        ecrire: bool,
+        reponse: serde_json::Value,
+    }
+
+    impl Claude for FausseCli {
+        fn demander(&self, appel: &AppelAClaude, _: &AtomicBool) -> Result<serde_json::Value, String> {
+            if self.ecrire {
+                let fichier = appel.prompt.split("Crée `").nth(1).and_then(|r| r.split('`').next()).expect("le fichier du bilan dans le prompt");
+                std::fs::write(appel.repertoire.join(fichier), "## En bref\n").map_err(|e| e.to_string())?;
+            }
+            Ok(self.reponse.clone())
+        }
+    }
+
+    #[test]
+    fn le_bilan_echoue_si_l_agent_n_ecrit_pas_le_fichier() {
+        let racine = std::env::temp_dir().join(format!("greffier-bilan-claude-{}", std::process::id()));
+        let nom = "2026-11-21 14h02 - Réunion";
+        std::fs::create_dir_all(racine.join(nom)).unwrap();
+        let d = DemandeDeBilan { dossier_de_reunions: racine.clone(), fichier_du_bilan: racine.join(nom).join(format!("{nom} - bilan.md")), ..demande() };
+        let reponse = serde_json::json!({"titre": "Budget", "resume": "R.", "actions": [], "participants": []});
+        let arret = AtomicBool::new(false);
+
+        let muette = FausseCli { ecrire: false, reponse: reponse.clone() };
+        assert_eq!(faire(&muette, &d, &arret), Err("Claude a terminé sans écrire le bilan.".into()));
+
+        let r = faire(&FausseCli { ecrire: true, reponse }, &d, &arret).unwrap();
+        assert_eq!(r.titre, "Budget");
+        assert_eq!(r.session.as_deref().map(str::len), Some(36), "la session donnée à la CLI");
+        let _ = std::fs::remove_dir_all(&racine);
     }
 
     #[test]

@@ -8,12 +8,21 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use greffier_coeur::adaptateurs::*;
-use greffier_coeur::claude::AgentClaude;
+use greffier_coeur::claude::{AgentClaude, ClaudeDuMac, relecture::Reecoute};
 use greffier_coeur::faux::{FausseCapture, FausseHorloge, FausseTache, FaussesRessources, FauxSeparateur, FauxTranscripteur};
 use greffier_coeur::{Commande, DateHeure, Evenement, Greffier, Mot, Reglages, Statut, TourDeParole};
 
 /// Le vrai bilan, avec une relecture qui ne change rien.
 struct BilanSeul(AgentClaude);
+
+/// Pas de réécoute : la relecture n'est pas jouée ici.
+struct SansReecoute;
+
+impl Reecoute for SansReecoute {
+    fn reecouter(&self, _: &std::path::Path, extraits: &[(f64, f64)], _: &str, _: &std::sync::atomic::AtomicBool) -> Result<Vec<String>, String> {
+        Ok(vec![String::new(); extraits.len()])
+    }
+}
 
 impl Agent for BilanSeul {
     fn relire(&mut self, _: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture> {
@@ -60,7 +69,7 @@ fn main() {
         capture: Box::new(FausseCapture::new(20.0, 0.0)),
         transcripteur: Box::new(FauxTranscripteur::fixe(0.1, mots)),
         separateur: Box::new(FauxSeparateur::fixe(0.1, tours)),
-        agent: Box::new(BilanSeul(AgentClaude::new())),
+        agent: Box::new(BilanSeul(AgentClaude::new(std::sync::Arc::new(ClaudeDuMac::default()), std::sync::Arc::new(SansReecoute)))),
         ressources: Box::new(FaussesRessources::pretes()),
         horloge: Box::new(FausseHorloge(DateHeure::new(2026, 11, 21, 16, 30))),
     };

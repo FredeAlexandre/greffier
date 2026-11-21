@@ -328,7 +328,13 @@ pub fn settings(s: &App, k: &Kit) -> El {
     let l = &s.lexique;
     let ai = card(k)
         .child(heading(k, "IA"))
-        .child(check_row(k, true, "Lexique", &format!("{} erreurs connues, {} personnes, {} mots justes", l.erreurs_connues, l.personnes, l.mots_justes)))
+        .child(
+            row().w_full().gap(10.0).center_y()
+                .child(check_row(k, true, "Lexique", &format!("{} erreurs connues, {} personnes, {} mots justes", l.erreurs_connues, l.personnes, l.mots_justes)).grow(1.0).min_w(0.0))
+                .child(Button::new("Ouvrir le lexique").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
+                    .help("Le lexique s'ouvre dans l'éditeur de texte par défaut ; la relecture y ajoute les erreurs qu'elle apprend")
+                    .on_press(|s: &mut App| s.open_lexique()).build(k).key("open-lexique")),
+        )
         .child(check_row(k, true, "Prompt de relecture", "prompt-relecture.md"))
         .child(check_row(k, true, "Prompt du bilan", "prompt-bilan.md"));
     let dossiers = &s.core.reglages().dossiers_de_contexte;

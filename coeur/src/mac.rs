@@ -99,7 +99,7 @@ struct SurUnFil<T> {
     arret: Arc<AtomicBool>,
 }
 
-pub(crate) fn sur_un_fil<T: Send + 'static>(travail: impl FnOnce(&AtomicU64, &AtomicBool) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
+fn sur_un_fil<T: Send + 'static>(travail: impl FnOnce(&AtomicU64, &AtomicBool) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
     let (envoi, resultat) = mpsc::channel();
     let progres = Arc::new(AtomicU64::new(0f64.to_bits()));
     let arret = Arc::new(AtomicBool::new(false));

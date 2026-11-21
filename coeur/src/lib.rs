@@ -741,7 +741,22 @@ impl Greffier {
                 let tours = a.separateur.separer(DemandeDeSeparation { audio, duree: r.duree, nombre_de_locuteurs: r.nombre_de_locuteurs });
                 Travail::Transcription { mots: Partie::EnCours(mots), tours: Partie::EnCours(tours) }
             }
-            Etape::Relecture => Travail::Relecture(Partie::EnCours(a.agent.relire(DemandeDeRelecture { enregistrement: audio, repliques: pour_l_agent(&r), lexique: String::new() }))),
+            Etape::Relecture => {
+                let lexique = self.reglages.lexique.as_ref().and_then(|l| std::fs::read_to_string(l).ok()).unwrap_or_default();
+                let demande = DemandeDeRelecture {
+                    enregistrement: audio,
+                    dossier_de_reunions: self.dossier.racine().to_path_buf(),
+                    nom_du_dossier: r.nom_du_dossier.clone(),
+                    titre: r.titre.clone(),
+                    debut: r.debut,
+                    nombre_de_locuteurs: r.nombre_de_locuteurs,
+                    // Une relecture refaite repart de la transcription brute.
+                    repliques: pour_l_agent(&r, if r.brute.is_empty() { &r.repliques } else { &r.brute }),
+                    vocabulaire: lexique::vocabulaire(&lexique),
+                    lexique,
+                };
+                Travail::Relecture(Partie::EnCours(a.agent.relire(demande)))
+            }
             Etape::Bilan => {
                 let dossier = self.dossier.dossier(&r.nom_du_dossier);
                 std::fs::create_dir_all(&dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
@@ -755,7 +770,7 @@ impl Greffier {
                     titre: r.titre.clone(),
                     debut: r.debut,
                     duree: r.duree,
-                    repliques: pour_l_agent(&r),
+                    repliques: pour_l_agent(&r, &r.repliques),
                     locuteurs: r
                         .locuteurs
                         .iter()
@@ -845,6 +860,10 @@ impl Greffier {
         {
             self.noter(&nom, &[Role::Bilan]);
         }
+        let ajoutes = match &produit {
+            Produit::Relecture(resultat) => self.enrichir_le_lexique(id, &resultat.ajouts_au_lexique, ev),
+            _ => Vec::new(),
+        };
         let en_enregistrement = self.enregistrement.is_some();
         let Ok(r) = self.reunion_mut(id) else { return };
         match produit {
@@ -861,7 +880,7 @@ impl Greffier {
                 r.relecture = None;
                 r.corrections_a_la_main.clear();
             }
-            Produit::Relecture(resultat) => appliquer_la_relecture(r, resultat),
+            Produit::Relecture(resultat) => appliquer_la_relecture(r, resultat, ajoutes),
             Produit::Bilan(resultat, _) => {
                 r.poser_bilan(lu.unwrap_or_default());
                 r.titre = resultat.titre;
@@ -897,6 +916,27 @@ impl Greffier {
         }
     }
 
+    /// Écrit dans le lexique les erreurs apprises par la relecture qu'il ne connaît pas encore ;
+    /// rend celles qui ont été écrites. Sans lexique, rien n'est écrit.
+    fn enrichir_le_lexique(&mut self, id: IdReunion, ajouts: &[AjoutAuLexique], ev: &mut Vec<Evenement>) -> Vec<AjoutAuLexique> {
+        let Some(chemin) = self.reglages.lexique.clone() else { return Vec::new() };
+        if ajouts.is_empty() {
+            return Vec::new();
+        }
+        let md = std::fs::read_to_string(&chemin).unwrap_or_default();
+        let (md, ajoutes) = lexique::ajouter_erreurs(&md, ajouts);
+        if ajoutes.is_empty() {
+            return ajoutes;
+        }
+        match lexique::ecrire(&chemin, &md) {
+            Ok(()) => ajoutes,
+            Err(e) => {
+                ev.push(Evenement::EcritureImpossible { reunion: id, message: format!("{} : {e}", chemin.display()) });
+                Vec::new()
+            }
+        }
+    }
+
     fn echec(&mut self, id: IdReunion, etape: Etape, message: String, ev: &mut Vec<Evenement>) {
         if let Ok(r) = self.reunion_mut(id) {
             r.statut = Statut::Echec { etape, message: message.clone() };
@@ -920,49 +960,88 @@ fn locuteur_mut(r: &mut Reunion, i: usize) -> Result<&mut Locuteur, Refus> {
     r.locuteurs.get_mut(i).ok_or(Refus::Impossible("locuteur inconnu".into()))
 }
 
-fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture) {
-    r.brute = r.repliques.iter().map(|x| Replique { passage: None, ..x.clone() }).collect();
-    let mut journal = JournalDeRelecture { ajouts_au_lexique: resultat.ajouts_au_lexique, ..Default::default() };
+/// Remplace la première occurrence de `avant` par `apres` ; rend `false` si `avant` est vide ou
+/// absent.
+fn remplacer(texte: &mut String, avant: &str, apres: &str) -> bool {
+    match texte.find(avant).filter(|_| !avant.is_empty()) {
+        Some(i) => {
+            texte.replace_range(i..i + avant.len(), apres);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Une hypothèse qui n'en est pas une (vide, « ? », « ? (peut-être…) ») n'est pas gardée.
+fn hypothese(h: Option<String>) -> Option<String> {
+    h.map(|h| h.trim().to_string()).filter(|h| !h.is_empty() && !h.starts_with('?'))
+}
+
+/// Applique le résultat de la relecture, toujours à partir de la transcription brute (une
+/// relecture refaite ne s'empile pas sur la précédente). Ce qui ne s'applique pas (réplique ou
+/// locuteur inconnus, texte absent) est écarté et n'entre pas au journal. `ajoutes` : les erreurs
+/// vraiment écrites dans le lexique.
+fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture, ajoutes: Vec<AjoutAuLexique>) {
+    if r.brute.is_empty() {
+        r.brute = r.repliques.iter().map(|x| Replique { passage: None, ..x.clone() }).collect();
+    }
+    r.repliques = r.brute.clone();
+    let mut journal = JournalDeRelecture { ajouts_au_lexique: ajoutes, ..Default::default() };
     for c in resultat.corrections {
         let Some(x) = r.repliques.get_mut(c.replique) else { continue };
-        if let Some(i) = x.texte.find(&c.avant) {
-            x.texte.replace_range(i..i + c.avant.len(), &c.apres);
+        if c.avant != c.apres && remplacer(&mut x.texte, &c.avant, &c.apres) {
             journal.corrections.push(c);
         }
     }
-    r.corrections = journal.corrections.len() as u32;
     for c in resultat.changements_de_locuteur {
-        if c.replique >= r.repliques.len() {
+        let Some(i) = r.locuteurs.iter().position(|l| l.etiquette == c.locuteur) else { continue };
+        let Some(x) = r.repliques.get(c.replique) else { continue };
+        if r.locuteur_affiche(x.locuteur) == r.locuteur_affiche(i) {
             continue;
         }
-        journal.changements_de_locuteur.push(c.clone());
-        let i = match r.locuteurs.iter().position(|l| l.etiquette == c.locuteur) {
-            Some(i) => i,
-            None => {
-                r.locuteurs.push(Locuteur::new(c.locuteur, TEINTES[r.locuteurs.len() % TEINTES.len()]));
-                r.locuteurs.len() - 1
-            }
-        };
         r.repliques[c.replique].locuteur = i;
+        journal.changements_de_locuteur.push(c);
     }
-    r.passages.clear();
-    for x in &mut r.repliques {
-        x.passage = None;
-    }
-    for p in resultat.passages_a_verifier {
+    let mut a_verifier = Vec::new();
+    for p in resultat.passages_corriges {
         let Some(x) = r.repliques.get_mut(p.replique) else { continue };
-        if x.passage.is_some() {
+        let apres = p.apres.trim();
+        if apres.is_empty() || apres.starts_with('?') || apres == p.extrait.trim() {
+            continue;
+        }
+        if remplacer(&mut x.texte, &p.extrait, apres) {
+            journal.passages_corriges.push(PassageCorrige { apres: apres.to_string(), ..p });
+        } else {
+            // L'extrait n'est plus dans la réplique (une correction sûre l'a touché) : à vérifier.
+            a_verifier.push(PassageSignale { replique: p.replique, extrait: p.extrait, hypothese: Some(apres.to_string()), reecoute: p.reecoute });
+        }
+    }
+    r.corrections = (journal.corrections.len() + journal.passages_corriges.len()) as u32;
+    r.passages.clear();
+    for p in resultat.passages_a_verifier.into_iter().chain(a_verifier) {
+        let Some(x) = r.repliques.get_mut(p.replique) else { continue };
+        if x.passage.is_some() || p.extrait.trim().is_empty() {
             continue;
         }
         x.passage = Some(r.passages.len());
-        r.passages.push(PassageAVerifier { replique: p.replique, extrait: p.extrait, hypothese: p.hypothese, reecoute: p.reecoute, statut: StatutDuPassage::EnAttente });
+        r.passages.push(PassageAVerifier { replique: p.replique, extrait: p.extrait, hypothese: hypothese(p.hypothese), reecoute: p.reecoute, statut: StatutDuPassage::EnAttente });
+    }
+    // Les corrections faites à la main sur la relecture précédente sont reprises si leur texte est
+    // toujours là.
+    let a_la_main = std::mem::take(&mut r.corrections_a_la_main);
+    for c in a_la_main {
+        if let Some(x) = r.repliques.get_mut(c.replique)
+            && remplacer(&mut x.texte, &c.avant, &c.apres)
+        {
+            r.corrections_a_la_main.push(c);
+        }
     }
     r.sessions.relecture = resultat.session;
     r.relecture = Some(journal);
 }
 
-fn pour_l_agent(r: &Reunion) -> Vec<RepliquePourLAgent> {
-    r.repliques
+fn pour_l_agent(r: &Reunion, repliques: &[Replique]) -> Vec<RepliquePourLAgent> {
+    repliques
         .iter()
         .enumerate()
         .map(|(numero, x)| {

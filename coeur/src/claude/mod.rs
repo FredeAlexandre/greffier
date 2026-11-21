@@ -1,147 +1,291 @@
-//! L'agent réel (ADR 0002) : la CLI `claude` de l'utilisateur (Claude Code), lancée en mode non
-//! interactif (`claude -p`) avec une réponse structurée (`--output-format json --json-schema`).
+//! L'agent de Greffier : la CLI `claude` installée sur le Mac (ADR 0002), modèle opus, en mode
+//! non interactif (`claude -p … --output-format json --json-schema …`), avec des sessions
+//! reprenables.
 //!
-//! Ce module porte ce qui est commun aux deux étapes : trouver la CLI, lancer un appel sur un fil
-//! (arrêt et délai compris), lire sa réponse. Le bilan est dans [`bilan`] ; la relecture viendra à
-//! côté.
+//! - [`Claude`] : un appel à la CLI, qui rend la sortie structurée ; [`ClaudeDuMac`] la lance
+//!   vraiment, les tests la remplacent.
+//! - [`relecture`] : la relecture en deux passes, réécoute comprise.
+//! - [`bilan`] : le bilan, que l'agent écrit lui-même.
+//! - [`AgentClaude`] : l'adaptateur [`Agent`] branché dans l'app.
 
 pub mod bilan;
+pub mod relecture;
 
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::adaptateurs::{Agent, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, TacheDe};
+use serde_json::Value;
 
-/// Le modèle des deux étapes.
+use crate::adaptateurs::{Agent, Avancement, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, Tache, TacheDe};
+
+/// Le modèle demandé à la CLI.
 pub const MODELE: &str = "opus";
 
-/// La relecture et le bilan par la CLI `claude`.
-#[derive(Default)]
-pub struct AgentClaude;
+/// Une nouvelle conversation, avec l'identifiant qu'on lui donne, ou la reprise d'une conversation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Session {
+    Nouvelle(String),
+    Reprise(String),
+}
+
+/// Un appel à la CLI `claude`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppelAClaude {
+    pub prompt: String,
+    /// Donné sur l'entrée standard.
+    pub entree: String,
+    /// Le schéma JSON de la réponse structurée.
+    pub schema: String,
+    pub session: Session,
+    /// Le répertoire de travail de l'agent.
+    pub repertoire: PathBuf,
+    pub outils_permis: Vec<String>,
+    pub outils_interdits: Vec<String>,
+    /// L'agent écrit des fichiers sans demander (`--permission-mode acceptEdits`).
+    pub ecriture: bool,
+    /// Des dossiers ouverts à l'agent en plus de son répertoire de travail (`--add-dir`).
+    pub dossiers_en_plus: Vec<PathBuf>,
+}
+
+impl AppelAClaude {
+    /// Les arguments de la CLI (le prompt compris).
+    pub fn arguments(&self) -> Vec<String> {
+        let mut a: Vec<String> = vec!["-p".into(), self.prompt.clone(), "--model".into(), MODELE.into()];
+        match &self.session {
+            Session::Nouvelle(id) => a.extend(["--session-id".into(), id.clone()]),
+            Session::Reprise(id) => a.extend(["--resume".into(), id.clone()]),
+        }
+        a.extend(["--output-format".into(), "json".into(), "--json-schema".into(), self.schema.clone()]);
+        if self.ecriture {
+            a.extend(["--permission-mode".into(), "acceptEdits".into()]);
+        }
+        if !self.dossiers_en_plus.is_empty() {
+            a.push("--add-dir".into());
+            a.extend(self.dossiers_en_plus.iter().map(|d| d.display().to_string()));
+        }
+        a.push("--allowedTools".into());
+        a.extend(self.outils_permis.iter().cloned());
+        a.push("--disallowedTools".into());
+        a.extend(self.outils_interdits.iter().cloned());
+        a
+    }
+}
+
+/// Lance la CLI `claude` et rend sa réponse structurée (`structured_output`), ou un message
+/// d'erreur lisible. `arret` l'interrompt.
+pub trait Claude {
+    fn demander(&self, appel: &AppelAClaude, arret: &AtomicBool) -> Result<Value, String>;
+}
+
+/// Un identifiant de session neuf (UUID v4), comme `claude --session-id` l'attend.
+pub fn nouvelle_session() -> String {
+    let mut octets = [0u8; 16];
+    let lu = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut octets));
+    if lu.is_err() {
+        // Sans /dev/urandom : l'heure et l'aléa de la table de hachage de la bibliothèque standard.
+        use std::hash::{BuildHasher, Hasher};
+        for (i, morceau) in octets.chunks_mut(8).enumerate() {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) + i as u128);
+            morceau.copy_from_slice(&h.finish().to_le_bytes());
+        }
+    }
+    octets[6] = (octets[6] & 0x0f) | 0x40;
+    octets[8] = (octets[8] & 0x3f) | 0x80;
+    let h: String = octets.iter().map(|o| format!("{o:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+}
+
+fn tronquer(s: &str, n: usize) -> String {
+    let s = s.trim();
+    match s.char_indices().nth(n) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+/// Lit ce que la CLI a rendu (`--output-format json`) : la réponse structurée, sinon un message
+/// qui dit pourquoi (erreur de Claude, fin de la sortie d'erreur…).
+pub fn lire_la_reponse(sortie: &str, erreurs: &str, reussi: bool) -> Result<Value, String> {
+    let fin_des_erreurs = || {
+        let lignes: Vec<&str> = erreurs.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        lignes[lignes.len().saturating_sub(2)..].join(" / ")
+    };
+    let json: Option<Value> = serde_json::from_str(sortie.trim()).ok().or_else(|| sortie.lines().rev().find_map(|l| serde_json::from_str(l.trim()).ok()));
+    let Some(json) = json.filter(Value::is_object) else {
+        let fin = fin_des_erreurs();
+        return Err(if fin.is_empty() { "Claude s'est arrêté sans rien dire.".into() } else { format!("Claude : {}", tronquer(&fin, 300)) });
+    };
+    let texte = |cle: &str| json.get(cle).and_then(|v| v.as_str().map(str::to_string).or_else(|| (!v.is_null()).then(|| v.to_string()))).filter(|s| !s.trim().is_empty());
+    if !reussi || json.get("is_error").and_then(Value::as_bool) == Some(true) {
+        let pourquoi = texte("result").or_else(|| texte("api_error_status")).unwrap_or_else(fin_des_erreurs);
+        return Err(if pourquoi.is_empty() { "Claude a échoué sans dire pourquoi.".into() } else { format!("Claude : {}", tronquer(&pourquoi, 300)) });
+    }
+    match json.get("structured_output") {
+        Some(v) if !v.is_null() => Ok(v.clone()),
+        _ => Err(format!("Claude n'a pas rendu de réponse structurée : {}", tronquer(&texte("result").unwrap_or_default(), 300))),
+    }
+}
+
+/// La vraie CLI `claude`, trouvée là où ses installateurs la mettent.
+pub struct ClaudeDuMac {
+    /// Au-delà, l'appel est abandonné.
+    pub delai: Duration,
+}
+
+impl Default for ClaudeDuMac {
+    fn default() -> ClaudeDuMac {
+        ClaudeDuMac { delai: Duration::from_secs(40 * 60) }
+    }
+}
+
+impl Claude for ClaudeDuMac {
+    fn demander(&self, appel: &AppelAClaude, arret: &AtomicBool) -> Result<Value, String> {
+        let Some(claude) = crate::mac::trouver_claude() else {
+            return Err("La CLI `claude` est introuvable : installer Claude Code (https://claude.com/claude-code), s'y connecter (`claude` dans un terminal), puis réessayer cette étape.".into());
+        };
+        // Lancée du Finder, l'app n'a pas le PATH du terminal : on y met au moins le dossier de la CLI.
+        let mut chemin: Vec<PathBuf> = claude.parent().map(|d| vec![d.to_path_buf()]).unwrap_or_default();
+        chemin.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
+        chemin.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
+        let chemin = std::env::join_paths(chemin).unwrap_or_default();
+        let mut enfant = Command::new(&claude)
+            .args(appel.arguments())
+            .current_dir(&appel.repertoire)
+            .env("PATH", chemin)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Impossible de lancer `{}` : {e}", claude.display()))?;
+        let lire = |flux: Option<Box<dyn Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut texte = String::new();
+                if let Some(mut f) = flux {
+                    let _ = f.read_to_string(&mut texte);
+                }
+                texte
+            })
+        };
+        let sortie = lire(enfant.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
+        let erreurs = lire(enfant.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
+        if let Some(mut entree) = enfant.stdin.take() {
+            let texte = appel.entree.clone();
+            std::thread::spawn(move || {
+                let _ = entree.write_all(texte.as_bytes());
+            });
+        }
+        let debut = Instant::now();
+        let statut = loop {
+            if arret.load(Ordering::Relaxed) {
+                let _ = enfant.kill();
+                let _ = enfant.wait();
+                return Err("arrêté".into());
+            }
+            if debut.elapsed() > self.delai {
+                let _ = enfant.kill();
+                let _ = enfant.wait();
+                return Err(format!("Claude n'a pas répondu en {} min.", self.delai.as_secs() / 60));
+            }
+            match enfant.try_wait() {
+                Ok(Some(s)) => break s,
+                Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+                Err(e) => return Err(format!("claude : {e}")),
+            }
+        };
+        lire_la_reponse(&sortie.join().unwrap_or_default(), &erreurs.join().unwrap_or_default(), statut.success())
+    }
+}
+
+/// L'agent branché dans l'app : la relecture (avec la réécoute donnée) et le bilan par la CLI
+/// `claude`.
+pub struct AgentClaude {
+    claude: Arc<dyn Claude + Send + Sync>,
+    reecoute: Arc<dyn relecture::Reecoute + Send + Sync>,
+}
 
 impl AgentClaude {
-    pub fn new() -> AgentClaude {
-        AgentClaude
+    pub fn new(claude: Arc<dyn Claude + Send + Sync>, reecoute: Arc<dyn relecture::Reecoute + Send + Sync>) -> AgentClaude {
+        AgentClaude { claude, reecoute }
     }
 }
 
 impl Agent for AgentClaude {
-    fn relire(&mut self, _: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture> {
-        crate::faux::FausseTache::boite(0.0, Err("La relecture par Claude n'est pas encore disponible dans cette version de Greffier.".into()))
+    fn relire(&mut self, demande: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture> {
+        let (claude, reecoute) = (self.claude.clone(), self.reecoute.clone());
+        sur_un_fil(&relecture::PALIERS, move |arret, progres| relecture::relire(claude.as_ref(), reecoute.as_ref(), &demande, arret, progres))
     }
 
     fn faire_le_bilan(&mut self, demande: DemandeDeBilan) -> TacheDe<ResultatDuBilan> {
-        bilan::faire(demande)
+        let claude = self.claude.clone();
+        sur_un_fil(&[], move |arret, _| bilan::faire(claude.as_ref(), &demande, arret))
     }
 }
 
-/// Un appel de `claude -p`.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Appel {
-    /// Le répertoire de travail de l'agent.
-    pub repertoire: PathBuf,
-    /// Tout ce qui suit `claude` (le prompt compris).
-    pub arguments: Vec<String>,
-    pub delai: Duration,
+// --- Un travail de l'agent sur un fil ------------------------------------------------------
+
+struct Etat<T> {
+    /// Le palier atteint, et quand.
+    palier: f64,
+    depuis: Instant,
+    resultat: Option<Result<T, String>>,
 }
 
-/// Lance l'appel jusqu'au bout (ou jusqu'à l'arrêt, ou au délai) et rend le `structured_output`
-/// de sa réponse.
-pub(crate) fn appeler(appel: &Appel, arret: &AtomicBool) -> Result<serde_json::Value, String> {
-    let claude = crate::mac::trouver_claude().ok_or("La CLI claude est introuvable : installer Claude Code (claude.com/claude-code), puis s'y connecter avec `claude`.")?;
-    let mut enfant = Command::new(&claude)
-        .args(&appel.arguments)
-        .current_dir(&appel.repertoire)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{} : {e}", claude.display()))?;
-    let lire = |flux: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut texte = String::new();
-            if let Some(mut f) = flux {
-                let _ = f.read_to_string(&mut texte);
+/// Un travail de l'agent sur un fil. Claude ne dit pas où il en est : le travail annonce des
+/// paliers (`progres`), et l'avancement glisse lentement vers le palier suivant en attendant.
+struct SurUnFil<T> {
+    etat: Arc<std::sync::Mutex<Etat<T>>>,
+    arret: Arc<AtomicBool>,
+    paliers: &'static [f64],
+}
+
+/// Constante de temps du glissement vers le palier suivant, en secondes.
+const GLISSEMENT: f64 = 120.0;
+
+fn sur_un_fil<T: Send + 'static>(paliers: &'static [f64], travail: impl FnOnce(&AtomicBool, &mut dyn FnMut(f64)) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
+    let etat = Arc::new(std::sync::Mutex::new(Etat { palier: 0.0, depuis: Instant::now(), resultat: None }));
+    let arret = Arc::new(AtomicBool::new(false));
+    let (e, a) = (etat.clone(), arret.clone());
+    let lance = std::thread::Builder::new().name("claude".into()).spawn(move || {
+        let mut progres = |p: f64| {
+            let mut e = e.lock().unwrap_or_else(|e| e.into_inner());
+            e.palier = p;
+            e.depuis = Instant::now();
+        };
+        let r = travail(&a, &mut progres);
+        e.lock().unwrap_or_else(|e| e.into_inner()).resultat = Some(r);
+    });
+    if let Err(err) = lance {
+        etat.lock().unwrap_or_else(|e| e.into_inner()).resultat = Some(Err(format!("Impossible de lancer l'agent : {err}")));
+    }
+    Box::new(SurUnFil { etat, arret, paliers })
+}
+
+impl<T> Tache<T> for SurUnFil<T> {
+    fn sonder(&mut self, _: f64) -> Avancement<T> {
+        let mut e = self.etat.lock().unwrap_or_else(|e| e.into_inner());
+        match e.resultat.take() {
+            Some(Ok(v)) => Avancement::Fini(v),
+            Some(Err(m)) => Avancement::Echec(m),
+            None => {
+                let suivant = self.paliers.iter().copied().find(|p| *p > e.palier).unwrap_or(1.0);
+                let t = e.depuis.elapsed().as_secs_f64();
+                Avancement::EnCours(e.palier + (suivant - e.palier) * 0.9 * (1.0 - (-t / GLISSEMENT).exp()))
             }
-            texte
-        })
-    };
-    let sortie = lire(enfant.stdout.take().map(|f| Box::new(f) as _));
-    let erreurs = lire(enfant.stderr.take().map(|f| Box::new(f) as _));
-    let debut = Instant::now();
-    let statut = loop {
-        if arret.load(Ordering::Relaxed) || debut.elapsed() > appel.delai {
-            let _ = enfant.kill();
-            let _ = enfant.wait();
-            return Err(if arret.load(Ordering::Relaxed) { "Claude : arrêté".into() } else { format!("Claude n'a pas fini en {} min.", appel.delai.as_secs() / 60) });
         }
-        match enfant.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-            Err(e) => return Err(format!("claude : {e}")),
-        }
-    };
-    lire_la_reponse(statut.success(), &sortie.join().unwrap_or_default(), &erreurs.join().unwrap_or_default())
+    }
+
+    fn arreter(&mut self) {
+        self.arret.store(true, Ordering::Relaxed);
+    }
 }
 
-/// La réponse de `claude -p --output-format json` : son `structured_output`, ou l'erreur la
-/// plus parlante (le `result` de Claude, l'erreur de l'API, les dernières lignes d'erreur).
-pub(crate) fn lire_la_reponse(succes: bool, sortie: &str, erreurs: &str) -> Result<serde_json::Value, String> {
-    let json: Option<serde_json::Value> = serde_json::from_str(sortie.trim()).ok();
-    let en_erreur = json.as_ref().is_none_or(|j| j.get("is_error").and_then(serde_json::Value::as_bool).unwrap_or(false));
-    if !succes || en_erreur {
-        let texte = |cle: &str| json.as_ref().and_then(|j| j.get(cle)).and_then(serde_json::Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-        let fin: Vec<&str> = erreurs.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-        let fin = fin[fin.len().saturating_sub(3)..].join(" / ");
-        let pourquoi = texte("result").or_else(|| texte("api_error_status")).or((!fin.is_empty()).then_some(fin)).unwrap_or_else(|| "pas de réponse".into());
-        return Err(format!("Claude : {}", pourquoi.chars().take(300).collect::<String>()));
-    }
-    json.and_then(|mut j| j.get_mut("structured_output").map(serde_json::Value::take)).filter(|v| !v.is_null()).ok_or_else(|| "Claude n'a pas renvoyé de réponse structurée.".into())
-}
-
-/// Un identifiant de session neuf (UUID v4), pour `--session-id` : la conversation pourra être
-/// reprise avec `claude --resume <id>` depuis le dossier de réunions.
-pub(crate) fn nouvelle_session() -> String {
-    use std::io::Read;
-    let mut o = [0u8; 16];
-    let lu = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut o));
-    if lu.is_err() {
-        // Sans /dev/urandom : l'heure et le processus suffisent à ne pas se répéter.
-        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) ^ ((std::process::id() as u128) << 64);
-        o = n.to_le_bytes();
-    }
-    o[6] = (o[6] & 0x0f) | 0x40;
-    o[8] = (o[8] & 0x3f) | 0x80;
-    let h: String = o.iter().map(|b| format!("{b:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rend_la_reponse_structuree() {
-        let sortie = r#"{"type":"result","is_error":false,"result":"{}","session_id":"s","structured_output":{"titre":"Budget"}}"#;
-        assert_eq!(lire_la_reponse(true, sortie, ""), Ok(serde_json::json!({"titre": "Budget"})));
-    }
-
-    #[test]
-    fn une_erreur_dit_pourquoi() {
-        let sortie = r#"{"type":"result","is_error":true,"result":"Credit balance is too low","structured_output":null}"#;
-        assert_eq!(lire_la_reponse(false, sortie, ""), Err("Claude : Credit balance is too low".into()));
-        assert_eq!(lire_la_reponse(false, "", "trace\nError: not logged in\n"), Err("Claude : trace / Error: not logged in".into()));
-        assert_eq!(lire_la_reponse(true, r#"{"is_error":false,"result":"ok"}"#, ""), Err("Claude n'a pas renvoyé de réponse structurée.".into()));
-    }
-
-    #[test]
-    fn une_session_est_un_uuid_v4() {
-        let s = nouvelle_session();
-        assert_eq!(s.len(), 36);
-        assert_eq!(&s[14..15], "4");
-        assert!(s.chars().all(|c| c == '-' || c.is_ascii_hexdigit()));
-        assert_ne!(s, nouvelle_session());
+impl<T> Drop for SurUnFil<T> {
+    fn drop(&mut self) {
+        self.arret.store(true, Ordering::Relaxed);
     }
 }
