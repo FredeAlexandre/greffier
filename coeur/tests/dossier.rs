@@ -174,10 +174,10 @@ Alexandre salue l'équipe.
 
 ## Fichiers
 
-- [Bilan](<2026-11-21 14h02 - Réunion - bilan.md>)
-- [Transcription](<2026-11-21 14h02 - Réunion - transcription.md>)
-- [Transcription structurée](<2026-11-21 14h02 - Réunion - transcription.json>)
-- [Enregistrement](<2026-11-21 14h02 - Réunion - enregistrement.mp4>)
+- [Bilan](<2026-11-21 14h02 - Point d'équipe - démo - bilan.md>)
+- [Transcription](<2026-11-21 14h02 - Point d'équipe - démo - transcription.md>)
+- [Transcription structurée](<2026-11-21 14h02 - Point d'équipe - démo - transcription.json>)
+- [Enregistrement](<2026-11-21 14h02 - Point d'équipe - démo - enregistrement.mp4>)
 "#
     );
 }

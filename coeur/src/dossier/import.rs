@@ -153,6 +153,8 @@ fn depuis_les_lignes(lignes: Vec<Ligne>) -> (TranscriptionStructuree, Vec<(Strin
     let t = TranscriptionStructuree {
         version: transcription::VERSION,
         locuteurs,
+        noms: Default::default(),
+        fusions: Default::default(),
         mots: vec![],
         tours: vec![],
         repliques,

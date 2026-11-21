@@ -177,8 +177,9 @@ fn un_enregistrement_interrompu_se_lit_et_se_traite_jusqu_au_bilan() {
     assert_eq!(banc.reunion(id).repliques.len(), 2);
 
     // Et elle n'est plus interrompue au lancement suivant.
+    // Le titre du bilan a renommé le dossier.
     banc.rouvrir();
-    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Réunion").statut, Statut::Terminee);
+    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Point d'équipe - démo").statut, Statut::Terminee);
 }
 
 fn banc_avec_capture(capture: FausseCapture) -> Banc {
@@ -209,8 +210,9 @@ fn une_capture_arretee_par_macos_garde_la_reunion_interrompue_avec_ce_qui_a_ete_
     banc.executer(Commande::Traiter(id));
     banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);
 
+    // Le titre du bilan a renommé le dossier.
     banc.rouvrir();
-    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Réunion").statut, Statut::Terminee);
+    assert_eq!(banc.reunion_nommee("2026-11-21 14h02 - Point d'équipe - démo").statut, Statut::Terminee);
 }
 
 #[test]

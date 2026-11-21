@@ -20,10 +20,13 @@ pub mod faux;
 pub mod fictif;
 pub mod lexique;
 pub mod mac;
+pub mod recherche;
 pub mod ressources;
 mod reunion;
+mod suppression;
 mod surveillance;
 mod temps;
+mod titre;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -44,11 +47,16 @@ pub struct Reglages {
     /// transcripteur ; il est relu au début de chaque transcription. Absent ou illisible : pas de
     /// vocabulaire.
     pub lexique: Option<PathBuf>,
+    /// Les dossiers ouverts à l'agent du bilan en plus du dossier de réunions (notes, projets…).
+    pub dossiers_de_contexte: Vec<PathBuf>,
+    /// Le dossier du cache de recherche (`recherche/` du dossier de l'app) : l'index y est
+    /// gardé d'un lancement à l'autre, et refait s'il manque. Sans lui, l'index reste en mémoire.
+    pub cache_de_recherche: Option<PathBuf>,
 }
 
 impl Default for Reglages {
     fn default() -> Reglages {
-        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None }
+        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None, dossiers_de_contexte: Vec::new(), cache_de_recherche: None }
     }
 }
 
@@ -78,15 +86,30 @@ pub enum Commande {
     Refaire { reunion: IdReunion, etape: Etape },
     /// Arrête le traitement (ou sort la réunion de la file) : elle redevient à traiter.
     ArreterTraitement(IdReunion),
+    /// Met le dossier de la réunion à la corbeille du Mac et l'oublie (refusé si la corbeille
+    /// refuse).
     Supprimer(IdReunion),
+    /// Confirme ou corrige le nom d'un locuteur (celui qui le remplace s'il est fusionné).
     NommerLocuteur { reunion: IdReunion, locuteur: usize, nom: String },
-    /// `locuteur` est la même voix que `dans`, qui le remplace partout.
+    /// `locuteur` est la même voix que `dans`, qui le remplace partout (fusions suivies des deux
+    /// côtés) et prend son nom s'il n'en a pas.
     FusionnerLocuteurs { reunion: IdReunion, locuteur: usize, dans: usize },
+    /// Défait la fusion de `locuteur` : il retrouve ses répliques, sans nom.
+    SeparerLocuteur { reunion: IdReunion, locuteur: usize },
+    /// Tranche un passage à vérifier : le texte de sa réplique prend l'hypothèse ou la correction
+    /// (rouvrir remet l'extrait), et les deux transcriptions sont réécrites, sans le marquage.
     Trancher { reunion: IdReunion, passage: usize, tranche: Tranche },
+    /// Corrige à la main un ou plusieurs mots d'une réplique, dont `texte` est le nouveau texte. Le
+    /// changement, élargi aux mots entiers, est gardé comme correction à la main (et repris si la
+    /// relecture est refaite). Un passage à vérifier se tranche par [`Commande::Trancher`].
+    CorrigerReplique { reunion: IdReunion, replique: usize, texte: String },
     /// Coche ou décoche la `action`-ième case du bilan.
     CocherAction { reunion: IdReunion, action: usize, faite: bool },
     /// La réunion a été ouverte : elle n'est plus nouvelle.
     MarquerLue(IdReunion),
+    /// Change le titre : le dossier et ses fichiers sont renommés, liens compris. Refusé pendant
+    /// une étape (l'adaptateur écrit dans le dossier).
+    ChangerTitre { reunion: IdReunion, titre: String },
     ChangerReglages(Reglages),
     /// Télécharge, installe et vérifie les ressources qui manquent.
     InstallerRessources,
@@ -258,6 +281,8 @@ pub struct Greffier {
     /// L'empreinte de chaque dossier de réunion au dernier passage du cœur (voir
     /// [`Greffier::relire_le_dossier`]).
     empreintes: HashMap<String, dossier::surveillance::Empreintes>,
+    /// L'index de la recherche ⌘K (voir [`Greffier::rechercher`]).
+    index: recherche::Index,
 }
 
 impl Greffier {
@@ -284,7 +309,7 @@ impl Greffier {
         let ressources = adaptateurs.ressources.etat();
         let dossier = DossierDeReunions::new(dossier);
         let empreintes = dossier.toutes_les_empreintes();
-        Greffier {
+        let mut greffier = Greffier {
             dossier,
             adaptateurs,
             reglages: Reglages::default(),
@@ -297,7 +322,10 @@ impl Greffier {
             verification: None,
             ressources,
             empreintes,
-        }
+            index: recherche::Index::default(),
+        };
+        greffier.indexer();
+        greffier
     }
 
     // --- Lecture de l'état ---------------------------------------------------------------
@@ -394,7 +422,9 @@ impl Greffier {
             | Commande::Refaire { reunion, .. }
             | Commande::NommerLocuteur { reunion, .. }
             | Commande::FusionnerLocuteurs { reunion, .. }
+            | Commande::SeparerLocuteur { reunion, .. }
             | Commande::Trancher { reunion, .. }
+            | Commande::CorrigerReplique { reunion, .. }
             | Commande::CocherAction { reunion, .. } => Some(*reunion),
             Commande::Traiter(id) | Commande::ArreterTraitement(id) | Commande::MarquerLue(id) => Some(*id),
             _ => None,
@@ -430,11 +460,8 @@ impl Greffier {
             }
             Commande::Refaire { reunion, etape } => {
                 let r = self.reunion_mut(reunion)?;
-                if r.statut.dans_la_file() || r.statut == Statut::EnregistrementEnCours {
-                    return impossible("la réunion est déjà dans la file");
-                }
-                if etape.precedente().is_some_and(|p| r.etape_faite < Some(p)) {
-                    return impossible("les étapes précédentes ne sont pas faites");
+                if !r.peut_refaire(etape) {
+                    return impossible(if r.statut.dans_la_file() { "la réunion est déjà dans la file" } else { "les étapes précédentes ne sont pas faites" });
                 }
                 r.etape_faite = etape.precedente();
                 self.mettre_en_file(reunion, etape);
@@ -447,36 +474,52 @@ impl Greffier {
                 r.statut = Statut::ATraiter;
                 self.sortir_de_la_file(id);
             }
-            Commande::Supprimer(id) => {
-                self.reunion_mut(id)?;
-                self.sortir_de_la_file(id);
-                self.reunions.retain(|r| r.id != id);
-            }
+            Commande::Supprimer(id) => self.supprimer(id)?,
             Commande::NommerLocuteur { reunion, locuteur, nom } => {
-                let l = locuteur_mut(self.reunion_mut(reunion)?, locuteur)?;
-                l.nom = Some(nom);
+                let nom = nom.trim();
+                if nom.is_empty() {
+                    return impossible("le nom est vide");
+                }
+                let r = self.reunion_mut(reunion)?;
+                locuteur_mut(r, locuteur)?;
+                // Un locuteur fusionné porte le nom de celui qui le remplace.
+                let i = r.locuteur_affiche(locuteur);
+                let l = &mut r.locuteurs[i];
+                l.nom = Some(nom.to_string());
                 l.fusion_proposee = None;
             }
             Commande::FusionnerLocuteurs { reunion, locuteur, dans } => {
                 let r = self.reunion_mut(reunion)?;
+                locuteur_mut(r, locuteur)?;
                 locuteur_mut(r, dans)?;
-                if r.locuteur_affiche(dans) == locuteur_mut(r, locuteur).map(|_| locuteur)? {
-                    return impossible("un locuteur ne peut pas être fusionné dans lui-même");
+                let (i, j) = (r.locuteur_affiche(locuteur), r.locuteur_affiche(dans));
+                if !r.fusionner(i, j) {
+                    return impossible("ces deux locuteurs sont déjà la même voix");
                 }
-                let l = &mut r.locuteurs[locuteur];
-                l.fusionne_dans = Some(dans);
-                l.fusion_proposee = None;
+                // Le nom suit la voix : celui qui reste prend le nom de l'autre s'il n'en a pas.
+                // Un locuteur fusionné n'a pas de nom à lui.
+                let nom = r.locuteurs[i].nom.take();
+                if r.locuteurs[j].nom.is_none() {
+                    r.locuteurs[j].nom = nom;
+                }
+                r.locuteurs[locuteur].fusion_proposee = None;
+                r.locuteurs[i].fusion_proposee = None;
+            }
+            Commande::SeparerLocuteur { reunion, locuteur } => {
+                let l = locuteur_mut(self.reunion_mut(reunion)?, locuteur)?;
+                if l.fusionne_dans.take().is_none() {
+                    return impossible("ce locuteur n'est pas fusionné");
+                }
             }
             Commande::Trancher { reunion, passage, tranche } => {
                 let r = self.reunion_mut(reunion)?;
-                let Some(p) = r.passages.get_mut(passage) else { return impossible("passage inconnu") };
-                p.statut = match tranche {
-                    Tranche::AccepterHypothese if p.hypothese.is_none() => return impossible("ce passage n'a pas d'hypothèse"),
-                    Tranche::AccepterHypothese => StatutDuPassage::HypotheseAcceptee,
-                    Tranche::GarderOriginal => StatutDuPassage::OriginalGarde,
-                    Tranche::Corriger(texte) => StatutDuPassage::CorrigeALaMain(texte),
-                    Tranche::Rouvrir => StatutDuPassage::EnAttente,
-                };
+                transcription_modifiable(r)?;
+                trancher(r, passage, tranche)?;
+            }
+            Commande::CorrigerReplique { reunion, replique, texte } => {
+                let r = self.reunion_mut(reunion)?;
+                transcription_modifiable(r)?;
+                corriger_la_replique(r, replique, texte)?;
             }
             Commande::CocherAction { reunion, action, faite } => {
                 let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
@@ -494,7 +537,25 @@ impl Greffier {
                 self.noter(&nom, &[Role::Bilan]);
             }
             Commande::MarquerLue(id) => self.reunion_mut(id)?.nouvelle = false,
-            Commande::ChangerReglages(r) => self.reglages = r,
+            Commande::ChangerTitre { reunion, titre } => {
+                let titre = titre.trim();
+                if titre.is_empty() {
+                    return impossible("le titre est vide");
+                }
+                let r = self.reunion_mut(reunion)?;
+                if matches!(r.statut, Statut::EnCours { .. }) {
+                    return impossible("le titre pourra changer à la fin de l'étape en cours");
+                }
+                r.titre = titre.to_string();
+                self.renommer_d_apres_le_titre(reunion, &mut ev);
+            }
+            Commande::ChangerReglages(r) => {
+                let cache = (r.cache_de_recherche != self.reglages.cache_de_recherche).then(|| r.cache_de_recherche.clone());
+                self.reglages = r;
+                if let Some(cache) = cache {
+                    self.utiliser_le_cache_de_recherche(cache);
+                }
+            }
             Commande::DemanderAutorisation(a) => self.adaptateurs.capture.demander_autorisation(a),
             Commande::InstallerRessources => {
                 if self.installation.is_none() {
@@ -528,6 +589,7 @@ impl Greffier {
         if let Some(id) = touchee {
             self.persister(id, &mut ev);
         }
+        self.indexer();
         Ok(ev)
     }
 
@@ -691,6 +753,10 @@ impl Greffier {
             self.demarrer_etape(id, etape, &mut ev);
         }
         self.avancer_traitement(ecoule, &mut ev);
+        // Une étape finie, un enregistrement arrêté : des réunions ont changé.
+        if !ev.is_empty() {
+            self.indexer();
+        }
         ev
     }
 
@@ -745,7 +811,10 @@ impl Greffier {
                 let fichier = self.dossier.fichier(&r.nom_du_dossier, Role::Bilan);
                 let demande = DemandeDeBilan {
                     dossier_de_reunions: self.dossier.racine().to_path_buf(),
+                    dossiers_de_contexte: self.reglages.dossiers_de_contexte.clone(),
                     fichier_du_bilan: fichier.clone(),
+                    fiche: self.dossier.fichier(&r.nom_du_dossier, Role::Fiche),
+                    transcription: self.dossier.fichier(&r.nom_du_dossier, Role::TranscriptionLisible),
                     titre: r.titre.clone(),
                     debut: r.debut,
                     duree: r.duree,
@@ -759,6 +828,7 @@ impl Greffier {
                             proposition: l.proposition.clone(),
                             justification: l.justification.clone(),
                             meme_voix_proposee: l.fusion_proposee.map(|j| r.locuteurs[j].etiquette.clone()),
+                            fusionne_dans: l.fusionne_dans.map(|j| r.locuteurs[r.locuteur_affiche(j)].etiquette.clone()),
                         })
                         .collect(),
                     reperes: r.reperes.clone(),
@@ -868,9 +938,10 @@ impl Greffier {
                 for p in resultat.participants {
                     let index = |etiquette: &str| r.locuteurs.iter().position(|l| l.etiquette == etiquette);
                     let Some(i) = index(&p.locuteur) else { continue };
-                    let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| *j != i);
+                    let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| r.locuteur_affiche(*j) != r.locuteur_affiche(i));
                     let l = &mut r.locuteurs[i];
-                    l.proposition = Some(p.nom_propose);
+                    // Un nom vide : l'agent n'a pas su qui c'est, sa justification dit pourquoi.
+                    l.proposition = Some(p.nom_propose).filter(|n| !n.trim().is_empty());
                     l.justification = p.justification;
                     l.fusion_proposee = meme;
                 }
@@ -883,7 +954,7 @@ impl Greffier {
                 r.statut = Statut::Terminee;
                 r.nouvelle = true;
                 ev.push(Evenement::BilanPret { reunion: id, titre: r.titre.clone() });
-                self.persister(id, ev);
+                self.renommer_d_apres_le_titre(id, ev);
             }
             Some(suivante) if en_enregistrement => {
                 r.statut = Statut::EnAttente(suivante);
@@ -936,6 +1007,93 @@ fn reunion_enregistree(id: IdReunion, e: &Enregistrement, duree: f64) -> Reunion
 
 fn locuteur_mut(r: &mut Reunion, i: usize) -> Result<&mut Locuteur, Refus> {
     r.locuteurs.get_mut(i).ok_or(Refus::Impossible("locuteur inconnu".into()))
+}
+
+/// La transcription ne se corrige pas pendant qu'une étape va la refaire : la transcription
+/// repart de zéro, la relecture rouvre tous les passages à vérifier.
+fn transcription_modifiable(r: &Reunion) -> Result<(), Refus> {
+    match r.statut {
+        Statut::EnCours { etape, .. } | Statut::EnAttente(etape) if etape <= Etape::Relecture => {
+            impossible("la transcription est en cours de traitement : attends la fin de la relecture")
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Garde le changement du texte d'une réplique comme correction à la main.
+fn corriger_la_replique(r: &mut Reunion, replique: usize, texte: String) -> Result<(), Refus> {
+    let texte = texte.trim();
+    if texte.is_empty() {
+        return impossible("une réplique ne peut pas être vide");
+    }
+    let Some(x) = r.repliques.get(replique) else { return impossible("réplique inconnue") };
+    let Some((debut, fin, apres)) = difference_en_mots(&x.texte, texte) else { return Ok(()) };
+    // Le passage à vérifier de la réplique se tranche dans son onglet.
+    if let Some(p) = x.passage.and_then(|i| r.passages.get(i)) {
+        let montre = p.texte(&p.statut);
+        if let Some(a) = x.texte.find(montre)
+            && debut < a + montre.len()
+            && a < fin
+        {
+            return impossible("ce passage est à vérifier : il se tranche dans l'onglet À vérifier");
+        }
+    }
+    let avant = x.texte[debut..fin].to_string();
+    r.repliques[replique].texte = texte.to_string();
+    r.corrections_a_la_main.push(CorrectionALaMain { replique, avant, apres });
+    Ok(())
+}
+
+/// Ce qui change de `avant` à `apres`, élargi aux mots entiers : la plage d'octets de `avant` et
+/// le texte qui la remplace. `None` s'ils sont identiques.
+fn difference_en_mots(avant: &str, apres: &str) -> Option<(usize, usize, String)> {
+    if avant == apres {
+        return None;
+    }
+    // Le début commun, puis la fin commune sans chevaucher le début.
+    let mut debut = avant.char_indices().zip(apres.chars()).find(|((_, a), b)| a != b).map_or(avant.len().min(apres.len()), |((i, _), _)| i);
+    while !avant.is_char_boundary(debut) || !apres.is_char_boundary(debut) {
+        debut -= 1;
+    }
+    let mut commun = 0;
+    for (a, b) in avant[debut..].chars().rev().zip(apres[debut..].chars().rev()) {
+        if a != b {
+            break;
+        }
+        commun += a.len_utf8();
+    }
+    let (mut fin_avant, mut fin_apres) = (avant.len() - commun, apres.len() - commun);
+    // Aux mots entiers : le début recule et la fin avance (dans la partie commune) jusqu'à un blanc.
+    while let Some(c) = avant[..debut].chars().next_back().filter(|c| !c.is_whitespace()) {
+        debut -= c.len_utf8();
+    }
+    while let Some(c) = avant[fin_avant..].chars().next().filter(|c| !c.is_whitespace()) {
+        fin_avant += c.len_utf8();
+        fin_apres += c.len_utf8();
+    }
+    Some((debut, fin_avant, apres[debut..fin_apres].to_string()))
+}
+
+/// Tranche un passage à vérifier : le texte de la réplique passe de ce que le passage y montre
+/// (l'extrait, l'hypothèse ou la correction) à ce que la tranche y met.
+fn trancher(r: &mut Reunion, passage: usize, tranche: Tranche) -> Result<(), Refus> {
+    let Some(p) = r.passages.get(passage) else { return impossible("passage inconnu") };
+    let statut = match tranche {
+        Tranche::AccepterHypothese if p.hypothese.is_none() => return impossible("ce passage n'a pas d'hypothèse"),
+        Tranche::AccepterHypothese => StatutDuPassage::HypotheseAcceptee,
+        Tranche::GarderOriginal => StatutDuPassage::OriginalGarde,
+        Tranche::Corriger(texte) if texte.trim().is_empty() => return impossible("la correction est vide"),
+        Tranche::Corriger(texte) => StatutDuPassage::CorrigeALaMain(texte.trim().to_string()),
+        Tranche::Rouvrir => StatutDuPassage::EnAttente,
+    };
+    let (actuel, nouveau) = (p.texte(&p.statut).to_string(), p.texte(&statut).to_string());
+    let replique = p.replique;
+    let Some(x) = r.repliques.get_mut(replique) else { return impossible("réplique inconnue") };
+    if actuel != nouveau && !remplacer(&mut x.texte, &actuel, &nouveau) {
+        return impossible(format!("« {actuel} » n'est plus dans la réplique : elle a été corrigée à la main"));
+    }
+    r.passages[passage].statut = statut;
+    Ok(())
 }
 
 /// Remplace la première occurrence de `avant` par `apres` ; rend `false` si `avant` est vide ou

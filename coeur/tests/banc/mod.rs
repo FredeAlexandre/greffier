@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use greffier_coeur::adaptateurs::{Adaptateurs, Participant, ResultatDeRelecture, ResultatDuBilan};
-use greffier_coeur::faux::{FausseCapture, FausseHorloge, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
+use greffier_coeur::faux::{FausseCapture, FausseCorbeille, FausseHorloge, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
 use greffier_coeur::{Commande, DateHeure, Etape, Evenement, Greffier, IdReunion, Mot, Reunion, Statut, TourDeParole};
 
 /// Durée simulée de chaque étape des faux adaptateurs, en secondes.
@@ -64,6 +64,7 @@ pub fn adaptateurs() -> Adaptateurs {
         agent: Box::new(agent(BILAN)),
         ressources: Box::new(FaussesRessources::pretes()),
         horloge: Box::new(FausseHorloge(DateHeure::new(2026, 11, 21, 14, 2))),
+        corbeille: Box::new(FausseCorbeille::new()),
     }
 }
 
@@ -163,6 +164,14 @@ impl Banc {
         self.greffier.reunion(id).expect("réunion connue")
     }
 
+    /// Le cache de recherche à côté du dossier de réunions (supprimé avec lui), donné au cœur
+    /// comme l'app le fait au lancement avec celui de son dossier.
+    pub fn utiliser_un_cache_de_recherche(&mut self) -> PathBuf {
+        let cache = self.dossier.with_extension("recherche");
+        self.executer(Commande::ChangerReglages(greffier_coeur::Reglages { cache_de_recherche: Some(cache.clone()), ..self.greffier.reglages().clone() }));
+        cache
+    }
+
     pub fn lire(&self, chemin: &Path) -> String {
         std::fs::read_to_string(chemin).unwrap_or_else(|e| panic!("{} : {e}", chemin.display()))
     }
@@ -192,5 +201,6 @@ fn copier(de: &Path, vers: &Path) {
 impl Drop for Banc {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dossier);
+        let _ = std::fs::remove_dir_all(self.dossier.with_extension("recherche"));
     }
 }

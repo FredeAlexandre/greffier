@@ -11,8 +11,9 @@
 //! erreur: "La CLI claude …"     #   avant-derniers, `erreur` pour un échec
 //! etape_faite: transcription    # la dernière étape menée à bien
 //! nombre_de_locuteurs: 3        # absent : détecté
-//! locuteurs:                    # SPEAKER_xx → nom donné par l'utilisateur
+//! locuteurs:                    # SPEAKER_xx → nom donné par l'utilisateur (fusions comprises)
 //!   SPEAKER_00: "Alexandre"
+//!   SPEAKER_02: "Alexandre"
 //! fusions:                      # SPEAKER_xx fusionné dans SPEAKER_yy
 //!   SPEAKER_02: SPEAKER_00
 //! propositions:                 # ce que l'agent du bilan propose
@@ -54,6 +55,7 @@ use crate::temps::{DateHeure, horodatage_de_lecture};
 pub struct Proposition {
     /// « SPEAKER_01 »
     pub locuteur: String,
+    /// Vide : l'agent n'a pas su qui c'est (la justification dit pourquoi).
     pub nom: String,
     pub justification: String,
     /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).
@@ -70,7 +72,8 @@ pub struct Fiche {
     pub statut: Statut,
     pub etape_faite: Option<Etape>,
     pub nombre_de_locuteurs: Option<u8>,
-    /// Les noms donnés : (« SPEAKER_00 », « Alexandre »).
+    /// Les noms donnés : (« SPEAKER_00 », « Alexandre »), fusions comprises (un locuteur fusionné
+    /// porte le nom de celui qui le remplace).
     pub noms: Vec<(String, String)>,
     /// Les fusions : (« SPEAKER_02 », « SPEAKER_00 ») — le premier est la même voix que le second.
     pub fusions: Vec<(String, String)>,
@@ -92,18 +95,17 @@ impl Fiche {
             statut: r.statut.clone(),
             etape_faite: r.etape_faite,
             nombre_de_locuteurs: r.nombre_de_locuteurs,
-            noms: r.locuteurs.iter().filter_map(|l| Some((l.etiquette.clone(), l.nom.clone()?))).collect(),
+            noms: (0..r.locuteurs.len()).filter_map(|i| Some((etiquette(i), r.nom_du_locuteur(i)?.to_string()))).collect(),
             fusions: r.locuteurs.iter().filter_map(|l| Some((l.etiquette.clone(), etiquette(l.fusionne_dans?)))).collect(),
             propositions: r
                 .locuteurs
                 .iter()
-                .filter_map(|l| {
-                    Some(Proposition {
-                        locuteur: l.etiquette.clone(),
-                        nom: l.proposition.clone()?,
-                        justification: l.justification.clone(),
-                        meme_voix_que: l.fusion_proposee.map(etiquette),
-                    })
+                .filter(|l| l.proposition.is_some() || !l.justification.is_empty())
+                .map(|l| Proposition {
+                    locuteur: l.etiquette.clone(),
+                    nom: l.proposition.clone().unwrap_or_default(),
+                    justification: l.justification.clone(),
+                    meme_voix_que: l.fusion_proposee.map(etiquette),
                 })
                 .collect(),
             reperes: r.reperes.clone(),
@@ -125,23 +127,28 @@ impl Fiche {
         r.statut = self.statut.clone();
         r.nombre_de_locuteurs = self.nombre_de_locuteurs;
         let index = |r: &Reunion, e: &str| r.locuteurs.iter().position(|l| l.etiquette == e);
+        // La fiche fait foi pour les noms et les fusions (la transcription structurée en garde une
+        // copie).
+        for l in &mut r.locuteurs {
+            l.nom = None;
+            l.fusionne_dans = None;
+        }
         for (e, nom) in &self.noms {
             if let Some(i) = index(r, e) {
                 r.locuteurs[i].nom = Some(nom.clone());
             }
         }
         for (e, dans) in &self.fusions {
-            if let (Some(i), Some(j)) = (index(r, e), index(r, dans))
-                && i != j
-            {
-                r.locuteurs[i].fusionne_dans = Some(j);
+            if let (Some(i), Some(j)) = (index(r, e), index(r, dans)) {
+                r.relire_fusion(i, j);
             }
         }
+        r.oublier_les_noms_des_fusionnes();
         for p in &self.propositions {
             if let Some(i) = index(r, &p.locuteur) {
                 let meme = p.meme_voix_que.as_deref().and_then(|e| index(r, e)).filter(|j| *j != i);
                 let l = &mut r.locuteurs[i];
-                l.proposition = Some(p.nom.clone());
+                l.proposition = Some(p.nom.clone()).filter(|n| !n.is_empty());
                 l.justification = p.justification.clone();
                 l.fusion_proposee = meme;
             }

@@ -300,14 +300,22 @@ pub struct LocuteurPourLAgent {
     pub justification: String,
     /// La fusion déjà proposée (« SPEAKER_00 »), s'il y en a une.
     pub meme_voix_proposee: Option<String>,
+    /// Fusionné par l'utilisateur dans ce locuteur (« SPEAKER_00 ») : ses répliques sont sous
+    /// celui-ci dans la transcription lisible.
+    pub fusionne_dans: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DemandeDeBilan {
     /// Le répertoire de travail de l'agent.
     pub dossier_de_reunions: PathBuf,
+    /// Les dossiers de contexte des réglages, ouverts à l'agent en plus du dossier de réunions.
+    pub dossiers_de_contexte: Vec<PathBuf>,
     /// Le fichier que l'agent doit écrire.
     pub fichier_du_bilan: PathBuf,
+    /// La fiche et la transcription lisible de la réunion, que l'agent lit.
+    pub fiche: PathBuf,
+    pub transcription: PathBuf,
     pub titre: String,
     pub debut: DateHeure,
     pub duree: f64,
@@ -323,6 +331,7 @@ pub struct DemandeDeBilan {
 pub struct Participant {
     /// « SPEAKER_00 »
     pub locuteur: String,
+    /// Vide quand l'agent ne sait pas qui c'est (la justification dit pourquoi).
     pub nom_propose: String,
     pub justification: String,
     /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).
@@ -407,6 +416,15 @@ pub trait Horloge {
     }
 }
 
+// --- Corbeille ------------------------------------------------------------------------------
+
+/// La corbeille du Mac : une réunion supprimée y envoie son dossier entier, pour qu'on puisse
+/// s'en rattraper.
+pub trait Corbeille {
+    /// Met ce dossier (ou fichier) à la corbeille. L'erreur est un message pour l'utilisateur.
+    fn jeter(&self, chemin: &std::path::Path) -> Result<(), String>;
+}
+
 /// Tous les adaptateurs branchés sur le cœur.
 pub struct Adaptateurs {
     pub capture: Box<dyn Capture>,
@@ -415,4 +433,5 @@ pub struct Adaptateurs {
     pub agent: Box<dyn Agent>,
     pub ressources: Box<dyn Ressources>,
     pub horloge: Box<dyn Horloge>,
+    pub corbeille: Box<dyn Corbeille>,
 }

@@ -53,7 +53,7 @@ fn le_bilan_ecrit_son_fichier_et_propose_un_nom_par_locuteur() {
     let id = reunion_terminee(&mut banc);
     let r = banc.reunion(id);
 
-    let fichier = banc.dossier.join("2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - bilan.md");
+    let fichier = banc.dossier.join("2026-11-21 14h02 - Point d'équipe - démo/2026-11-21 14h02 - Point d'équipe - démo - bilan.md");
     assert_eq!(banc.lire(&fichier), banc::BILAN);
     assert_eq!(r.resume, "Alexandre salue l'équipe.");
     assert_eq!(r.actions_principales, ["Alexandre — préparer la démo — lundi", "Khalid — relire la PR"]);
@@ -124,7 +124,7 @@ fn cocher_une_action_change_la_case_dans_le_fichier_du_bilan() {
     let id = reunion_terminee(&mut banc);
     banc.executer(Commande::CocherAction { reunion: id, action: 1, faite: true });
 
-    let fichier = banc.dossier.join("2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - bilan.md");
+    let fichier = banc.dossier.join("2026-11-21 14h02 - Point d'équipe - démo/2026-11-21 14h02 - Point d'équipe - démo - bilan.md");
     let md = banc.lire(&fichier);
     assert!(md.contains("- [ ] **Alexandre** — préparer la démo — lundi\n- [x] **Khalid** — relire la PR\n"), "{md}");
     assert_eq!(banc.reunion(id).bilan, md);

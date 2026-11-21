@@ -37,6 +37,11 @@ fn horodatages(line: &str) -> Vec<(usize, usize, f64)> {
     out
 }
 
+/// Le premier « (h:mm:ss) » d'une ligne, en secondes.
+pub(crate) fn premier_horodatage(line: &str) -> Option<f64> {
+    horodatages(line).first().map(|h| h.2)
+}
+
 fn nettoyer(s: &str) -> String {
     s.replace("**", "").trim().to_string()
 }
