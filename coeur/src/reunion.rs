@@ -83,6 +83,9 @@ pub struct Mot {
     pub fin: f64,
     pub texte: String,
     pub confiance: f32,
+    /// L'index de son locuteur dans [`Reunion::locuteurs`], une fois attribué (le transcripteur
+    /// rend des mots sans locuteur).
+    pub locuteur: Option<usize>,
 }
 
 /// Un tour de parole rendu par le séparateur : un seul locuteur à la fois.

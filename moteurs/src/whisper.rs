@@ -49,7 +49,7 @@ extern "C" fn sur_mot(user: *mut c_void, texte: *const c_char, t0: i64, t1: i64,
     // `texte` est une chaîne C de whisper.cpp.
     let c = unsafe { &mut *(user as *mut Contexte) };
     let texte = unsafe { CStr::from_ptr(texte) }.to_string_lossy();
-    c.mots.push(Mot { debut: t0 as f64 / 1000.0, fin: t1 as f64 / 1000.0, texte: texte.trim().to_string(), confiance: (p * 1000.0).round() / 1000.0 });
+    c.mots.push(Mot { debut: t0 as f64 / 1000.0, fin: t1 as f64 / 1000.0, texte: texte.trim().to_string(), confiance: (p * 1000.0).round() / 1000.0, locuteur: None });
 }
 
 extern "C" fn sur_progres(user: *mut c_void, progres: c_int) {

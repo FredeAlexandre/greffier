@@ -163,8 +163,12 @@ impl TranscriptionStructuree {
     pub fn depuis(r: &Reunion) -> TranscriptionStructuree {
         let etiquette = |i: usize| r.locuteurs.get(i).map(|l| l.etiquette.clone()).unwrap_or_else(|| "SPEAKER_00".into());
         let ecrire = |x: &Replique| RepliqueEcrite { locuteur: etiquette(x.locuteur), debut: x.debut, fin: x.fin, texte: x.texte.clone() };
-        // Le locuteur d'un mot : celui de la réplique où il commence.
-        let locuteur_du_mot = |m: &Mot| r.repliques.iter().find(|x| m.debut >= x.debut - 1e-6 && m.debut <= x.fin + 1e-6).map(|x| etiquette(x.locuteur));
+        // Le locuteur d'un mot : celui que l'attribution lui a donné, sinon (mots relus d'une
+        // transcription qui n'en avait pas) celui de la réplique où il commence.
+        let locuteur_du_mot = |m: &Mot| match m.locuteur {
+            Some(i) => Some(etiquette(i)),
+            None => r.repliques.iter().find(|x| m.debut >= x.debut - 1e-6 && m.debut <= x.fin + 1e-6).map(|x| etiquette(x.locuteur)),
+        };
         let correction = |c: &CorrectionSure| CorrectionEcrite { replique: c.replique, avant: c.avant.clone(), apres: c.apres.clone() };
         TranscriptionStructuree {
             version: VERSION,
@@ -200,7 +204,7 @@ impl TranscriptionStructuree {
     /// passages). Sans locuteur nulle part, tout va à un seul locuteur, SPEAKER_00.
     pub fn appliquer(self, r: &mut Reunion) {
         let mut etiquettes = self.locuteurs;
-        let autres = self.repliques.iter().chain(&self.brute).map(|x| &x.locuteur).chain(self.tours.iter().map(|t| &t.locuteur));
+        let autres = self.repliques.iter().chain(&self.brute).map(|x| &x.locuteur).chain(self.tours.iter().map(|t| &t.locuteur)).chain(self.mots.iter().filter_map(|m| m.locuteur.as_ref()));
         let mut nouvelles: Vec<String> = autres.filter(|e| !etiquettes.contains(e)).cloned().collect();
         nouvelles.sort();
         nouvelles.dedup();
@@ -211,7 +215,7 @@ impl TranscriptionStructuree {
         let index = |e: &str| etiquettes.iter().position(|x| x == e).unwrap_or(0);
         let lire = |x: &RepliqueEcrite| Replique { locuteur: index(&x.locuteur), debut: x.debut, fin: x.fin, texte: x.texte.clone(), passage: None };
         r.locuteurs = etiquettes.iter().enumerate().map(|(i, e)| Locuteur::new(e.clone(), TEINTES[i % TEINTES.len()])).collect();
-        r.mots = self.mots.into_iter().map(|m| Mot { debut: m.debut, fin: m.fin, texte: m.texte, confiance: m.confiance }).collect();
+        r.mots = self.mots.into_iter().map(|m| Mot { locuteur: m.locuteur.as_deref().map(index), debut: m.debut, fin: m.fin, texte: m.texte, confiance: m.confiance }).collect();
         r.tours = self.tours.into_iter().map(|t| TourDeParole { debut: t.debut, fin: t.fin, locuteur: t.locuteur }).collect();
         r.repliques = self.repliques.iter().map(lire).collect();
         r.brute = self.brute.iter().map(lire).collect();

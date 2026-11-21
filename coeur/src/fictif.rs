@@ -392,7 +392,7 @@ fn nouvelle_transcription(duree: f64, graine: u64) -> (Vec<Mot>, Vec<TourDeParol
         let a = |i: usize| r.debut + (r.fin - r.debut) * i as f64 / n;
         for (i, m) in morceaux.iter().enumerate() {
             let fin = if i + 1 == morceaux.len() { r.fin } else { a(i + 1) };
-            mots.push(Mot { debut: a(i), fin, texte: (*m).to_string(), confiance: 0.9 });
+            mots.push(Mot { debut: a(i), fin, texte: (*m).to_string(), confiance: 0.9, locuteur: None });
         }
         tours.push(TourDeParole { debut: r.debut, fin: r.fin, locuteur: EQUIPE[r.locuteur].0.into() });
     }

@@ -3,12 +3,15 @@
 //! - [`TranscripteurWhisper`] : la piste de mixage extraite par AVFoundation ([`audio`]), puis
 //!   transcrite par whisper.cpp ([`whisper`]), compilé dans l'app depuis ses sources (build.rs),
 //!   avec les paramètres du vault.
+//! - [`SeparateurPyannote`] : la même piste de mixage, séparée en tours de parole par pyannote
+//!   community-1 dans le Python privé de l'app ([`pyannote`]), pendant que whisper transcrit.
 //!
 //! Ces moteurs ne sont pas testés par la suite automatique (le cœur l'est, avec de faux
 //! adaptateurs) ; ils se vérifient par le banc de parité et par
-//! `cargo run -p greffier-moteurs --example transcrire -- <média>`.
+//! `cargo run -p greffier-moteurs --example transcrire -- <média>` (et `--example separer`).
 
 pub mod audio;
+pub mod pyannote;
 pub mod reechantillonnage;
 pub mod whisper;
 
@@ -17,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use greffier_coeur::Mot;
+pub use pyannote::SeparateurPyannote;
 use greffier_coeur::adaptateurs::{Avancement, DemandeDeTranscription, Tache, TacheDe, Transcripteur};
 
 /// Part de l'avancement donnée à l'extraction de l'audio (le reste va à whisper).

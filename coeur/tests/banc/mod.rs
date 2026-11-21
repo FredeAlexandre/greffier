@@ -17,7 +17,7 @@ pub const DUREE_D_ETAPE: f64 = 1.0;
 pub const BILAN: &str = "## En bref\n\nAlexandre salue l'équipe.\n\n## Participants\n\n- **SPEAKER_00 — Alexandre**\n- **SPEAKER_01 — Khalid**\n\n## Sujets abordés\n\n### Salutations (0:00:00)\n\n- Bonjour.\n\n## Décisions\n\n- (0:00:03) On se revoit demain.\n\n## Actions\n\n- [ ] **Alexandre** — préparer la démo — lundi\n- [ ] **Khalid** — relire la PR\n\n## Questions ouvertes\n\n- Aucune.\n";
 
 pub fn mot(debut: f64, fin: f64, texte: &str) -> Mot {
-    Mot { debut, fin, texte: texte.into(), confiance: 0.9 }
+    Mot { debut, fin, texte: texte.into(), confiance: 0.9, locuteur: None }
 }
 
 pub fn tour(debut: f64, fin: f64, locuteur: &str) -> TourDeParole {
