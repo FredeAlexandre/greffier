@@ -21,9 +21,10 @@ pub mod lexique;
 pub mod mac;
 pub mod ressources;
 mod reunion;
+mod surveillance;
 mod temps;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -99,6 +100,12 @@ pub enum Evenement {
     InstallationEnEchec(String),
     /// Un fichier de la réunion n'a pas pu être écrit dans le dossier de réunions.
     EcritureImpossible { reunion: IdReunion, message: String },
+    /// Un fichier de la réunion a changé hors de l'app : elle a été relue.
+    ReunionRelue(IdReunion),
+    /// Un dossier de réunion est apparu hors de l'app.
+    ReunionApparue(IdReunion),
+    /// Le dossier de la réunion a disparu hors de l'app : elle n'est plus dans la liste.
+    ReunionDisparue(IdReunion),
 }
 
 /// Pourquoi une commande n'a pas été exécutée. L'état n'a pas changé.
@@ -226,6 +233,9 @@ pub struct Greffier {
     verification: Option<TacheDe<()>>,
     /// L'état des ressources, relu à chaque avancée.
     ressources: Vec<Ressource>,
+    /// L'empreinte de chaque dossier de réunion au dernier passage du cœur (voir
+    /// [`Greffier::relire_le_dossier`]).
+    empreintes: HashMap<String, dossier::surveillance::Empreintes>,
 }
 
 impl Greffier {
@@ -250,8 +260,10 @@ impl Greffier {
         let prochain_id = reunions.iter().map(|r| r.id + 1).max().unwrap_or(1);
         let mut adaptateurs = adaptateurs;
         let ressources = adaptateurs.ressources.etat();
+        let dossier = DossierDeReunions::new(dossier);
+        let empreintes = dossier.toutes_les_empreintes();
         Greffier {
-            dossier: DossierDeReunions::new(dossier),
+            dossier,
             adaptateurs,
             reglages: Reglages::default(),
             reunions,
@@ -262,6 +274,7 @@ impl Greffier {
             installation: None,
             verification: None,
             ressources,
+            empreintes,
         }
     }
 
@@ -415,21 +428,19 @@ impl Greffier {
                 };
             }
             Commande::CocherAction { reunion, action, faite } => {
-                let fichier = {
-                    let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
-                    self.dossier.fichier(&r.nom_du_dossier, Role::Bilan)
-                };
-                let r = self.reunion_mut(reunion)?;
-                if action >= bilan::actions(&r.bilan).len() {
+                let r = self.reunion(reunion).ok_or(Refus::ReunionInconnue(reunion))?;
+                if action >= bilan::nombre_de_cases(&r.bilan) {
                     return impossible("action inconnue");
                 }
-                bilan::cocher(&mut r.bilan, action, faite);
-                // Le fichier du bilan est celui de l'agent : on n'y change que la case.
-                if fichier.exists() {
-                    let mut md = std::fs::read_to_string(&fichier).map_err(|e| Refus::Impossible(e.to_string()))?;
-                    bilan::cocher(&mut md, action, faite);
-                    std::fs::write(&fichier, md).map_err(|e| Refus::Impossible(e.to_string()))?;
+                // Le fichier du bilan est celui de l'agent : on n'y change que la case, et il fait foi.
+                let nom = r.nom_du_dossier.clone();
+                let fichier = self.dossier.cocher_dans_le_bilan(&nom, action, faite).map_err(Refus::Impossible)?;
+                let r = self.reunion_mut(reunion)?;
+                match fichier {
+                    Some(md) => r.poser_bilan(md),
+                    None => _ = bilan::cocher(&mut r.bilan, action, faite),
                 }
+                self.noter(&nom, &[Role::Bilan]);
             }
             Commande::MarquerLue(id) => self.reunion_mut(id)?.nouvelle = false,
             Commande::ChangerReglages(r) => self.reglages = r,
@@ -459,11 +470,13 @@ impl Greffier {
     /// Écrit les fichiers de la réunion (fiche, transcriptions) et note ceux qui sont présents.
     fn persister(&mut self, id: IdReunion, ev: &mut Vec<Evenement>) {
         let Some(r) = self.reunion(id) else { return };
-        let resultat = self.dossier.ecrire(r);
-        let fichiers = self.dossier.roles_presents(&r.nom_du_dossier);
+        let nom = r.nom_du_dossier.clone();
+        let resultat = self.dossier.ecrire_les_fichiers(r);
+        let fichiers = self.dossier.roles_presents(&nom);
         if let Ok(r) = self.reunion_mut(id) {
             r.fichiers = fichiers;
         }
+        self.noter(&nom, resultat.as_deref().unwrap_or_default());
         if let Err(message) = resultat {
             ev.push(Evenement::EcritureImpossible { reunion: id, message });
         }
@@ -687,6 +700,13 @@ impl Greffier {
         };
         if let Some(manque) = lu.as_deref().and_then(bilan::manques) {
             return self.echec(id, etape, manque, ev);
+        }
+        // Le bilan vient d'être écrit par l'agent pour Greffier : ce n'est pas une modification
+        // faite hors de l'app.
+        if lu.is_some()
+            && let Some(nom) = self.reunion(id).map(|r| r.nom_du_dossier.clone())
+        {
+            self.noter(&nom, &[Role::Bilan]);
         }
         let en_enregistrement = self.enregistrement.is_some();
         let Ok(r) = self.reunion_mut(id) else { return };
