@@ -24,6 +24,27 @@ cargo run            # la fenêtre (première compilation : ~2 min)
 cargo test           # le cœur, sans fenêtre, sur ses faux adaptateurs
 ```
 
+## Installer l'app
+
+```sh
+scripts/installer-app
+```
+
+Compile en release, construit `Greffier.app` (identifiant `io.github.fredealexandre.greffier`,
+version lue dans `Cargo.toml`, descriptions d'usage de l'écran, du micro et du son du système,
+runtime durci avec l'entitlement micro), la signe avec l'identité locale « Greffier Dev », la
+remplace dans `/Applications` (en fermant l'app si elle tourne) puis l'ouvre et attend sa fenêtre.
+
+- La première fois, l'identité « Greffier Dev » (certificat autosigné de signature de code, 10 ans)
+  est créée dans le trousseau de session ; ensuite elle est réutilisée. Si le trousseau est
+  verrouillé, la commande s'arrête et dit de lancer `security unlock-keychain`, qui demande le mot
+  de passe de session.
+- macOS rattache les autorisations (écran, micro, son du système, notifications) à l'identifiant et
+  au certificat : elles tiennent d'une installation à l'autre. Ne supprimez pas l'identité et ne
+  changez pas l'identifiant, sinon il faut les redonner.
+- `--binaire CHEMIN` empaquette un exécutable déjà compilé, `--sans-lancer` n'ouvre pas l'app.
+- Tests de l'empaquetage : `python3 -m unittest discover -s scripts`.
+
 ## À essayer
 
 | Geste | Où |
@@ -64,6 +85,7 @@ target/debug/greffier --script scripts/parcours-enregistrement.json --snap fin.p
 - `src/main.rs` : l'interface autour du cœur : lecture, raccourcis, shell, scènes.
 - `src/meeting.rs` : page réunion, vidéo, onglets. `src/timeline.rs` : la timeline. `src/overlays.rs` : recherche ⌘K, confirmation de suppression.
 - `src/pages.rs` : vue d'ensemble, enregistrement, réglages. `src/sidebar.rs` : barre latérale et menu du clic droit.
+- `scripts/installer_app.py` : empaquetage, signature et installation de `Greffier.app`.
 
 Rune est épinglé sur une révision de `dev` (pré-release) dans `Cargo.toml` ; on ne la change que
 volontairement ([ADR 0004](docs/adr/0004-interface-en-rune.md)).
