@@ -1,4 +1,5 @@
-//! Les autres pages : vue d'ensemble, enregistrement, réglages, et le bandeau de notification.
+//! Les autres pages : premier lancement, vue d'ensemble, enregistrement, réglages, et le bandeau
+//! de notification.
 
 use rune::{El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Switch};
@@ -6,7 +7,7 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Switch};
 use greffier_coeur::{Commande, Statut, bilan};
 
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
-use crate::App;
+use crate::{App, reglages};
 
 fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
     col()
@@ -68,32 +69,65 @@ fn stat(k: &Kit, value: String, label: &str) -> El {
         .child(text(label.to_owned()).font(k.ty.small).color(k.c.text_muted))
 }
 
+/// Premier lancement : où ranger les réunions.
+pub fn welcome(s: &App, k: &Kit) -> El {
+    let proposed = reglages::dossier_propose();
+    let mut body = card(k)
+        .gap(14.0)
+        .padding(24.0)
+        .child(heading(k, "Où ranger tes réunions ?"))
+        .child(muted(k, "Chaque réunion devient un dossier de fichiers lisibles hors de l'app : la fiche, le bilan, la transcription et l'enregistrement. Toi et tes agents IA pouvez les ouvrir directement."))
+        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text(reglages::afficher(&proposed)).font(k.ty.ui_medium).color(k.c.text_base)))
+        .child(
+            row().gap(8.0).pt(4.0)
+                .child(Button::new("Utiliser ce dossier").variant(ButtonVariant::Submit).on_press(move |s: &mut App| s.use_folder(proposed.clone())).build(k).key("use-proposed"))
+                .child(Button::new("Choisir un autre dossier…").icon(&ui::FOLDER).variant(ButtonVariant::Outline).on_press_tx(|s: &mut App, tx| s.pick_folder(tx)).build(k).key("pick-folder")),
+        )
+        .child(muted(k, "Tu pourras le changer dans les réglages. Greffier n'écrit rien d'autre dans ce dossier que les dossiers des réunions."));
+    if let Some(e) = &s.folder_error {
+        body = body.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
+    }
+    page("welcome", "Bienvenue dans Greffier", "Greffier enregistre tes réunions, les transcrit et en fait le bilan, sur ce Mac.", k, body)
+}
+
 pub fn overview(s: &App, k: &Kit) -> El {
     let meetings = s.core.reunions();
-    let total: f64 = meetings.iter().map(|m| m.duree).sum::<f64>() + 16.0 * 3600.0;
+    let total: f64 = meetings.iter().map(|m| m.duree).sum();
     let todo = meetings.iter().filter(|m| m.statut != Statut::Terminee).count();
     let doubts: usize = meetings.iter().map(|m| m.passages_en_attente()).sum();
+    let since = match meetings.iter().map(|m| m.debut).min() {
+        Some(d) => format!("réunions depuis le {:02}/{:02}", d.jour, d.mois),
+        None => "réunions".to_string(),
+    };
     let stats = row()
         .w_full()
         .gap(10.0)
-        .child(stat(k, format!("{}", meetings.len() + 16), "réunions depuis le 02/11"))
+        .child(stat(k, format!("{}", meetings.len()), &since))
         .child(stat(k, ui::dur(total), "enregistrées"))
-        .child(stat(k, format!("{todo}"), "à traiter"))
+        .child(stat(k, format!("{todo}"), "en attente de bilan"))
         .child(stat(k, format!("{doubts}"), "passages à vérifier"));
 
-    // Temps en réunion par jour (les chiffres de l'index du vault)
-    let days: [(&str, f64); 12] = [
-        ("ven. 20/11", 154.0), ("jeu. 19/11", 89.0), ("mer. 18/11", 86.0), ("mar. 17/11", 50.0), ("lun. 16/11", 197.0),
-        ("ven. 13/11", 86.0), ("jeu. 12/11", 66.0), ("mer. 11/11", 92.0), ("mar. 10/11", 24.0), ("lun. 09/11", 99.0),
-        ("ven. 06/11", 125.0), ("jeu. 05/11", 297.0),
-    ];
-    let max = 300.0;
+    // Temps en réunion par jour, les 12 derniers jours qui en ont.
+    let mut days: Vec<(greffier_coeur::DateHeure, f64)> = Vec::new();
+    for m in meetings {
+        let day = greffier_coeur::DateHeure { heure: 0, minute: 0, ..m.debut };
+        match days.iter_mut().find(|(d, _)| *d == day) {
+            Some((_, mins)) => *mins += m.duree / 60.0,
+            None => days.push((day, m.duree / 60.0)),
+        }
+    }
+    days.sort_by(|a, b| b.0.cmp(&a.0));
+    days.truncate(12);
+    let max = days.iter().map(|(_, m)| *m).fold(1.0, f64::max);
     let mut chart = card(k).gap(7.0).child(heading(k, "Temps en réunion par jour"));
+    if days.is_empty() {
+        chart = chart.child(muted(k, "Pas encore de réunion."));
+    }
     for (i, (d, mins)) in days.iter().enumerate() {
         chart = chart.child(
             row().key(format!("day{i}")).w_full().gap(10.0).center_y()
-                .child(text(*d).font(tnum(k.ty.small)).color(k.c.text_muted).w(78.0))
-                .child(row().grow(1.0).min_w(0.0).h(10.0).child(el().grow(*mins as f32).h(10.0).radius(3.0).fill(k.c.text_accent.alpha(0.75))).child(el().grow((max - *mins) as f32)))
+                .child(text(d.jour_court()).font(tnum(k.ty.small)).color(k.c.text_muted).w(78.0))
+                .child(row().grow(1.0).min_w(0.0).h(10.0).child(el().grow((*mins as f32).max(0.0001)).h(10.0).radius(3.0).fill(k.c.text_accent.alpha(0.75))).child(el().grow((max - *mins).max(0.0001) as f32)))
                 .child(text(ui::dur(*mins * 60.0)).font(tnum(k.ty.small)).color(k.c.text_faint).w(52.0).align(rune::Align::End)),
         );
     }
@@ -101,14 +135,15 @@ pub fn overview(s: &App, k: &Kit) -> El {
     let mut recent = card(k).child(heading(k, "Dernières réunions"));
     for m in meetings.iter().take(5) {
         let id = m.id;
-        let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {} · {}", m.debut.jour_court(), ui::status(&m.statut).to_lowercase()) };
+        let title = if m.statut == Statut::Terminee { crate::meeting::display_title(m, false) } else { format!("{} · {}", crate::meeting::display_title(m, false), ui::status(&m.statut).to_lowercase()) };
+        let summary = if !m.resume.is_empty() { m.resume.clone() } else if m.bilan.is_empty() { "Pas encore de bilan.".into() } else { bilan::en_bref(&m.bilan).replace("**", "") };
         recent = recent.child(
             row().key(format!("rec{id}")).w_full().gap(12.0).center_y().px(8.0).py(8.0).radius(k.radius.md).hover(k.c.hover).cursor(rune::Cursor::Pointer)
                 .on_press(move |s: &mut App| s.open(id))
                 .child(col().w(78.0).child(text(m.debut.jour_court()).font(k.ty.small_medium).color(k.c.text_base)).child(text(m.debut.heure_courte()).font(k.ty.text_xsmall).color(k.c.text_faint)))
                 .child(col().grow(1.0).min_w(0.0).gap(2.0)
                     .child(text(title).font(k.ty.ui_medium).color(k.c.text_base).truncate())
-                    .child(text(if m.bilan.is_empty() { "Pas encore de bilan.".into() } else { bilan::en_bref(&m.bilan).replace("**", "") }).font(k.ty.small).color(k.c.text_muted).truncate()))
+                    .child(text(summary).font(k.ty.small).color(k.c.text_muted).truncate()))
                 .child(text(ui::dur(m.duree)).font(tnum(k.ty.small)).color(k.c.text_faint)),
         );
     }
@@ -205,10 +240,26 @@ pub fn settings(s: &App, k: &Kit) -> El {
         .child(row().w_full().justify_between().center_y().child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⇧", "⌘", "R"]).build(k)))
         .child(row().w_full().justify_between().center_y().child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⌘", "M"]).build(k)))
         .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
-    let storage = card(k)
-        .child(heading(k, "Stockage"))
-        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text("~/Vault/Falcon HQ/Réunions").font(k.ty.ui).color(k.c.text_base)))
-        .child(muted(k, "Même format qu'aujourd'hui : fiche, transcription, relecture et bilan en Markdown, à côté de la vidéo. Obsidian et les agents continuent de les lire."));
+    let folder = match (&s.folder, s.needs_folder) {
+        (Some(d), _) => reglages::afficher(d),
+        (None, true) => "Pas encore choisi".to_string(),
+        (None, false) => "Données d'exemple du prototype".to_string(),
+    };
+    let busy = s.core.occupe();
+    let mut storage = card(k)
+        .child(heading(k, "Dossier de réunions"))
+        .child(
+            row().w_full().gap(8.0).center_y()
+                .child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted))
+                .child(text(folder).font(k.ty.ui).color(k.c.text_base).truncate_middle().grow(1.0).min_w(0.0))
+                .child(Button::new("Changer…").variant(ButtonVariant::Outline).control_size(ControlSize::Small).disabled(busy)
+                    .help(if busy { "Pas pendant un enregistrement ou un traitement" } else { "Choisir un autre dossier de réunions" })
+                    .on_press_tx(|s: &mut App, tx| s.pick_folder(tx)).build(k).key("change-folder")),
+        )
+        .child(muted(k, "Un dossier par réunion : la fiche, le bilan, la transcription (lisible et structurée) et l'enregistrement. Toi et tes agents IA pouvez les lire sans passer par l'app."));
+    if let Some(e) = &s.folder_error {
+        storage = storage.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
+    }
     let ai = card(k)
         .child(heading(k, "IA"))
         .child(check_row(k, true, "Lexique", "35 erreurs connues, 7 personnes, 40 mots justes"))
