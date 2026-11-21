@@ -1,7 +1,7 @@
 //! Le titre d'une réunion nomme son dossier et ses fichiers : quand il change (bilan de l'agent,
 //! ou à la main dans l'app), tout est renommé, liens internes compris.
 
-use crate::{Evenement, Greffier, IdReunion, Role};
+use crate::{Evenement, Greffier, IdReunion};
 
 impl Greffier {
     /// Renomme le dossier de la réunion d'après son titre, puis réécrit ses fichiers. Un échec
@@ -14,7 +14,7 @@ impl Greffier {
                 // Les empreintes suivent le dossier : sinon il passerait pour disparu, et le
                 // nouveau pour une réunion apparue hors de l'app.
                 self.empreintes.remove(&ancien);
-                let bilan = std::fs::read_to_string(self.dossier.fichier(&nouveau, Role::Bilan)).ok();
+                let bilan = self.dossier.lire_le_bilan(&nouveau).ok();
                 if let Ok(r) = self.reunion_mut(id) {
                     r.nom_du_dossier = nouveau;
                     if let Some(md) = bilan.filter(|md| *md != r.bilan) {

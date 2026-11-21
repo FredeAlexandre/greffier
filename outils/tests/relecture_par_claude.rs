@@ -8,8 +8,8 @@ use std::sync::atomic::AtomicBool;
 
 use greffier_coeur::DateHeure;
 use greffier_coeur::adaptateurs::{ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent};
-use greffier_coeur::claude::relecture::{self, Reecoute};
-use greffier_coeur::claude::{self, AppelAClaude, Claude, Session};
+use greffier_outils::claude::relecture::{self, Reecoute};
+use greffier_outils::claude::{self, AppelAClaude, Claude, Session};
 use greffier_coeur::lexique::AjoutAuLexique;
 use serde_json::{Value, json};
 
@@ -171,6 +171,20 @@ fn les_passages_douteux_sont_reecoutes_puis_tranches_dans_la_meme_session() {
     assert_eq!(r.passages_corriges, [PassageCorrige { replique: 2, extrait: "jeudi".into(), apres: "mardi".into(), reecoute: "pas encore mardi peut-être".into() }]);
     assert_eq!(r.passages_a_verifier, [PassageSignale { replique: 0, extrait: "Zorglube".into(), hypothese: Some("Zorglub".into()), reecoute: "".into() }]);
     assert_eq!(r.ajouts_au_lexique, [AjoutAuLexique { entendu: "recète".into(), correct: "recette".into() }, AjoutAuLexique { entendu: "Zorglube".into(), correct: "Zorglub".into() }]);
+}
+
+#[test]
+fn la_reecoute_perd_ses_bruits_entre_crochets_comme_la_transcription() {
+    let claude = FauxClaude::repondant(vec![Ok(premiere_passe()), Ok(deuxieme_passe())]);
+    let reecoute = FausseReecoute { textes: vec!["[Musique] pas encore (rires) mardi peut-être".into(), " (bruit de fond) ".into()], ..Default::default() };
+    let r = relire(&claude, &reecoute, demande()).expect("relecture");
+    assert!(
+        claude.appels()[1].prompt.ends_with("  réécoute : « pas encore mardi peut-être »\n- ligne #1 [0:00:00] · extrait : « Zorglube » · ton hypothèse : « ? »\n  réécoute : « (rien d'exploitable) »"),
+        "{}",
+        claude.appels()[1].prompt
+    );
+    assert_eq!(r.passages_corriges[0].reecoute, "pas encore mardi peut-être");
+    assert_eq!(r.passages_a_verifier[0].reecoute, "");
 }
 
 #[test]

@@ -59,13 +59,13 @@ pub fn personnes(md: &str) -> Vec<String> {
 
 /// Ce que compte le lexique, pour les réglages.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Resume {
+pub struct Apercu {
     pub personnes: usize,
     pub mots_justes: usize,
     pub erreurs_connues: usize,
 }
 
-pub fn resume(md: &str) -> Resume {
+pub fn apercu(md: &str) -> Apercu {
     let personnes = section(md, "Personnes").lines().filter(|l| l.trim_start().starts_with("- ")).count();
     let mots_justes = section(md, "Mots justes")
         .lines()
@@ -79,7 +79,7 @@ pub fn resume(md: &str) -> Resume {
         .filter(|l| l.starts_with('|') && !l.trim_matches(|c| c == '|' || c == '-' || c == ' ' || c == ':').is_empty())
         .count()
         .saturating_sub(1);
-    Resume { personnes, mots_justes, erreurs_connues }
+    Apercu { personnes, mots_justes, erreurs_connues }
 }
 
 /// Écrit le lexique livré dans le dossier de l'app s'il n'y en a pas encore ; rend son chemin.

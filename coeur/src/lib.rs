@@ -6,21 +6,23 @@
 //! (`reunions`, `enregistrement`…) et appeler ces deux fonctions.
 //!
 //! Tout ce qui sort du processus passe par les [`adaptateurs`] : capture, transcripteur,
-//! séparateur de locuteurs, agent, ressources (et l'horloge). Les ressources de l'app (modèles,
-//! Python privé, vérification de `claude`) sont décrites dans [`ressources`].
+//! séparateur de locuteurs, agent, ressources, corbeille, mise en MP4 (et l'horloge). Le cœur ne
+//! connaît que ces interfaces ; les vrais adaptateurs sont dans d'autres crates
+//! (`greffier-outils` : la CLI `claude`, curl, uv ; `greffier-moteurs` : whisper.cpp, pyannote ;
+//! `greffier-capture` : ScreenCaptureKit, corbeille, mise en MP4). Les ressources de l'app
+//! (modèles, Python privé, vérification de `claude`) sont décrites dans [`ressources`].
 
 #![forbid(unsafe_code)]
 
 pub mod adaptateurs;
 pub mod attribution;
 pub mod bilan;
-pub mod claude;
 pub mod dossier;
 pub mod faux;
 pub mod fictif;
 pub mod lexique;
-pub mod mac;
 pub mod recherche;
+pub mod reglages;
 pub mod ressources;
 mod reunion;
 mod suppression;
@@ -173,6 +175,16 @@ fn impossible<T>(message: impl Into<String>) -> Result<T, Refus> {
     Err(Refus::Impossible(message.into()))
 }
 
+/// Ce qui doit rester éveillé, et pourquoi (voir [`Greffier::garder_le_mac_eveille`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Eveil {
+    /// Le nom de l'assertion de non-veille (« Greffier enregistre une réunion »).
+    pub raison: &'static str,
+    /// L'écran aussi : une fois l'écran éteint, ScreenCaptureKit ne capture plus rien. Sinon,
+    /// seul le Mac reste éveillé et l'écran peut s'éteindre.
+    pub ecran: bool,
+}
+
 /// L'enregistrement en cours.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Enregistrement {
@@ -228,7 +240,7 @@ enum Travail {
     /// La transcription et la séparation des locuteurs tournent en parallèle.
     Transcription { mots: Partie<Vec<Mot>>, tours: Partie<Vec<TourDeParole>> },
     Relecture(Partie<ResultatDeRelecture>),
-    Bilan { resultat: Partie<ResultatDuBilan>, fichier: PathBuf },
+    Bilan { resultat: Partie<ResultatDuBilan> },
 }
 
 impl Travail {
@@ -259,7 +271,7 @@ struct Traitement {
 enum Produit {
     Transcription(Vec<Mot>, Vec<TourDeParole>),
     Relecture(ResultatDeRelecture),
-    Bilan(ResultatDuBilan, PathBuf),
+    Bilan(ResultatDuBilan),
 }
 
 /// Le cœur de Greffier.
@@ -346,6 +358,32 @@ impl Greffier {
         &self.reglages
     }
 
+    /// Le dossier d'une réunion sur le disque.
+    pub fn dossier_de_la_reunion(&self, id: IdReunion) -> Option<PathBuf> {
+        self.reunion(id).map(|r| self.dossier.dossier(&r.nom_du_dossier))
+    }
+
+    /// Le fichier de l'enregistrement d'une réunion, s'il existe (un média importé qui n'a pas
+    /// pu passer en MP4 garde son extension).
+    pub fn fichier_d_enregistrement(&self, id: IdReunion) -> Option<PathBuf> {
+        self.reunion(id).and_then(|r| self.dossier.enregistrement(&r.nom_du_dossier))
+    }
+
+    /// Le lexique des réglages, lu maintenant ; sans lexique (ou illisible), le lexique livré.
+    fn texte_du_lexique(&self) -> String {
+        self.reglages.lexique.as_ref().and_then(|c| std::fs::read_to_string(c).ok()).unwrap_or_else(|| lexique::LEXIQUE_INITIAL.to_string())
+    }
+
+    /// Ce que compte le lexique (personnes, mots justes, erreurs connues), pour les réglages.
+    pub fn lexique(&self) -> lexique::Apercu {
+        lexique::apercu(&self.texte_du_lexique())
+    }
+
+    /// Les personnes du lexique, proposées pour nommer les locuteurs.
+    pub fn personnes(&self) -> Vec<String> {
+        lexique::personnes(&self.texte_du_lexique())
+    }
+
     pub fn dossier(&self) -> &DossierDeReunions {
         &self.dossier
     }
@@ -401,13 +439,13 @@ impl Greffier {
     }
 
     /// Pourquoi le Mac ne doit pas se mettre en veille automatiquement, tant qu'il ne le doit
-    /// pas : pendant un enregistrement, et pendant un traitement (une réunion en cours ou en
-    /// attente dans la file). L'interface en fait une assertion de non-veille de macOS.
-    pub fn garder_le_mac_eveille(&self) -> Option<&'static str> {
+    /// pas : pendant un enregistrement (l'écran aussi), et pendant un traitement (une réunion en
+    /// cours ou en attente dans la file). L'interface en fait une assertion de non-veille de macOS.
+    pub fn garder_le_mac_eveille(&self) -> Option<Eveil> {
         if self.enregistrement.is_some() {
-            Some("Greffier enregistre une réunion")
+            Some(Eveil { raison: "Greffier enregistre une réunion", ecran: true })
         } else if self.traitement.is_some() || !self.file.is_empty() {
-            Some("Greffier traite une réunion")
+            Some(Eveil { raison: "Greffier traite une réunion", ecran: false })
         } else {
             None
         }
@@ -575,7 +613,7 @@ impl Greffier {
             }
             Commande::Importer(import) => {
                 let id = self.prochain_id;
-                let r = self.dossier.importer(&import, id).map_err(Refus::Impossible)?;
+                let r = self.dossier.importer(&import, id, self.adaptateurs.mise_en_mp4.as_ref()).map_err(Refus::Impossible)?;
                 // Les fichiers copiés par Greffier ne sont pas des modifications faites hors de l'app.
                 self.noter(&r.nom_du_dossier.clone(), &Role::TOUS);
                 self.prochain_id += 1;
@@ -635,7 +673,7 @@ impl Greffier {
         }
         let debut = self.adaptateurs.horloge.maintenant();
         let nom = self.dossier.nom_libre(debut, "Réunion");
-        std::fs::create_dir_all(self.dossier.dossier(&nom)).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
+        self.dossier.creer(&nom).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
         let demande = DemandeDeCapture { fichier: self.dossier.fichier(&nom, Role::Enregistrement), sources };
         self.adaptateurs.capture.demarrer(demande).map_err(Refus::Impossible)?;
         self.enregistrement = Some(Enregistrement { debut, duree: 0.0, niveaux: Niveaux::default(), reperes: vec![], nombre_de_locuteurs: None, nom_du_dossier: nom, sources });
@@ -806,13 +844,11 @@ impl Greffier {
                 Travail::Relecture(Partie::EnCours(a.agent.relire(demande)))
             }
             Etape::Bilan => {
-                let dossier = self.dossier.dossier(&r.nom_du_dossier);
-                std::fs::create_dir_all(&dossier).map_err(|e| format!("{} : {e}", dossier.display()))?;
-                let fichier = self.dossier.fichier(&r.nom_du_dossier, Role::Bilan);
+                self.dossier.creer(&r.nom_du_dossier)?;
                 let demande = DemandeDeBilan {
                     dossier_de_reunions: self.dossier.racine().to_path_buf(),
                     dossiers_de_contexte: self.reglages.dossiers_de_contexte.clone(),
-                    fichier_du_bilan: fichier.clone(),
+                    fichier_du_bilan: self.dossier.fichier(&r.nom_du_dossier, Role::Bilan),
                     fiche: self.dossier.fichier(&r.nom_du_dossier, Role::Fiche),
                     transcription: self.dossier.fichier(&r.nom_du_dossier, Role::TranscriptionLisible),
                     titre: r.titre.clone(),
@@ -834,7 +870,7 @@ impl Greffier {
                     reperes: r.reperes.clone(),
                     bilan_actuel: (!r.bilan.is_empty()).then(|| r.bilan.clone()),
                 };
-                Travail::Bilan { resultat: Partie::EnCours(a.agent.faire_le_bilan(demande)), fichier }
+                Travail::Bilan { resultat: Partie::EnCours(a.agent.faire_le_bilan(demande)) }
             }
         })
     }
@@ -879,8 +915,8 @@ impl Greffier {
                 let produit = match t.travail {
                     Travail::Transcription { mots, tours } => Produit::Transcription(mots.prendre().unwrap_or_default(), tours.prendre().unwrap_or_default()),
                     Travail::Relecture(p) => Produit::Relecture(p.prendre().unwrap_or_default()),
-                    Travail::Bilan { resultat, fichier } => match resultat.prendre() {
-                        Some(r) => Produit::Bilan(r, fichier),
+                    Travail::Bilan { resultat } => match resultat.prendre() {
+                        Some(r) => Produit::Bilan(r),
                         None => return,
                     },
                 };
@@ -892,8 +928,15 @@ impl Greffier {
     /// Applique le produit d'une étape finie, puis lance la suivante (ou la met en attente
     /// pendant un enregistrement).
     fn appliquer(&mut self, id: IdReunion, etape: Etape, produit: Produit, ev: &mut Vec<Evenement>) {
+        // La session de l'agent est gardée même si son bilan est refusé : on peut la reprendre.
+        if let Produit::Bilan(resultat) = &produit
+            && let Ok(r) = self.reunion_mut(id)
+        {
+            r.sessions.bilan = resultat.session.clone();
+        }
+        let nom = self.reunion(id).map(|r| r.nom_du_dossier.clone()).unwrap_or_default();
         let lu = match &produit {
-            Produit::Bilan(_, fichier) => match std::fs::read_to_string(fichier) {
+            Produit::Bilan(..) => match self.dossier.lire_le_bilan(&nom) {
                 Ok(md) => Some(md),
                 Err(e) => return self.echec(id, etape, format!("L'agent n'a pas écrit le bilan ({e})."), ev),
             },
@@ -929,13 +972,12 @@ impl Greffier {
                 r.corrections_a_la_main.clear();
             }
             Produit::Relecture(resultat) => appliquer_la_relecture(r, resultat, ajoutes),
-            Produit::Bilan(resultat, _) => {
+            Produit::Bilan(resultat) => {
                 r.poser_bilan(lu.unwrap_or_default());
                 r.titre = resultat.titre;
                 r.resume = resultat.resume;
                 r.actions_principales = resultat.actions.into_iter().take(3).collect();
-                r.sessions.bilan = resultat.session;
-                for p in resultat.participants {
+                for p in resultat.locuteurs {
                     let index = |etiquette: &str| r.locuteurs.iter().position(|l| l.etiquette == etiquette);
                     let Some(i) = index(&p.locuteur) else { continue };
                     let meme = p.meme_voix_que.as_deref().and_then(index).filter(|j| r.locuteur_affiche(*j) != r.locuteur_affiche(i));
@@ -1028,8 +1070,8 @@ fn corriger_la_replique(r: &mut Reunion, replique: usize, texte: String) -> Resu
     }
     let Some(x) = r.repliques.get(replique) else { return impossible("réplique inconnue") };
     let Some((debut, fin, apres)) = difference_en_mots(&x.texte, texte) else { return Ok(()) };
-    // Le passage à vérifier de la réplique se tranche dans son onglet.
-    if let Some(p) = x.passage.and_then(|i| r.passages.get(i)) {
+    // Les passages à vérifier de la réplique se tranchent dans leur onglet.
+    for p in x.passages.iter().filter_map(|&i| r.passages.get(i)) {
         let montre = p.texte(&p.statut);
         if let Some(a) = x.texte.find(montre)
             && debut < a + montre.len()
@@ -1119,7 +1161,7 @@ fn hypothese(h: Option<String>) -> Option<String> {
 /// vraiment écrites dans le lexique.
 fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture, ajoutes: Vec<AjoutAuLexique>) {
     if r.brute.is_empty() {
-        r.brute = r.repliques.iter().map(|x| Replique { passage: None, ..x.clone() }).collect();
+        r.brute = r.repliques.iter().map(|x| Replique { passages: vec![], ..x.clone() }).collect();
     }
     r.repliques = r.brute.clone();
     let mut journal = JournalDeRelecture { ajouts_au_lexique: ajoutes, ..Default::default() };
@@ -1156,10 +1198,12 @@ fn appliquer_la_relecture(r: &mut Reunion, resultat: ResultatDeRelecture, ajoute
     r.passages.clear();
     for p in resultat.passages_a_verifier.into_iter().chain(a_verifier) {
         let Some(x) = r.repliques.get_mut(p.replique) else { continue };
-        if x.passage.is_some() || p.extrait.trim().is_empty() {
+        // Chaque passage signalé compte, même à plusieurs dans une réplique ; le même deux fois
+        // n'en fait qu'un.
+        if p.extrait.trim().is_empty() || x.passages.iter().any(|&i| r.passages[i].extrait == p.extrait) {
             continue;
         }
-        x.passage = Some(r.passages.len());
+        x.passages.push(r.passages.len());
         r.passages.push(PassageAVerifier { replique: p.replique, extrait: p.extrait, hypothese: hypothese(p.hypothese), reecoute: p.reecoute, statut: StatutDuPassage::EnAttente });
     }
     // Les corrections faites à la main sur la relecture précédente sont reprises si leur texte est

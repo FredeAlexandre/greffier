@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use greffier_coeur::TourDeParole;
 use greffier_coeur::adaptateurs::{Avancement, DemandeDeSeparation, Separateur, Tache, TacheDe};
-use greffier_coeur::mac;
+use greffier_outils::mac;
+use greffier_outils::processus::{Interruption, attendre};
 use greffier_coeur::ressources::MODELE_PYANNOTE;
 
 use crate::audio;
@@ -98,20 +99,13 @@ impl SeparateurPyannote {
             }
         });
 
-        let statut = loop {
-            if arret.load(Ordering::Relaxed) {
-                let _ = enfant.kill();
-                let _ = enfant.wait();
+        let statut = match attendre(&mut enfant, arret, None, Duration::from_millis(100), || progres(f64::from_bits(avance.load(Ordering::Relaxed)))) {
+            Ok(s) => s,
+            Err(Interruption::Erreur(e)) => return Err(format!("pyannote : {e}")),
+            Err(Interruption::Arrete | Interruption::Delai) => {
                 let _ = lecteur.join();
                 return Err("arrêté".into());
             }
-            match enfant.try_wait() {
-                Ok(Some(s)) => break s,
-                Ok(None) => {}
-                Err(e) => return Err(format!("pyannote : {e}")),
-            }
-            progres(f64::from_bits(avance.load(Ordering::Relaxed)));
-            std::thread::sleep(Duration::from_millis(100));
         };
         let _ = lecteur.join();
         if !statut.success() {
@@ -137,7 +131,7 @@ pub fn tours(json: &str) -> Result<Vec<TourDeParole>, String> {
     segments
         .iter()
         .map(|s| match (s["start"].as_f64(), s["end"].as_f64(), s["speaker"].as_u64()) {
-            (Some(debut), Some(fin), Some(n)) => Ok(TourDeParole { debut, fin, locuteur: format!("SPEAKER_{n:02}") }),
+            (Some(debut), Some(fin), Some(n)) => Ok(TourDeParole { debut, fin, locuteur: greffier_coeur::Locuteur::etiquette_numero(n as usize) }),
             _ => Err(format!("Tour de parole illisible : {s}")),
         })
         .collect()

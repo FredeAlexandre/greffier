@@ -15,12 +15,14 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::adaptateurs::{Agent, Avancement, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, Tache, TacheDe};
+use crate::processus::{Interruption, Progression, attendre, sur_un_fil};
+
+use greffier_coeur::adaptateurs::{Agent, DemandeDeBilan, DemandeDeRelecture, ResultatDeRelecture, ResultatDuBilan, TacheDe};
 
 /// Le modèle demandé à la CLI.
 pub const MODELE: &str = "opus";
@@ -179,23 +181,11 @@ impl Claude for ClaudeDuMac {
                 let _ = entree.write_all(texte.as_bytes());
             });
         }
-        let debut = Instant::now();
-        let statut = loop {
-            if arret.load(Ordering::Relaxed) {
-                let _ = enfant.kill();
-                let _ = enfant.wait();
-                return Err("arrêté".into());
-            }
-            if debut.elapsed() > self.delai {
-                let _ = enfant.kill();
-                let _ = enfant.wait();
-                return Err(format!("Claude n'a pas répondu en {} min.", self.delai.as_secs() / 60));
-            }
-            match enfant.try_wait() {
-                Ok(Some(s)) => break s,
-                Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-                Err(e) => return Err(format!("claude : {e}")),
-            }
+        let statut = match attendre(&mut enfant, arret, Some(self.delai), Duration::from_millis(200), || {}) {
+            Ok(s) => s,
+            Err(Interruption::Arrete) => return Err("arrêté".into()),
+            Err(Interruption::Delai) => return Err(format!("Claude n'a pas répondu en {} min.", self.delai.as_secs() / 60)),
+            Err(Interruption::Erreur(e)) => return Err(format!("claude : {e}")),
         };
         lire_la_reponse(&sortie.join().unwrap_or_default(), &erreurs.join().unwrap_or_default(), statut.success())
     }
@@ -217,75 +207,11 @@ impl AgentClaude {
 impl Agent for AgentClaude {
     fn relire(&mut self, demande: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture> {
         let (claude, reecoute) = (self.claude.clone(), self.reecoute.clone());
-        sur_un_fil(&relecture::PALIERS, move |arret, progres| relecture::relire(claude.as_ref(), reecoute.as_ref(), &demande, arret, progres))
+        sur_un_fil("claude", Progression::Paliers(&relecture::PALIERS), move |arret, progres| relecture::relire(claude.as_ref(), reecoute.as_ref(), &demande, arret, progres))
     }
 
     fn faire_le_bilan(&mut self, demande: DemandeDeBilan) -> TacheDe<ResultatDuBilan> {
         let claude = self.claude.clone();
-        sur_un_fil(&[], move |arret, _| bilan::faire(claude.as_ref(), &demande, arret))
-    }
-}
-
-// --- Un travail de l'agent sur un fil ------------------------------------------------------
-
-struct Etat<T> {
-    /// Le palier atteint, et quand.
-    palier: f64,
-    depuis: Instant,
-    resultat: Option<Result<T, String>>,
-}
-
-/// Un travail de l'agent sur un fil. Claude ne dit pas où il en est : le travail annonce des
-/// paliers (`progres`), et l'avancement glisse lentement vers le palier suivant en attendant.
-struct SurUnFil<T> {
-    etat: Arc<std::sync::Mutex<Etat<T>>>,
-    arret: Arc<AtomicBool>,
-    paliers: &'static [f64],
-}
-
-/// Constante de temps du glissement vers le palier suivant, en secondes.
-const GLISSEMENT: f64 = 120.0;
-
-fn sur_un_fil<T: Send + 'static>(paliers: &'static [f64], travail: impl FnOnce(&AtomicBool, &mut dyn FnMut(f64)) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
-    let etat = Arc::new(std::sync::Mutex::new(Etat { palier: 0.0, depuis: Instant::now(), resultat: None }));
-    let arret = Arc::new(AtomicBool::new(false));
-    let (e, a) = (etat.clone(), arret.clone());
-    let lance = std::thread::Builder::new().name("claude".into()).spawn(move || {
-        let mut progres = |p: f64| {
-            let mut e = e.lock().unwrap_or_else(|e| e.into_inner());
-            e.palier = p;
-            e.depuis = Instant::now();
-        };
-        let r = travail(&a, &mut progres);
-        e.lock().unwrap_or_else(|e| e.into_inner()).resultat = Some(r);
-    });
-    if let Err(err) = lance {
-        etat.lock().unwrap_or_else(|e| e.into_inner()).resultat = Some(Err(format!("Impossible de lancer l'agent : {err}")));
-    }
-    Box::new(SurUnFil { etat, arret, paliers })
-}
-
-impl<T> Tache<T> for SurUnFil<T> {
-    fn sonder(&mut self, _: f64) -> Avancement<T> {
-        let mut e = self.etat.lock().unwrap_or_else(|e| e.into_inner());
-        match e.resultat.take() {
-            Some(Ok(v)) => Avancement::Fini(v),
-            Some(Err(m)) => Avancement::Echec(m),
-            None => {
-                let suivant = self.paliers.iter().copied().find(|p| *p > e.palier).unwrap_or(1.0);
-                let t = e.depuis.elapsed().as_secs_f64();
-                Avancement::EnCours(e.palier + (suivant - e.palier) * 0.9 * (1.0 - (-t / GLISSEMENT).exp()))
-            }
-        }
-    }
-
-    fn arreter(&mut self) {
-        self.arret.store(true, Ordering::Relaxed);
-    }
-}
-
-impl<T> Drop for SurUnFil<T> {
-    fn drop(&mut self) {
-        self.arret.store(true, Ordering::Relaxed);
+        sur_un_fil("claude", Progression::Paliers(&[]), move |arret, _| bilan::faire(claude.as_ref(), &demande, arret))
     }
 }

@@ -9,14 +9,15 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-use crate::adaptateurs::{Avancement, Tache, TacheDe};
-use crate::ressources::{EtatDeClaude, Outils, hex};
+use greffier_coeur::adaptateurs::{Avancement, Tache, TacheDe};
+use greffier_coeur::ressources::{EtatDeClaude, Outils, hex};
+
+use crate::processus::{Interruption, Progression, attendre, sur_un_fil};
 
 /// La version d'uv livrée avec l'app (`scripts/installer_app.py` la télécharge).
 pub const VERSION_D_UV: &str = "0.13.7";
@@ -90,46 +91,6 @@ pub fn python(dossier: &Path) -> PathBuf {
     dossier.join("venv/bin/python")
 }
 
-// --- Tâches ----------------------------------------------------------------------------------
-
-/// Un travail sur un fil ; `sonder` lit son avancement (0 à 1, en bits d'un f64).
-struct SurUnFil<T> {
-    resultat: mpsc::Receiver<Result<T, String>>,
-    progres: Arc<AtomicU64>,
-    arret: Arc<AtomicBool>,
-}
-
-fn sur_un_fil<T: Send + 'static>(travail: impl FnOnce(&AtomicU64, &AtomicBool) -> Result<T, String> + Send + 'static) -> TacheDe<T> {
-    let (envoi, resultat) = mpsc::channel();
-    let progres = Arc::new(AtomicU64::new(0f64.to_bits()));
-    let arret = Arc::new(AtomicBool::new(false));
-    let (p, a) = (progres.clone(), arret.clone());
-    std::thread::spawn(move || {
-        let _ = envoi.send(travail(&p, &a));
-    });
-    Box::new(SurUnFil { resultat, progres, arret })
-}
-
-impl<T> Tache<T> for SurUnFil<T> {
-    fn sonder(&mut self, _ecoule: f64) -> Avancement<T> {
-        match self.resultat.try_recv() {
-            Ok(Ok(v)) => Avancement::Fini(v),
-            Ok(Err(e)) => Avancement::Echec(e),
-            Err(mpsc::TryRecvError::Empty) => Avancement::EnCours(f64::from_bits(self.progres.load(Ordering::Relaxed))),
-            Err(mpsc::TryRecvError::Disconnected) => Avancement::Echec("le travail s'est arrêté sans résultat".into()),
-        }
-    }
-    fn arreter(&mut self) {
-        self.arret.store(true, Ordering::Relaxed);
-    }
-}
-
-impl<T> Drop for SurUnFil<T> {
-    fn drop(&mut self) {
-        self.arret.store(true, Ordering::Relaxed);
-    }
-}
-
 /// `curl` qui écrit dans le fichier partiel ; l'avancement est sa taille.
 struct Curl {
     enfant: Child,
@@ -172,23 +133,16 @@ impl Drop for Curl {
 fn lancer(mut commande: Command, journal: &Path, quoi: &str, arret: &AtomicBool) -> Result<(), String> {
     let sortie = std::fs::File::create(journal).map_err(|e| format!("{} : {e}", journal.display()))?;
     let mut enfant = commande.stdin(Stdio::null()).stdout(Stdio::null()).stderr(sortie).spawn().map_err(|e| format!("{quoi} : {e}"))?;
-    loop {
-        if arret.load(Ordering::Relaxed) {
-            let _ = enfant.kill();
-            let _ = enfant.wait();
-            return Err(format!("{quoi} : arrêté"));
+    match attendre(&mut enfant, arret, None, Duration::from_millis(100), || {}) {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => {
+            let texte = std::fs::read_to_string(journal).unwrap_or_default();
+            let fin: Vec<&str> = texte.lines().filter(|l| !l.trim().is_empty()).collect();
+            let fin = fin[fin.len().saturating_sub(4)..].join("\n");
+            Err(format!("{quoi} a échoué ({s}) : {fin}"))
         }
-        match enfant.try_wait() {
-            Ok(Some(s)) if s.success() => return Ok(()),
-            Ok(Some(s)) => {
-                let texte = std::fs::read_to_string(journal).unwrap_or_default();
-                let fin: Vec<&str> = texte.lines().filter(|l| !l.trim().is_empty()).collect();
-                let fin = fin[fin.len().saturating_sub(4)..].join("\n");
-                return Err(format!("{quoi} a échoué ({s}) : {fin}"));
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-            Err(e) => return Err(format!("{quoi} : {e}")),
-        }
+        Err(Interruption::Erreur(e)) => Err(format!("{quoi} : {e}")),
+        Err(Interruption::Arrete | Interruption::Delai) => Err(format!("{quoi} : arrêté")),
     }
 }
 
@@ -207,17 +161,10 @@ fn sortie_de(programme: &Path, arguments: &[&str], delai: Duration) -> Result<(b
         let _ = stdout.read_to_string(&mut texte);
         texte
     });
-    let debut = Instant::now();
-    let statut = loop {
-        if let Some(s) = enfant.try_wait().map_err(|e| e.to_string())? {
-            break s;
-        }
-        if debut.elapsed() > delai {
-            let _ = enfant.kill();
-            let _ = enfant.wait();
-            return Err(format!("`{} {}` ne répond pas", programme.display(), arguments.join(" ")));
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    let statut = match attendre(&mut enfant, &AtomicBool::new(false), Some(delai), Duration::from_millis(50), || {}) {
+        Ok(s) => s,
+        Err(Interruption::Erreur(e)) => return Err(e.to_string()),
+        Err(Interruption::Arrete | Interruption::Delai) => return Err(format!("`{} {}` ne répond pas", programme.display(), arguments.join(" "))),
     };
     Ok((statut.success(), lecteur.join().unwrap_or_default()))
 }
@@ -225,7 +172,7 @@ fn sortie_de(programme: &Path, arguments: &[&str], delai: Duration) -> Result<(b
 /// La CLI `claude` : une app lancée du Finder n'a pas le PATH du terminal, on regarde donc aux
 /// endroits où ses installateurs la mettent avant le PATH.
 pub(crate) fn trouver_claude() -> Option<PathBuf> {
-    let maison = PathBuf::from(std::env::var_os("HOME")?);
+    let maison = greffier_coeur::reglages::maison();
     let connus = [maison.join(".local/bin/claude"), maison.join(".claude/local/claude"), "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into()];
     let chemin = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join("claude")).collect::<Vec<_>>()).unwrap_or_default();
     connus.into_iter().chain(chemin).find(|p| p.is_file())
@@ -267,13 +214,13 @@ impl Outils for OutilsDuMac {
             .spawn();
         match enfant {
             Ok(enfant) => Box::new(Curl { enfant, partiel: partiel.to_path_buf(), taille }),
-            Err(e) => crate::faux::FausseTache::boite(0.0, Err(format!("curl : {e}"))),
+            Err(e) => greffier_coeur::faux::FausseTache::boite(0.0, Err(format!("curl : {e}"))),
         }
     }
 
     fn empreinte(&mut self, fichier: &Path) -> TacheDe<String> {
         let fichier = fichier.to_path_buf();
-        sur_un_fil(move |progres, arret| {
+        sur_un_fil("sha256", Progression::Exacte, move |arret, progres| {
             let mut f = std::fs::File::open(&fichier).map_err(|e| format!("{} : {e}", fichier.display()))?;
             let total = f.metadata().map_or(1, |m| m.len().max(1));
             let mut sha = Sha256::new();
@@ -289,14 +236,14 @@ impl Outils for OutilsDuMac {
                 }
                 sha.update(&tampon[..n]);
                 lu += n as u64;
-                progres.store((lu as f64 / total as f64).to_bits(), Ordering::Relaxed);
+                progres(lu as f64 / total as f64);
             }
         })
     }
 
     fn installer_python(&mut self, projet: &Path, dossier: &Path) -> TacheDe<()> {
         let (uv, projet, dossier) = (self.uv.clone(), projet.to_path_buf(), dossier.to_path_buf());
-        sur_un_fil(move |_, arret| {
+        sur_un_fil("uv", Progression::Exacte, move |arret, _| {
             let uv = uv.ok_or("uv embarqué introuvable : installer l'app avec scripts/installer-app.")?;
             let env = environnement_python(&dossier);
             std::fs::create_dir_all(dossier.join("tmp")).map_err(|e| e.to_string())?;
@@ -314,7 +261,7 @@ impl Outils for OutilsDuMac {
     }
 
     fn verifier_claude(&mut self) -> TacheDe<EtatDeClaude> {
-        sur_un_fil(|_, _| verifier_claude())
+        sur_un_fil("claude", Progression::Exacte, |_, _| verifier_claude())
     }
 }
 

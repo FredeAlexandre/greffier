@@ -120,6 +120,11 @@ fn un_bilan_sans_decisions_met_l_etape_en_echec_et_traiter_la_reessaie() {
     banc.executer(Commande::Traiter(id));
     banc.avancer_jusqu_a(id, |s| matches!(s, Statut::Echec { .. }));
     assert_eq!(banc.reunion(id).statut, Statut::Echec { etape: Etape::Bilan, message: "Le bilan n'a pas de décisions horodatées.".into() });
+    // La session de l'agent est gardée quand même, pour reprendre la conversation.
+    assert_eq!(banc.reunion(id).sessions.bilan.as_deref(), Some("session-bilan"));
+    let nom = banc.reunion(id).nom_du_dossier.clone();
+    let fiche = banc.lire(&banc.greffier.dossier().fichier(&nom, greffier_coeur::Role::Fiche));
+    assert!(fiche.contains("bilan: \"session-bilan\""), "{fiche}");
 
     banc.executer(Commande::Traiter(id));
     let etapes = banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);

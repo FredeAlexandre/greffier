@@ -87,6 +87,44 @@ fn un_media_seul_devient_une_reunion_a_traiter_des_la_transcription() {
     assert_eq!(banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee), [Etape::Transcription, Etape::Relecture, Etape::Bilan]);
 }
 
+#[test]
+fn un_media_de_la_famille_mp4_devient_l_enregistrement_mp4_sans_toucher_a_l_original() {
+    for nom in ["point.mov", "point.m4v", "point.m4a", "point.MOV"] {
+        let mut banc = Banc::new();
+        let dehors = Dehors::new(&banc);
+        let original = dehors.copier(&video(), nom);
+        let id = importer(&mut banc, import(original.clone()));
+
+        let r = banc.reunion(id);
+        let dossier = banc.greffier.dossier();
+        let mp4 = dossier.fichier(&r.nom_du_dossier, Role::Enregistrement);
+        assert!(mp4.is_file(), "{nom} : « … - enregistrement.mp4 »");
+        assert_eq!(dossier.enregistrement(&r.nom_du_dossier), Some(mp4), "{nom} : un seul enregistrement");
+        assert_eq!(r.duree, 12.0);
+        assert_eq!(std::fs::read(&original).unwrap(), std::fs::read(video()).unwrap(), "{nom} : l'original reste tel quel");
+    }
+}
+
+#[test]
+fn un_media_qui_ne_passe_pas_en_mp4_garde_son_extension() {
+    let mut banc = Banc::new();
+    let dehors = Dehors::new(&banc);
+    // Un .mov qui n'en est pas un : la mise en MP4 échoue, il est copié tel quel.
+    let id = importer(&mut banc, import(dehors.ecrire("point.mov", "pas vraiment une vidéo")));
+    let nom = banc.reunion(id).nom_du_dossier.clone();
+    let copie = banc.greffier.dossier().enregistrement(&nom).expect("le média importé");
+    assert_eq!(copie.file_name().and_then(|n| n.to_str()), Some("2026-10-02 09h30 - Point client - enregistrement.mov"));
+    assert_eq!(std::fs::read_to_string(copie).unwrap(), "pas vraiment une vidéo");
+    assert!(!banc.greffier.dossier().fichier(&nom, Role::Enregistrement).exists(), "pas de MP4 à moitié écrit");
+
+    // Hors de la famille MP4 (WAV, MP3…), rien à essayer.
+    let mut banc = Banc::new();
+    let dehors = Dehors::new(&banc);
+    let id = importer(&mut banc, import(dehors.ecrire("point.wav", "RIFF")));
+    let nom = banc.reunion(id).nom_du_dossier.clone();
+    assert_eq!(banc.greffier.dossier().enregistrement(&nom).and_then(|f| f.extension().map(|e| e.to_owned())), Some("wav".into()));
+}
+
 /// (locuteur affiché, début, fin, texte) de chaque réplique.
 fn repliques(banc: &Banc, id: IdReunion) -> Vec<(String, f64, f64, String)> {
     let r = banc.reunion(id);
@@ -221,32 +259,23 @@ fn un_media_sa_transcription_et_son_bilan_ne_passent_par_aucune_etape() {
     assert_eq!(greffier_coeur::Reunion { id: avant.id, ..apres }, avant);
 }
 
-/// Une vraie transcription d'une ancienne réunion du vault (lue sur place : le dépôt est public,
-/// elle n'y est pas copiée). Sans le vault sur ce Mac, le test ne vérifie rien.
+/// Un vrai VTT (une ancienne transcription, gardée hors du dépôt) s'importe comme n'importe quel
+/// VTT. Facultatif : `GREFFIER_VTT_REEL=<fichier.vtt> cargo test` ; sans lui, le test ne vérifie
+/// rien. Ne vérifie que ce qui vaut pour tout VTT à étiquettes `[SPEAKER_xx]:`.
 #[test]
-fn un_vtt_reel_du_vault_s_importe_comme_n_importe_quel_vtt() {
-    let Some(maison) = std::env::var_os("HOME") else { return };
-    let vtt = Path::new(&maison).join("Vault/Falcon HQ/Réunions/2026-11-05 11h53 - Réunion/transcription/2026-11-05 11h53.vtt");
-    if !vtt.is_file() {
-        eprintln!("vault absent, test sauté : {}", vtt.display());
-        return;
-    }
+fn un_vtt_reel_s_importe_comme_n_importe_quel_vtt() {
+    let Some(vtt) = std::env::var_os("GREFFIER_VTT_REEL").map(PathBuf::from) else { return };
+    let contenu = std::fs::read_to_string(&vtt).expect("GREFFIER_VTT_REEL lisible");
+    let entrees = contenu.lines().filter(|l| l.contains("-->")).count();
     let mut banc = Banc::new();
     let dehors = Dehors::new(&banc);
-    let id = importer(&mut banc, Import { transcription: Some(vtt.clone()), ..import(dehors.copier(&video(), "2026-11-05 11h53.mp4")) });
+    let id = importer(&mut banc, Import { transcription: Some(vtt.clone()), ..import(dehors.copier(&video(), "reel.mp4")) });
 
     let r = banc.reunion(id);
-    assert_eq!(r.repliques.len(), 111, "une réplique par entrée du VTT");
-    let etiquettes: Vec<&str> = r.locuteurs.iter().map(|l| l.etiquette.as_str()).collect();
-    assert_eq!(etiquettes, ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"]);
-    assert!(r.locuteurs.iter().all(|l| l.nom.is_none()), "des étiquettes, pas des noms");
-    let parle = |i: usize| r.repliques.iter().filter(|x| x.locuteur == i).count();
-    assert_eq!((parle(0), parle(1), parle(2)), (30, 26, 55));
-    let premiere = &r.repliques[0];
-    assert_eq!((premiere.locuteur, premiere.debut, premiere.fin), (2, 0.051, 2.853));
-    assert!(premiere.texte.starts_with("Oui, vas-y"), "le « [SPEAKER_02]: » est retiré du texte : {}", premiere.texte);
-    let derniere = r.repliques.last().unwrap();
-    assert_eq!((derniere.locuteur, derniere.debut, derniere.fin, derniere.texte.as_str()), (1, 423.594, 423.694, "Hop."));
+    assert_eq!(r.repliques.len(), entrees, "une réplique par entrée du VTT");
+    assert!(r.locuteurs.iter().all(|l| l.etiquette.starts_with("SPEAKER_") && l.nom.is_none()), "des étiquettes, pas des noms");
+    assert!(r.repliques.iter().all(|x| !x.texte.starts_with("[SPEAKER_") && x.debut <= x.fin), "le « [SPEAKER_xx]: » est retiré du texte");
+    assert!(r.repliques.windows(2).all(|w| w[0].debut <= w[1].debut));
     assert_eq!(r.etape_faite, Some(Etape::Transcription));
 }
 
@@ -294,7 +323,8 @@ fn sans_date_dans_le_media_la_date_est_celle_de_modification_et_le_titre_le_nom_
     let propose = banc.greffier.proposer_import(std::slice::from_ref(&audio)).unwrap();
     assert_eq!((propose.debut, propose.titre.as_str(), propose.transcription.clone(), propose.bilan.clone()), (DateHeure::new(2026, 11, 16, 8, 45), "Daily du lundi", None, None));
 
-    // La date et le titre se changent avant de valider ; l'audio garde son extension.
+    // La date et le titre se changent avant de valider ; un audio qui ne passe pas en MP4 (ce
+    // n'en est pas un) garde son extension.
     let id = importer(&mut banc, Import { debut: DateHeure::new(2026, 11, 16, 9, 0), titre: "Daily".into(), ..propose });
     let nom = banc.reunion(id).nom_du_dossier.clone();
     assert_eq!(nom, "2026-11-16 09h00 - Daily");
@@ -340,7 +370,8 @@ fn une_reunion_importee_n_est_pas_vue_comme_modifiee_hors_de_l_app_et_son_audio_
     // Les fichiers copiés et écrits par Greffier ne passent pas pour des modifications.
     assert_eq!(banc.greffier.relire_le_dossier(), []);
 
-    // L'enregistrement importé garde son extension, et sa modification se voit quand même.
+    // L'enregistrement importé qui ne passe pas en MP4 garde son extension, et sa modification
+    // se voit quand même.
     let nom = banc.reunion(id).nom_du_dossier.clone();
     let copie = banc.greffier.dossier().enregistrement(&nom).expect("l'audio importé");
     assert_eq!(copie.extension().and_then(|e| e.to_str()), Some("m4a"));

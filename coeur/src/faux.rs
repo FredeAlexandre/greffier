@@ -536,3 +536,18 @@ impl Corbeille for FausseCorbeille {
         Ok(())
     }
 }
+
+/// Une fausse mise en MP4 : un fichier qui commence comme un MP4 (boîte `ftyp`) est copié tel
+/// quel, le reste est refusé.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FausseMiseEnMp4;
+
+impl MiseEnMp4 for FausseMiseEnMp4 {
+    fn en_mp4(&self, de: &Path, vers: &Path) -> Result<(), String> {
+        let octets = std::fs::read(de).map_err(|e| format!("{} : {e}", de.display()))?;
+        if octets.get(4..8) != Some(b"ftyp".as_slice()) {
+            return Err(format!("{} : pas un conteneur MP4", de.display()));
+        }
+        std::fs::write(vers, octets).map_err(|e| format!("{} : {e}", vers.display()))
+    }
+}

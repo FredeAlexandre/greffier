@@ -6,7 +6,7 @@
 //! [`RessourcesDeLApp`] est l'adaptateur [`Ressources`] de l'app : il décide quoi télécharger,
 //! reprend les téléchargements interrompus, vérifie les sha256 et range les fichiers. Le travail
 //! lent (télécharger, calculer une empreinte, lancer uv ou `claude`) passe par des [`Outils`] :
-//! ceux du Mac ([`crate::mac::OutilsDuMac`]) ou les faux des tests ([`crate::faux::FauxOutils`]).
+//! ceux du Mac (`greffier_outils::mac::OutilsDuMac`) ou les faux des tests ([`crate::faux::FauxOutils`]).
 //!
 //! Sur le disque, un fichier en cours de téléchargement s'appelle `<nom>.partiel` ; il ne prend
 //! son nom qu'une fois son sha256 vérifié. Un fichier présent à la bonne taille est donc prêt.
@@ -21,11 +21,7 @@ use sha2::{Digest, Sha256};
 use crate::adaptateurs::{Avancement, EtatDeRessource, Ressource, Ressources, TacheDe};
 use crate::reunion::Etape;
 
-/// Le dossier de l'app : `~/Library/Application Support/Greffier`.
-pub fn dossier_de_l_app() -> PathBuf {
-    let maison = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
-    maison.join("Library/Application Support/Greffier")
-}
+pub use crate::reglages::dossier_de_l_app;
 
 /// Le modèle de Whisper, dans le dossier de l'app.
 pub const MODELE_WHISPER: &str = "modeles/ggml-large-v3.bin";
@@ -176,7 +172,7 @@ pub fn sha256(octets: &[u8]) -> String {
     hex(&Sha256::digest(octets))
 }
 
-pub(crate) fn hex(octets: &[u8]) -> String {
+pub fn hex(octets: &[u8]) -> String {
     octets.iter().map(|o| format!("{o:02x}")).collect()
 }
 

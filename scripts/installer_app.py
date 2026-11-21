@@ -22,7 +22,7 @@ EXE = "greffier"
 BUNDLE_ID = "io.github.fredealexandre.greffier"
 IDENTITY = "Greffier Dev"
 # L'uv embarqué, qui installe le Python privé de pyannote (ADR 0003). Même version que
-# `VERSION_D_UV` dans coeur/src/mac.rs, qui le cherche à côté de l'exécutable.
+# `VERSION_D_UV` dans outils/src/mac.rs, qui le cherche à côté de l'exécutable.
 UV_VERSION = "0.13.7"
 UV_ARCHIVE = "uv-aarch64-apple-darwin.tar.gz"
 UV_SHA256 = "81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731"
@@ -63,7 +63,7 @@ def write_entitlements(path):
 
 
 def uv_version_in_core(mac_rs):
-    """La version d'uv que le cœur attend (`VERSION_D_UV` de coeur/src/mac.rs)."""
+    """La version d'uv que le cœur attend (`VERSION_D_UV` de outils/src/mac.rs)."""
     found = re.search(r'VERSION_D_UV: &str = "([^"]+)"', mac_rs)
     return found[1] if found else None
 
@@ -277,8 +277,8 @@ def main(argv=None):
         if not os.access(binary, os.X_OK):
             raise Failure(f"pas d'exécutable à {binary}")
         target = ROOT / "target"
-        if uv_version_in_core((ROOT / "coeur/src/mac.rs").read_text()) != UV_VERSION:
-            raise Failure(f"coeur/src/mac.rs n'attend pas uv {UV_VERSION} : aligner VERSION_D_UV et UV_VERSION.")
+        if uv_version_in_core((ROOT / "outils/src/mac.rs").read_text()) != UV_VERSION:
+            raise Failure(f"outils/src/mac.rs n'attend pas uv {UV_VERSION} : aligner VERSION_D_UV et UV_VERSION.")
         uv = fetch_uv(target)
         step("Construction du bundle")
         app, entitlements = target / f"{NAME}.app", target / f"{NAME}.entitlements"

@@ -70,6 +70,13 @@ pub fn sans_les_bruits(mots: Vec<Mot>) -> Vec<Mot> {
     gardes
 }
 
+/// Un texte (la réécoute d'un extrait) sans ses bruits, mêmes règles que `sans_les_bruits`, ses
+/// espaces ramenés à un seul.
+pub fn texte_sans_les_bruits(texte: &str) -> String {
+    let mots = texte.split_whitespace().map(|t| Mot { debut: 0.0, fin: 0.0, texte: t.to_string(), confiance: 1.0, locuteur: None }).collect();
+    sans_les_bruits(mots).into_iter().map(|m| m.texte).collect::<Vec<_>>().join(" ")
+}
+
 /// `.`, `?`, `!` ou `…`, suivi ou non d'un guillemet fermant.
 fn fin_de_phrase(texte: &str) -> bool {
     let t = texte.trim();
@@ -119,7 +126,7 @@ pub fn attribuer(mots: Vec<Mot>, tours: Vec<TourDeParole>) -> Attribution {
         }
     }
     let rang = |i: usize| ordre.iter().position(|&x| x == i).unwrap_or(0);
-    let locuteurs: Vec<Locuteur> = (0..ordre.len()).map(|i| Locuteur::new(format!("SPEAKER_{i:02}"), TEINTES[i % TEINTES.len()])).collect();
+    let locuteurs: Vec<Locuteur> = (0..ordre.len()).map(|i| Locuteur::new(Locuteur::etiquette_numero(i), TEINTES[i % TEINTES.len()])).collect();
     let tours = tours.into_iter().zip(&numeros).map(|(t, &n)| TourDeParole { locuteur: locuteurs[rang(n)].etiquette.clone(), ..t }).collect();
     let mots: Vec<Mot> = mots.into_iter().zip(&ids).map(|(m, &i)| Mot { locuteur: Some(rang(i)), ..m }).collect();
     let repliques = repliques(&mots);
@@ -170,6 +177,11 @@ fn locuteurs_des_mots(mots: &[Mot], tours: &[TourDeParole], numeros: &[usize]) -
 
 /// Règle 2 : les interruptions de 2 mots ou moins, sans fin de phrase, rendues au locuteur en
 /// cours. Une seule passe, de gauche à droite.
+///
+/// « Au milieu de la phrase de quelqu'un d'autre » se lit comme dans le vault (`assign()`,
+/// repris à l'identique, spec #1) : le même locuteur de part et d'autre et aucune fin de phrase
+/// dans l'interruption. Le vault ne regarde pas si le mot d'avant finit une phrase ; on ne le
+/// regarde pas non plus, pour garder les mêmes répliques que lui.
 fn rendre_les_interruptions(mots: &[Mot], ids: &mut [usize]) {
     let mut i = 0;
     while i < ids.len() {
@@ -192,6 +204,10 @@ fn rendre_les_interruptions(mots: &[Mot], ids: &mut [usize]) {
 /// Règle 3 : chaque changement de locuteur qui ne suit pas une fin de phrase est déplacé sur la
 /// fin de phrase la plus proche à 3 mots près, en arrière d'abord. Les changements déjà faits
 /// comptent pour les suivants.
+///
+/// « La plus proche » suit le vault (`assign()`, repris à l'identique, spec #1) : la plus proche
+/// en arrière (le retard habituel de la séparation) si elle existe, sinon la plus proche en
+/// avant, même quand celle d'avant est plus près.
 fn recaler_sur_les_fins_de_phrase(mots: &[Mot], ids: &mut [usize]) {
     let finit = |k: usize| fin_de_phrase(&mots[k].texte);
     for i in 1..ids.len() {
@@ -230,7 +246,7 @@ fn repliques(mots: &[Mot]) -> Vec<Replique> {
             r.texte.push_str(texte);
             r.fin = r.fin.max(mot.fin);
         } else {
-            repliques.push(Replique { locuteur, debut: mot.debut, fin: mot.fin, texte: texte.to_string(), passage: None });
+            repliques.push(Replique { locuteur, debut: mot.debut, fin: mot.fin, texte: texte.to_string(), passages: vec![] });
         }
     }
     repliques

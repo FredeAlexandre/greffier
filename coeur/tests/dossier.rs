@@ -67,7 +67,7 @@ fn une_reunion_complete_est_lue_depuis_sa_fiche_son_bilan_et_sa_transcription() 
     assert_eq!(r.passages.len(), 1);
     assert_eq!(r.passages[0].hypothese.as_deref(), Some("l'équipe support"));
     assert_eq!(r.passages[0].statut, StatutDuPassage::EnAttente);
-    assert_eq!(r.repliques[2].passage, Some(0));
+    assert_eq!(r.repliques[2].passages, [0]);
 
     // Bilan : rendu tel quel, sujets et décisions pour la timeline.
     assert!(r.bilan.starts_with("## En bref\n\nOn publie la release lundi"));

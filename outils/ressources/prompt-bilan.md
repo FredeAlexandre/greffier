@@ -66,7 +66,7 @@ Ta réponse finale est un objet structuré :
 - `titre` : le titre de la réunion en quelques mots (pas de phrase), par exemple « Budget du trimestre, recrutement, démo client » ; Greffier en fait le nom du dossier ;
 - `resume` : 3 à 5 lignes, sans titre ni liste : ce qui a été dit et décidé ;
 - `actions` : les 3 actions les plus importantes, au format `Qui — quoi — échéance si dite`, celles de l'utilisateur de Greffier d'abord ;
-- `participants` : pour chaque locuteur de la liste qui n'est pas fusionné, même s'il est déjà nommé, le `locuteur` (« SPEAKER_01 »), le `nom` proposé (le prénom tel qu'il est cité ; une chaîne vide si la conversation ne permet pas de savoir qui c'est), la `justification` en une phrase (où la conversation le montre, avec un horodatage, par exemple « Khalid l'appelle Jérôme à 0:44:00 » ; ou pourquoi on ne peut pas le savoir), et `meme_voix_que` : le label d'un autre locuteur qui semble être la même personne, sinon une chaîne vide. L'utilisateur confirme ou corrige ces noms dans Greffier.
+- `participants` : pour chaque locuteur de la liste qui n'est pas fusionné, même s'il est déjà nommé, le `locuteur` (« SPEAKER_01 »), le `nom` proposé (le prénom tel qu'il est cité ; une chaîne vide si la conversation ne permet pas de savoir qui c'est), la `justification` en une phrase (où la conversation le montre, avec un horodatage, par exemple « Odile l'appelle Bastien à 0:44:00 » ; ou pourquoi on ne peut pas le savoir), et `meme_voix_que` : le label d'un autre locuteur qui semble être la même personne, sinon une chaîne vide. L'utilisateur confirme ou corrige ces noms dans Greffier.
 
 Greffier met lui-même la fiche à jour avec ces informations, et renomme le dossier d'après le titre.
 

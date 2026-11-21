@@ -119,9 +119,9 @@ pub struct App {
     /// Pourquoi l'enregistrement n'a pas démarré (autorisation, source…).
     pub record_error: Option<String>,
     /// Un enregistrement de moins d'une minute, proposé à la suppression.
-    pub short_recording: Option<IdReunion>,
+    pub enregistrement_court: Option<IdReunion>,
     /// Ce que compte le lexique, pour les réglages.
-    pub lexique: lexique::Resume,
+    pub lexique: lexique::Apercu,
     /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
     pub people: Vec<String>,
     /// Signale les changements faits dans le dossier de réunions hors de l'app.
@@ -193,7 +193,7 @@ impl App {
                         h.open();
                     }
                 }
-                Evenement::SuppressionProposee(id) => self.short_recording = Some(id),
+                Evenement::SuppressionProposee(id) => self.enregistrement_court = Some(id),
                 Evenement::ReunionImportee(id) => self.imported(id),
                 Evenement::BilanPret { reunion, titre } => {
                     if self.page == Page::Meeting(reunion) {
@@ -204,8 +204,8 @@ impl App {
                 }
                 Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
                     // La relecture a pu enrichir le lexique.
-                    self.lexique = reglages::lexique();
-                    self.people = reglages::personnes();
+                    self.lexique = self.core.lexique();
+                    self.people = reglages::personnes(&self.core);
                 }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
                 Evenement::RessourcesInstallees => {
@@ -284,8 +284,7 @@ impl App {
         if !m.fichiers.contains(&Role::Enregistrement) {
             return;
         }
-        // Un média importé garde son extension (`… - enregistrement.m4a`).
-        let Some(file) = self.core.dossier().enregistrement(&m.nom_du_dossier) else { return };
+        let Some(file) = self.core.fichier_d_enregistrement(id) else { return };
         let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
@@ -371,7 +370,7 @@ impl App {
             Err(e) => s.folder_error = Some(e.to_string()),
         });
     }
-    pub fn recording(&self) -> bool {
+    pub fn enregistre(&self) -> bool {
         self.core.enregistrement().is_some()
     }
     /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
@@ -379,8 +378,8 @@ impl App {
     fn install_menu_bar(&mut self) {
         let Some(h) = self.handle.clone() else { return };
         self.menu_bar = IconeDeLaBarre::new(move |choix| match choix {
-            Choix::Demarrer => h.update(|s: &mut App, _| if !s.recording() { s.toggle_recording() }),
-            Choix::Arreter => h.update(|s: &mut App, _| if s.recording() { s.toggle_recording() }),
+            Choix::Demarrer => h.update(|s: &mut App, _| if !s.enregistre() { s.toggle_recording() }),
+            Choix::Arreter => h.update(|s: &mut App, _| if s.enregistre() { s.toggle_recording() }),
             Choix::Ouvrir => h.open(),
             Choix::Quitter => h.quit(),
         });
@@ -392,16 +391,17 @@ impl App {
         self.show_menu_bar();
         self.keep_awake();
     }
-    /// Le Mac ne se met pas en veille pendant un enregistrement ou un traitement : l'assertion
-    /// suit [`Greffier::garder_le_mac_eveille`] (renommée quand la raison change).
+    /// Le Mac ne se met pas en veille pendant un enregistrement (l'écran non plus) ou un
+    /// traitement : l'assertion suit [`Greffier::garder_le_mac_eveille`] (refaite quand la raison
+    /// change).
     fn keep_awake(&mut self) {
-        let reason = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
-        if self.awake.as_ref().map(PasDeVeille::raison) == reason {
+        let eveil = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
+        if self.awake.as_ref().map(|a| (a.raison(), a.ecran())) == eveil.map(|e| (e.raison, e.ecran)) {
             return;
         }
         self.awake = None;
-        if let Some(reason) = reason {
-            match PasDeVeille::new(reason) {
+        if let Some(eveil) = eveil {
+            match PasDeVeille::new(eveil.raison, eveil.ecran) {
                 Ok(a) => self.awake = Some(a),
                 Err(e) => eprintln!("greffier : {e}"),
             }
@@ -421,10 +421,10 @@ impl App {
         if self.needs_folder {
             return;
         }
-        if !self.recording() {
+        if !self.enregistre() {
             self.rec_phase = 0.0;
             self.record_error = self.try_command(Commande::DemarrerEnregistrement).err().map(|r| r.to_string());
-            if self.recording() {
+            if self.enregistre() {
                 self.register_marker_shortcut(true);
             } else if let Some(h) = &self.handle {
                 // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
@@ -438,13 +438,13 @@ impl App {
         self.page = Page::Recording;
     }
     pub fn stop_recording(&mut self) {
-        if self.recording() {
+        if self.enregistre() {
             self.command(Commande::ArreterEnregistrement);
         }
         self.register_marker_shortcut(false);
     }
     pub fn toggle_recording(&mut self) {
-        if self.recording() { self.stop_recording() } else { self.start_recording() }
+        if self.enregistre() { self.stop_recording() } else { self.start_recording() }
     }
     /// ⌘M de n'importe où pendant l'enregistrement (rendu aux autres apps à l'arrêt).
     fn register_marker_shortcut(&mut self, on: bool) {
@@ -507,8 +507,7 @@ impl App {
     }
     /// Montre le dossier de la réunion dans le Finder (sans fenêtre, rien).
     pub fn reveal(&mut self, id: IdReunion) {
-        let Some(m) = self.core.reunion(id) else { return };
-        let dossier = self.core.dossier().dossier(&m.nom_du_dossier);
+        let Some(dossier) = self.core.dossier_de_la_reunion(id) else { return };
         if rune::is_headless() {
             return;
         }
@@ -551,7 +550,7 @@ impl App {
         }
     }
     pub fn add_marker(&mut self) {
-        if self.recording() {
+        if self.enregistre() {
             self.command(Commande::PoserRepere);
         }
     }
@@ -654,10 +653,13 @@ fn init() -> App {
         None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
     };
     // Sans fenêtre, les réglages par défaut : rendu déterministe.
-    let (settings, shortcut) = if rune::is_headless() { (greffier_coeur::Reglages::default(), reglages::RACCOURCI_PAR_DEFAUT.to_string()) } else { reglages::enregistrement() };
+    let retenus = if rune::is_headless() { greffier_coeur::reglages::ReglagesRetenus::default() } else { reglages::retenus() };
     // Le lexique et le cache viennent du dossier de l'app (`real_core`), pas des réglages retenus.
-    let settings = greffier_coeur::Reglages { lexique: core.reglages().lexique.clone(), cache_de_recherche: core.reglages().cache_de_recherche.clone(), ..settings };
+    let settings = retenus.appliquer(core.reglages().clone());
     let _ = core.executer(Commande::ChangerReglages(settings));
+    let shortcut = retenus.raccourci;
+    let lexique = core.lexique();
+    let people = reglages::personnes(&core);
     App {
         core,
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
@@ -690,9 +692,9 @@ fn init() -> App {
         shortcut_id: None,
         marker_id: None,
         record_error: None,
-        short_recording: None,
-        lexique: reglages::lexique(),
-        people: reglages::personnes(),
+        enregistrement_court: None,
+        lexique,
+        people,
         watch: None,
         import: None,
         process_imported: None,
@@ -773,7 +775,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         active = true;
     }
 
-    if s.recording() {
+    if s.enregistre() {
         s.rec_phase += dt;
     }
     // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
@@ -821,7 +823,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.enregistrement_court.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -834,7 +836,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.confirm_delete = Some(id);
         return true;
     }
-    if ev.is_command('m') && s.recording() {
+    if ev.is_command('m') && s.enregistre() {
         s.add_marker();
         return true;
     }
@@ -899,7 +901,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     meeting::fullscreen(s, &k, cx, &mut layer);
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
-    overlays::short_recording(s, &k, &mut layer);
+    overlays::enregistrement_court(s, &k, &mut layer);
     titre::window(s, &k, &mut layer);
     refaire::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);

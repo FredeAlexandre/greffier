@@ -108,7 +108,7 @@ impl ReecouteWhisper {
     }
 }
 
-impl greffier_coeur::claude::relecture::Reecoute for ReecouteWhisper {
+impl greffier_outils::claude::relecture::Reecoute for ReecouteWhisper {
     fn reecouter(&self, enregistrement: &std::path::Path, extraits: &[(f64, f64)], vocabulaire: &str, arret: &AtomicBool) -> Result<Vec<String>, String> {
         let echantillons = audio::mixage(enregistrement, arret, |_| {})?;
         let f = audio::FREQUENCE as f64;

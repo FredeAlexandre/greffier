@@ -151,7 +151,37 @@ fn les_passages_douteux_sont_corriges_apres_reecoute_ou_laisses_a_verifier() {
     let passages: Vec<(usize, &str, Option<&str>, &str)> = r.passages.iter().map(|p| (p.replique, p.extrait.as_str(), p.hypothese.as_deref(), p.reecoute.as_str())).collect();
     assert_eq!(passages, [(0, "Zorglube", None, "on parle de Zorglub"), (1, "recète", Some("requête"), "la requête est prête")]);
     assert_eq!(r.passages_en_attente(), 2);
-    assert_eq!((r.repliques[0].passage, r.repliques[1].passage, r.repliques[2].passage), (Some(0), Some(1), None));
+    assert_eq!((r.repliques[0].passages.as_slice(), r.repliques[1].passages.as_slice(), r.repliques[2].passages.as_slice()), (&[0][..], &[1][..], &[][..]));
+}
+
+#[test]
+fn plusieurs_passages_douteux_d_une_meme_replique_sont_tous_gardes() {
+    let mut banc = Banc::avec(adaptateurs(|_| {
+        Ok(ResultatDeRelecture {
+            passages_a_verifier: vec![
+                PassageSignale { replique: 2, extrait: "Pas encore".into(), hypothese: None, reecoute: String::new() },
+                PassageSignale { replique: 2, extrait: "jeudi".into(), hypothese: Some("mardi".into()), reecoute: String::new() },
+                // Le même passage signalé deux fois n'en fait qu'un.
+                PassageSignale { replique: 2, extrait: "jeudi".into(), hypothese: Some("mardi".into()), reecoute: String::new() },
+            ],
+            ..Default::default()
+        })
+    }));
+    let id = relue(&mut banc);
+    let r = banc.reunion(id);
+    let passages: Vec<(usize, &str)> = r.passages.iter().map(|p| (p.replique, p.extrait.as_str())).collect();
+    assert_eq!(passages, [(2, "Pas encore"), (2, "jeudi")]);
+    assert_eq!(r.repliques[2].passages, [0, 1]);
+
+    // Chacun se tranche, et les deux se retrouvent au lancement suivant.
+    banc.executer(Commande::Trancher { reunion: id, passage: 1, tranche: greffier_coeur::Tranche::AccepterHypothese });
+    assert_eq!(banc.reunion(id).repliques[2].texte, "Pas encore, mardi peut-être.");
+    let nom = banc.reunion(id).nom_du_dossier.clone();
+    banc.rouvrir();
+    let r = banc.reunion_nommee(&nom);
+    assert_eq!(r.passages.len(), 2);
+    assert_eq!(r.repliques[2].passages, [0, 1]);
+    assert_eq!(r.passages_en_attente(), 1);
 }
 
 #[test]

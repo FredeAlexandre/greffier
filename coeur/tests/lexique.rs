@@ -29,13 +29,13 @@ fn le_vocabulaire_est_la_phrase_donnee_a_whisper_sur_une_ligne() {
 #[test]
 fn le_resume_compte_personnes_mots_justes_et_erreurs_connues() {
     let md = "## Personnes\n\n- Alice : dev\n- Bob\n\n## Mots justes\n\n_Une indication, avec une virgule._\n\nAcme, Zorglub, Quux.\n\n## Erreurs connues\n\n| Entendu | Correct |\n|---|---|\n| Alisse | Alice |\n| Akmé | Acme |\n\n## Vocabulaire\n\nRéunion.\n";
-    let r = lexique::resume(md);
+    let r = lexique::apercu(md);
     assert_eq!((r.personnes, r.mots_justes, r.erreurs_connues), (2, 3, 2));
 }
 
 #[test]
 fn le_lexique_livre_est_un_modele_vide() {
-    assert_eq!(lexique::resume(LEXIQUE_INITIAL), lexique::Resume::default());
+    assert_eq!(lexique::apercu(LEXIQUE_INITIAL), lexique::Apercu::default());
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn la_relecture_ajoute_ses_erreurs_au_tableau_des_erreurs_connues() {
     let (md, ajoutes) = lexique::ajouter_erreurs(md, &[ajout("Zorglube", "Zorglub"), ajout("halice", "Alice"), ajout("Acme", "acme"), ajout(" ", "Bob"), ajout("Zorglube", "Zorglub"), ajout("a|b", "c")]);
     assert_eq!(ajoutes, [ajout("Zorglube", "Zorglub"), ajout("a|b", "c")], "déjà connue, simple casse, vide et doublon sont écartés");
     assert_eq!(md, "## Erreurs connues\n\n_Une indication._\n\n| Entendu | Correct |\n|---|---|\n| Alisse, Halice | Alice |\n| Zorglube | Zorglub |\n| a\\|b | c |\n\n## Vocabulaire\n\nRéunion.\n");
-    assert_eq!(lexique::resume(&md).erreurs_connues, 3);
+    assert_eq!(lexique::apercu(&md).erreurs_connues, 3);
 }
 
 #[test]

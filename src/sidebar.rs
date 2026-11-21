@@ -15,8 +15,8 @@ fn record_button(s: &App, k: &Kit) -> El {
         Some(rec) => (format!("Arrêter · {}", ui::ts(rec.duree)), &ui::STOP),
         None => ("Enregistrer une réunion".to_string(), &ui::RECORD),
     };
-    let recording = s.recording();
-    let pulse = if recording { 0.55 + 0.45 * (s.rec_phase * 3.2).cos().abs() as f32 } else { 1.0 };
+    let enregistre = s.enregistre();
+    let pulse = if enregistre { 0.55 + 0.45 * (s.rec_phase * 3.2).cos().abs() as f32 } else { 1.0 };
     row()
         .key("record")
         .w_full()
@@ -25,8 +25,8 @@ fn record_button(s: &App, k: &Kit) -> El {
         .gap(10.0)
         .center_y()
         .radius(10.0)
-        .fill(if recording { r.alpha(0.16) } else { k.c.layer_02 })
-        .border(1.0, if recording { r.alpha(0.45) } else { k.c.border_muted })
+        .fill(if enregistre { r.alpha(0.16) } else { k.c.layer_02 })
+        .border(1.0, if enregistre { r.alpha(0.45) } else { k.c.border_muted })
         .hover(k.c.hover)
         .press(k.c.pressed)
         .cursor(rune::Cursor::Pointer)
@@ -36,7 +36,7 @@ fn record_button(s: &App, k: &Kit) -> El {
         .child(text(label).font(tnum(k.ty.ui_medium)).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
         .child(text(crate::pages::shortcut_caps(s).concat()).font(k.ty.small).color(k.c.text_faint))
         .on_press(|s: &mut App| {
-            if s.recording() {
+            if s.enregistre() {
                 if s.page == Page::Recording { s.stop_recording() } else { s.page = Page::Recording }
             } else {
                 s.start_recording()
@@ -51,9 +51,7 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
         Statut::Terminee if m.passages_en_attente() > 0 => format!("{start} · {} · {} à vérifier", ui::dur(m.duree), m.passages_en_attente()),
         Statut::Terminee => format!("{start} · {}", ui::dur(m.duree)),
         Statut::ATraiter => format!("{start} · {} · à traiter", ui::dur(m.duree)),
-        Statut::EnAttente(_) => format!("{start} · {}ᵉ dans la file · {}", s.core.rang(id).map_or(1, |r| r + 1), ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))),
-        Statut::EnCours { etape, progres } => format!("{start} · {} {:.0} % · {}", ui::step(*etape), progres * 100.0, ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))),
-        st => format!("{start} · {}", ui::status(st).to_lowercase()),
+        _ => format!("{start} · {}", ui::status_line(s, m)),
     };
     let title = crate::meeting::display_title(m, false);
     let mut r = SidebarRow::new(title)

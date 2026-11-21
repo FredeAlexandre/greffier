@@ -288,23 +288,29 @@ pub fn speaker_name(m: &Reunion, i: usize) -> (String, rune::Color, bool) {
     (p.affiche(), spk_color(p.teinte), p.nom.is_some())
 }
 
-/// Le texte d'une réplique. Le cœur y a déjà mis ce que le passage à vérifier est devenu :
-/// surligné tant qu'il est en attente, souligné une fois remplacé.
+/// Le texte d'une réplique. Le cœur y a déjà mis ce que ses passages à vérifier sont devenus :
+/// surlignés tant qu'ils sont en attente, soulignés une fois remplacés.
 pub fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
     let u = &m.repliques[i];
     let ink = k.c.text_base;
-    if let Some(d) = u.passage.and_then(|di| m.passages.get(di)) {
+    let mut spans: Vec<Span> = Vec::new();
+    for d in u.passages.iter().filter_map(|&di| m.passages.get(di)) {
         let shown = d.texte(&d.statut);
-        let span = match &d.statut {
-            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => u.texte.find(shown).map(|a| Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::EnAttente => u.texte.find(shown).map(|a| Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::OriginalGarde => None,
-        };
-        if let Some(span) = span {
-            return rich(u.texte.clone(), vec![span]).font(k.ty.body).color(ink);
+        let Some(a) = u.texte.find(shown) else { continue };
+        if spans.iter().any(|s| (a as u32) < s.end && s.start < (a + shown.len()) as u32) {
+            continue;
+        }
+        match &d.statut {
+            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => spans.push(Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::EnAttente => spans.push(Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
+            StatutDuPassage::OriginalGarde => {}
         }
     }
-    text(u.texte.clone()).font(k.ty.body).color(ink).wrap()
+    if spans.is_empty() {
+        return text(u.texte.clone()).font(k.ty.body).color(ink).wrap();
+    }
+    spans.sort_by_key(|s| s.start);
+    rich(u.texte.clone(), spans).font(k.ty.body).color(ink)
 }
 
 fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
@@ -368,7 +374,7 @@ fn info(s: &App, m: &Reunion, k: &Kit) -> El {
     ] {
         processing = processing.child(ui::check_row(k, ok, label, &detail));
     }
-    let folder = format!("{}/", reglages::afficher(&s.core.dossier().dossier(&m.nom_du_dossier)));
+    let folder = format!("{}/", s.core.dossier_de_la_reunion(m.id).map(|d| reglages::afficher(&d)).unwrap_or_default());
     let mut files = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Fichiers dans le dossier de réunions"))
         .child(row().gap(6.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(folder).font(k.ty.small).color(k.c.text_muted).truncate_middle().min_w(0.0)));
     for role in Role::TOUS {
@@ -447,7 +453,7 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
         }
         list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(row().w(18.0).h(18.0).center().child(icon)).child(col_));
     }
-    let eta = ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0));
+    let eta = ui::eta(s, id);
     let (status, action) = match &m.statut {
         Statut::EnAttente(_) => match s.core.rang(id).unwrap_or(0) {
             0 | 1 => (format!("En attente : une autre réunion est en cours de traitement. Environ {eta} avant la fin."), None),

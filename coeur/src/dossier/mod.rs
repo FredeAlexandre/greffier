@@ -101,6 +101,17 @@ impl DossierDeReunions {
         self.dossier(nom).join(format!("{nom} - {}", role.suffixe()))
     }
 
+    /// Crée le dossier d'une réunion s'il n'existe pas.
+    pub fn creer(&self, nom: &str) -> Result<(), String> {
+        let d = self.dossier(nom);
+        std::fs::create_dir_all(&d).map_err(|e| format!("{} : {e}", d.display()))
+    }
+
+    /// Le bilan d'une réunion, tel qu'il est sur le disque.
+    pub fn lire_le_bilan(&self, nom: &str) -> Result<String, String> {
+        std::fs::read_to_string(self.fichier(nom, Role::Bilan)).map_err(|e| e.to_string())
+    }
+
     /// Les noms des dossiers de réunion, les plus récents d'abord. Ce qui ne suit pas la règle
     /// de nommage est ignoré.
     pub fn noms(&self) -> Vec<String> {

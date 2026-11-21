@@ -32,3 +32,6 @@ name = "rejouer"
 
 [[example]]
 name = "essai_veille"
+
+[[example]]
+name = "essai_mise_en_mp4"

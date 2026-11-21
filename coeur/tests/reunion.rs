@@ -105,7 +105,7 @@ fn la_relecture_corrige_et_signale_les_passages_a_trancher() {
     assert_eq!(r.corrections, 1);
     assert_eq!(r.sessions.relecture.as_deref(), Some("session-relecture"));
     assert_eq!(r.passages_en_attente(), 1);
-    assert_eq!(r.repliques[1].passage, Some(0));
+    assert_eq!(r.repliques[1].passages, [0]);
 
     banc.executer(Commande::Trancher { reunion: id, passage: 0, tranche: Tranche::AccepterHypothese });
     assert_eq!(banc.reunion(id).passages[0].statut, StatutDuPassage::HypotheseAcceptee);

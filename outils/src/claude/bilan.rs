@@ -1,6 +1,7 @@
 //! Le bilan par Claude : le prompt livré avec l'app (`ressources/prompt-bilan.md`), rempli pour la
 //! réunion ; l'agent démarre dans le dossier de réunions, les dossiers de contexte lui sont
-//! ouverts (`--add-dir`), il peut lire et écrire mais ni lancer de commandes ni aller sur le web.
+//! ouverts en lecture (`--add-dir`), il peut lire et écrire mais ni lancer de commandes ni aller
+//! sur le web.
 //! Il écrit le fichier du bilan lui-même et renvoie titre, résumé, 3 actions au plus et ses
 //! propositions de noms pour les locuteurs.
 
@@ -9,8 +10,8 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use super::{AppelAClaude, Claude, Session};
-use crate::adaptateurs::{DemandeDeBilan, Participant, ResultatDuBilan};
-use crate::temps::horodatage_de_lecture;
+use greffier_coeur::adaptateurs::{DemandeDeBilan, LocuteurDuBilan, ResultatDuBilan};
+use greffier_coeur::horodatage_de_lecture;
 
 /// Le prompt du bilan, livré avec l'app.
 pub const PROMPT_DU_BILAN: &str = include_str!("../../ressources/prompt-bilan.md");
@@ -72,8 +73,16 @@ pub fn prompt(d: &DemandeDeBilan) -> String {
 }
 
 /// L'appel à la CLI pour ce bilan : une nouvelle session dans le dossier de réunions, les
-/// dossiers de contexte ouverts en plus, l'écriture permise.
+/// dossiers de contexte ouverts en plus, l'écriture permise sauf dans les dossiers de contexte
+/// (ils se lisent : règles `Write(//chemin/**)` et `Edit(//chemin/**)` de la CLI, `//` = chemin
+/// absolu). Un dossier de contexte qui contient le dossier de réunions reste ouvert à l'écriture,
+/// le bilan s'y écrit.
 pub fn appel(d: &DemandeDeBilan, session: &str) -> AppelAClaude {
+    let mut outils_interdits: Vec<String> = OUTILS_INTERDITS.map(String::from).to_vec();
+    for dossier in d.dossiers_de_contexte.iter().filter(|c| !d.dossier_de_reunions.starts_with(c)) {
+        let motif = format!("/{}/**", dossier.display().to_string().trim_end_matches('/'));
+        outils_interdits.extend([format!("Write({motif})"), format!("Edit({motif})")]);
+    }
     AppelAClaude {
         prompt: prompt(d),
         entree: String::new(),
@@ -81,7 +90,7 @@ pub fn appel(d: &DemandeDeBilan, session: &str) -> AppelAClaude {
         session: Session::Nouvelle(session.into()),
         repertoire: d.dossier_de_reunions.clone(),
         outils_permis: OUTILS_PERMIS.map(String::from).to_vec(),
-        outils_interdits: OUTILS_INTERDITS.map(String::from).to_vec(),
+        outils_interdits,
         ecriture: true,
         dossiers_en_plus: d.dossiers_de_contexte.clone(),
     }
@@ -96,12 +105,12 @@ pub fn resultat(reponse: &serde_json::Value, session: &str) -> Result<ResultatDu
     }
     let liste = |cle: &str| reponse.get(cle).and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     let actions = liste("actions").iter().filter_map(|a| a.as_str()).map(|a| a.trim().trim_start_matches("- ").trim_start_matches("[ ]").trim().to_string()).filter(|a| !a.is_empty()).take(3).collect();
-    let participants = liste("participants")
+    let locuteurs = liste("participants")
         .iter()
-        .map(|p| Participant { locuteur: texte(p, "locuteur"), nom_propose: texte(p, "nom"), justification: texte(p, "justification"), meme_voix_que: Some(texte(p, "meme_voix_que")).filter(|m| !m.is_empty()) })
+        .map(|p| LocuteurDuBilan { locuteur: texte(p, "locuteur"), nom_propose: texte(p, "nom"), justification: texte(p, "justification"), meme_voix_que: Some(texte(p, "meme_voix_que")).filter(|m| !m.is_empty()) })
         .filter(|p| !p.locuteur.is_empty() && (!p.nom_propose.is_empty() || !p.justification.is_empty()))
         .collect();
-    Ok(ResultatDuBilan { session: Some(session.to_string()), titre, resume: texte(reponse, "resume"), actions, participants })
+    Ok(ResultatDuBilan { session: Some(session.to_string()), titre, resume: texte(reponse, "resume"), actions, locuteurs })
 }
 
 fn modifie(fichier: &Path) -> Option<SystemTime> {
@@ -124,9 +133,9 @@ pub fn faire(claude: &dyn Claude, d: &DemandeDeBilan, arret: &AtomicBool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adaptateurs::LocuteurPourLAgent;
-    use crate::reunion::Repere;
-    use crate::temps::DateHeure;
+    use greffier_coeur::adaptateurs::LocuteurPourLAgent;
+    use greffier_coeur::Repere;
+    use greffier_coeur::DateHeure;
     use std::path::PathBuf;
 
     fn demande() -> DemandeDeBilan {
@@ -189,13 +198,19 @@ mod tests {
         assert_eq!(apres("--add-dir"), Some("/Users/odile/Notes"));
         let i = a.iter().position(|x| x == "--allowedTools").unwrap();
         assert_eq!(a[i + 1..i + 6], ["Read", "Glob", "Grep", "Write", "Edit"]);
+        // Les dossiers de contexte se lisent, ne s'écrivent pas.
         let i = a.iter().position(|x| x == "--disallowedTools").unwrap();
-        assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task"]);
+        assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task", "Write(//Users/odile/Notes/**)", "Edit(//Users/odile/Notes/**)"]);
         assert!(serde_json::from_str::<serde_json::Value>(SCHEMA).is_ok());
         assert_eq!(appel(&demande(), "s").repertoire, PathBuf::from("/Users/odile/Réunions"));
 
         let sans_contexte = appel(&DemandeDeBilan { dossiers_de_contexte: vec![], ..demande() }, "s").arguments();
         assert!(!sans_contexte.contains(&"--add-dir".to_string()));
+
+        // Un dossier de contexte qui contient le dossier de réunions n'est pas fermé à l'écriture :
+        // le bilan s'y écrit.
+        let parent = appel(&DemandeDeBilan { dossiers_de_contexte: vec![PathBuf::from("/Users/odile")], ..demande() }, "s");
+        assert_eq!(parent.outils_interdits, ["Bash", "WebFetch", "WebSearch", "Task"]);
     }
 
     /// Une fausse CLI : écrit (ou non) le fichier du bilan, et rend la réponse donnée.
@@ -233,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn la_reponse_donne_titre_resume_actions_et_participants() {
+    fn la_reponse_donne_titre_resume_actions_et_locuteurs() {
         let reponse = serde_json::json!({
             "titre": " Budget du trimestre ",
             "resume": "On garde le budget.",
@@ -250,10 +265,10 @@ mod tests {
         assert_eq!(r.titre, "Budget du trimestre");
         assert_eq!(r.resume, "On garde le budget.");
         assert_eq!(r.actions, ["Odile — envoyer le devis — lundi", "Bastien — relire", "C"]);
-        assert_eq!(r.participants[0].meme_voix_que, None);
-        assert_eq!(r.participants[1].meme_voix_que.as_deref(), Some("SPEAKER_01"));
-        assert_eq!(r.participants.len(), 3, "un locuteur sans nom proposé garde sa justification");
-        assert_eq!((r.participants[2].nom_propose.as_str(), r.participants[2].justification.as_str()), ("", "Personne ne le nomme."));
+        assert_eq!(r.locuteurs[0].meme_voix_que, None);
+        assert_eq!(r.locuteurs[1].meme_voix_que.as_deref(), Some("SPEAKER_01"));
+        assert_eq!(r.locuteurs.len(), 3, "un locuteur sans nom proposé garde sa justification");
+        assert_eq!((r.locuteurs[2].nom_propose.as_str(), r.locuteurs[2].justification.as_str()), ("", "Personne ne le nomme."));
         assert!(resultat(&serde_json::json!({"titre": " ", "resume": "", "actions": [], "participants": []}), "s").is_err());
     }
 }

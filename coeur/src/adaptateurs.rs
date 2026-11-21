@@ -326,9 +326,10 @@ pub struct DemandeDeBilan {
     pub bilan_actuel: Option<String>,
 }
 
-/// Ce que l'agent propose pour un locuteur.
+/// Ce que l'agent propose pour un locuteur (un élément de `participants` dans sa réponse JSON :
+/// la clé du prompt ne change pas).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Participant {
+pub struct LocuteurDuBilan {
     /// « SPEAKER_00 »
     pub locuteur: String,
     /// Vide quand l'agent ne sait pas qui c'est (la justification dit pourquoi).
@@ -346,13 +347,13 @@ pub struct ResultatDuBilan {
     pub resume: String,
     /// Les 3 actions principales, au plus.
     pub actions: Vec<String>,
-    pub participants: Vec<Participant>,
+    pub locuteurs: Vec<LocuteurDuBilan>,
 }
 
 /// La relecture en deux passes (réécoute comprise) et le bilan, confiés à un agent.
 pub trait Agent {
     fn relire(&mut self, demande: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture>;
-    /// Écrit `demande.fichier_du_bilan` et renvoie titre, résumé, actions et participants.
+    /// Écrit `demande.fichier_du_bilan` et renvoie titre, résumé, actions et locuteurs.
     fn faire_le_bilan(&mut self, demande: DemandeDeBilan) -> TacheDe<ResultatDuBilan>;
 }
 
@@ -425,6 +426,16 @@ pub trait Corbeille {
     fn jeter(&self, chemin: &std::path::Path) -> Result<(), String>;
 }
 
+// --- Mise en MP4 ----------------------------------------------------------------------------
+
+/// Passer un média importé de la famille MP4 (QuickTime `.mov`, `.m4a`, `.m4v`) dans un fichier
+/// `.mp4`, sans le réencoder : l'enregistrement d'une réunion s'appelle `… - enregistrement.mp4`.
+pub trait MiseEnMp4 {
+    /// Écrit `vers` (un `.mp4`) avec les pistes de `de`, sans toucher à `de`. L'erreur est un
+    /// message ; le cœur copie alors le média tel quel, avec son extension.
+    fn en_mp4(&self, de: &std::path::Path, vers: &std::path::Path) -> Result<(), String>;
+}
+
 /// Tous les adaptateurs branchés sur le cœur.
 pub struct Adaptateurs {
     pub capture: Box<dyn Capture>,
@@ -434,4 +445,5 @@ pub struct Adaptateurs {
     pub ressources: Box<dyn Ressources>,
     pub horloge: Box<dyn Horloge>,
     pub corbeille: Box<dyn Corbeille>,
+    pub mise_en_mp4: Box<dyn MiseEnMp4>,
 }

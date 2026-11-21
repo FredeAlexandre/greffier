@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use greffier_coeur::adaptateurs::{Adaptateurs, Participant, ResultatDeRelecture, ResultatDuBilan};
+use greffier_coeur::adaptateurs::{Adaptateurs, LocuteurDuBilan, ResultatDeRelecture, ResultatDuBilan};
 use greffier_coeur::faux::{FausseCapture, FausseCorbeille, FausseHorloge, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
 use greffier_coeur::{Commande, DateHeure, Etape, Evenement, Greffier, IdReunion, Mot, Reunion, Statut, TourDeParole};
 
@@ -39,9 +39,9 @@ pub fn resultat_du_bilan() -> ResultatDuBilan {
         titre: "Point d'équipe : démo".into(),
         resume: "Alexandre salue l'équipe.".into(),
         actions: vec!["Alexandre — préparer la démo — lundi".into(), "Khalid — relire la PR".into()],
-        participants: vec![
-            Participant { locuteur: "SPEAKER_00".into(), nom_propose: "Alexandre".into(), justification: "Khalid l'appelle Alexandre à 0:00:03.".into(), meme_voix_que: None },
-            Participant { locuteur: "SPEAKER_01".into(), nom_propose: "Khalid".into(), justification: "Répond à Alexandre.".into(), meme_voix_que: None },
+        locuteurs: vec![
+            LocuteurDuBilan { locuteur: "SPEAKER_00".into(), nom_propose: "Alexandre".into(), justification: "Khalid l'appelle Alexandre à 0:00:03.".into(), meme_voix_que: None },
+            LocuteurDuBilan { locuteur: "SPEAKER_01".into(), nom_propose: "Khalid".into(), justification: "Répond à Alexandre.".into(), meme_voix_que: None },
         ],
     }
 }
@@ -65,6 +65,7 @@ pub fn adaptateurs() -> Adaptateurs {
         ressources: Box::new(FaussesRessources::pretes()),
         horloge: Box::new(FausseHorloge(DateHeure::new(2026, 11, 21, 14, 2))),
         corbeille: Box::new(FausseCorbeille::new()),
+        mise_en_mp4: Box::new(greffier_coeur::faux::FausseMiseEnMp4),
     }
 }
 

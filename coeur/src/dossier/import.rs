@@ -4,14 +4,17 @@
 //! [`Import`] dit quels fichiers prendre, avec la date et le titre choisis dans la fenêtre
 //! d'import ; `Greffier::proposer_import` le prépare à partir des fichiers déposés. Le cœur
 //! copie ensuite les fichiers dans un nouveau dossier de réunion : les originaux ne sont jamais
-//! touchés.
+//! touchés. Un média de la famille MP4 (`.mov`, `.m4a`, `.m4v`) y passe en `… -
+//! enregistrement.mp4` sans réencodage ([`MiseEnMp4`]) ; s'il ne peut pas, ou pour un autre
+//! média (`.wav`, `.mp3`…), il garde son extension.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::transcription::{self, RepliqueEcrite, TranscriptionStructuree};
 use super::{DossierDeReunions, Role, mp4};
-use crate::reunion::{Etape, IdReunion, Reunion, Statut};
+use crate::adaptateurs::MiseEnMp4;
+use crate::reunion::{Etape, IdReunion, Locuteur, Reunion, Statut};
 use crate::temps::DateHeure;
 
 /// Ce qu'on importe, tel que validé dans la fenêtre d'import.
@@ -32,6 +35,9 @@ pub(crate) fn extension(chemin: &Path) -> String {
     chemin.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase()
 }
 
+/// Les extensions des médias de la famille MP4 qu'AVFoundation passe en `.mp4` sans réencoder.
+pub const EXTENSIONS_DE_LA_FAMILLE_MP4: [&str; 4] = ["mov", "qt", "m4a", "m4v"];
+
 /// Les extensions des médias qu'AVFoundation lit, vidéo ou audio seul.
 pub const EXTENSIONS_DE_MEDIA: [&str; 17] = ["mp4", "m4v", "mov", "qt", "3gp", "3g2", "m4a", "m4b", "mp3", "wav", "aif", "aiff", "aifc", "caf", "aac", "flac", "amr"];
 
@@ -39,7 +45,7 @@ impl DossierDeReunions {
     /// Copie les fichiers de l'import dans un nouveau dossier de réunion et rend la réunion,
     /// pas encore écrite : la fiche et les transcriptions viennent ensuite avec [`DossierDeReunions::ecrire`].
     /// En cas d'erreur, rien ne reste dans le dossier de réunions.
-    pub fn importer(&self, import: &Import, id: IdReunion) -> Result<Reunion, String> {
+    pub fn importer(&self, import: &Import, id: IdReunion, mise_en_mp4: &dyn MiseEnMp4) -> Result<Reunion, String> {
         let lire = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{} : {e}", p.display()));
         if !EXTENSIONS_DE_MEDIA.contains(&extension(&import.enregistrement).as_str()) {
             return Err(format!("{} : ce n'est pas un média que Greffier sait lire.", import.enregistrement.display()));
@@ -74,7 +80,7 @@ impl DossierDeReunions {
                     r.statut = Statut::Terminee;
                 }
             }
-            copier(&import.enregistrement, self.fichier_d_enregistrement(&nom, &extension(&import.enregistrement)))?;
+            self.copier_l_enregistrement(&import.enregistrement, &nom, mise_en_mp4)?;
             r.duree = self.enregistrement(&nom).and_then(|f| mp4::duree(&f)).or_else(|| r.repliques.iter().map(|x| x.fin).reduce(f64::max)).unwrap_or(0.0);
             Ok(r)
         })();
@@ -82,6 +88,28 @@ impl DossierDeReunions {
             let _ = std::fs::remove_dir_all(&dossier);
         }
         resultat
+    }
+}
+
+impl DossierDeReunions {
+    /// Copie le média en `… - enregistrement.mp4` : tel quel pour un `.mp4`, passé en MP4 pour
+    /// la famille MP4 ; sinon (ou si la mise en MP4 échoue), copié avec son extension.
+    fn copier_l_enregistrement(&self, media: &Path, nom: &str, mise_en_mp4: &dyn MiseEnMp4) -> Result<(), String> {
+        let copier = |vers: PathBuf| std::fs::copy(media, &vers).map(|_| ()).map_err(|e| format!("{} : {e}", media.display()));
+        let ext = extension(media);
+        let mp4 = self.fichier(nom, Role::Enregistrement);
+        if ext == "mp4" {
+            return copier(mp4);
+        }
+        if EXTENSIONS_DE_LA_FAMILLE_MP4.contains(&ext.as_str()) {
+            match mise_en_mp4.en_mp4(media, &mp4) {
+                Ok(()) if mp4.is_file() => return Ok(()),
+                _ => {
+                    let _ = std::fs::remove_file(&mp4);
+                }
+            }
+        }
+        copier(self.fichier_d_enregistrement(nom, &ext))
     }
 }
 
@@ -132,7 +160,7 @@ fn depuis_les_lignes(lignes: Vec<Ligne>) -> (TranscriptionStructuree, Vec<(Strin
             continue;
         }
         let etiquette = loop {
-            let e = format!("SPEAKER_{n:02}");
+            let e = Locuteur::etiquette_numero(n);
             n += 1;
             if !prises.contains(&e) {
                 break e;

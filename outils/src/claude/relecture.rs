@@ -18,8 +18,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{AppelAClaude, Claude, Session, nouvelle_session};
-use crate::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent, ResultatDeRelecture};
-use crate::temps::horodatage_de_lecture;
+use greffier_coeur::adaptateurs::{AjoutAuLexique, ChangementDeLocuteur, CorrectionSure, DemandeDeRelecture, PassageCorrige, PassageSignale, RepliquePourLAgent, ResultatDeRelecture};
+use greffier_coeur::horodatage_de_lecture;
 
 /// Le prompt de la relecture livré avec l'app.
 pub const PROMPT: &str = include_str!("../../ressources/prompt-relecture.md");
@@ -46,20 +46,26 @@ pub trait Reecoute {
 
 #[derive(Deserialize)]
 struct Correction {
-    ligne: usize,
+    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    #[serde(rename = "ligne")]
+    replique: usize,
     avant: String,
     apres: String,
 }
 
 #[derive(Deserialize)]
 struct Locuteur {
-    ligne: usize,
+    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    #[serde(rename = "ligne")]
+    replique: usize,
     locuteur: String,
 }
 
 #[derive(Clone, Deserialize)]
-struct Doute {
-    ligne: usize,
+struct PassageAReecouter {
+    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    #[serde(rename = "ligne")]
+    replique: usize,
     extrait: String,
     #[serde(default)]
     hypothese: String,
@@ -77,15 +83,17 @@ struct PremierePasse {
     corrections: Vec<Correction>,
     #[serde(default)]
     locuteurs: Vec<Locuteur>,
-    #[serde(default)]
-    doutes: Vec<Doute>,
+    #[serde(default, rename = "doutes")]
+    passages: Vec<PassageAReecouter>,
     #[serde(default)]
     lexique: Vec<Entree>,
 }
 
 #[derive(Deserialize)]
 struct Decision {
-    ligne: usize,
+    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    #[serde(rename = "ligne")]
+    replique: usize,
     #[serde(default)]
     extrait: String,
     statut: String,
@@ -221,56 +229,56 @@ pub fn relire(claude: &dyn Claude, reecoute: &dyn Reecoute, d: &DemandeDeRelectu
     let p1: PremierePasse = lire(claude.demander(&appel(premiere, repliques_numerotees(&d.repliques), schema_de_la_premiere_passe(), Session::Nouvelle(session.clone())), arret)?)?;
     arrete()?;
 
-    // La ligne N de l'agent est la N-ième réplique envoyée.
-    let replique = |ligne: usize| ligne.checked_sub(1).and_then(|i| d.repliques.get(i));
+    // La réplique N de l'agent (sa « ligne ») est la N-ième réplique envoyée.
+    let envoyee = |numero: usize| numero.checked_sub(1).and_then(|i| d.repliques.get(i));
     let mut resultat = ResultatDeRelecture { session: Some(session.clone()), ..Default::default() };
-    resultat.corrections = p1.corrections.into_iter().filter_map(|c| Some(CorrectionSure { replique: replique(c.ligne)?.numero, avant: c.avant, apres: c.apres })).collect();
-    resultat.changements_de_locuteur = p1.locuteurs.into_iter().filter_map(|c| Some(ChangementDeLocuteur { replique: replique(c.ligne)?.numero, locuteur: c.locuteur })).collect();
+    resultat.corrections = p1.corrections.into_iter().filter_map(|c| Some(CorrectionSure { replique: envoyee(c.replique)?.numero, avant: c.avant, apres: c.apres })).collect();
+    resultat.changements_de_locuteur = p1.locuteurs.into_iter().filter_map(|c| Some(ChangementDeLocuteur { replique: envoyee(c.replique)?.numero, locuteur: c.locuteur })).collect();
     resultat.ajouts_au_lexique = p1.lexique.into_iter().map(|e| AjoutAuLexique { entendu: e.entendu, correct: e.correct }).collect();
 
-    let mut doutes: Vec<Doute> = Vec::new();
-    for x in p1.doutes {
-        let vu = doutes.iter().any(|y| y.ligne == x.ligne && y.extrait == x.extrait);
-        if replique(x.ligne).is_some() && !x.extrait.trim().is_empty() && !vu && doutes.len() < PASSAGES_AU_PLUS {
-            doutes.push(x);
+    let mut passages: Vec<PassageAReecouter> = Vec::new();
+    for x in p1.passages {
+        let vu = passages.iter().any(|y| y.replique == x.replique && y.extrait == x.extrait);
+        if envoyee(x.replique).is_some() && !x.extrait.trim().is_empty() && !vu && passages.len() < PASSAGES_AU_PLUS {
+            passages.push(x);
         }
     }
-    if doutes.is_empty() {
+    if passages.is_empty() {
         progres(1.0);
         return Ok(resultat);
     }
 
     progres(PALIERS[1]);
-    let extraits: Vec<(f64, f64)> = doutes.iter().map(|x| {
-        let r = replique(x.ligne).expect("ligne vérifiée");
-        crate::reunion::extrait_a_reecouter(r.debut, r.fin, &r.texte, &x.extrait)
+    let extraits: Vec<(f64, f64)> = passages.iter().map(|x| {
+        let r = envoyee(x.replique).expect("réplique vérifiée");
+        greffier_coeur::extrait_a_reecouter(r.debut, r.fin, &r.texte, &x.extrait)
     }).collect();
     let (reecoutes, pour_l_agent): (Vec<String>, Vec<String>) = match reecoute.reecouter(&d.enregistrement, &extraits, &d.vocabulaire, arret) {
         Ok(textes) => {
-            let textes: Vec<String> = (0..doutes.len()).map(|i| textes.get(i).map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default()).collect();
+            let textes: Vec<String> = (0..passages.len()).map(|i| textes.get(i).map(|t| greffier_coeur::attribution::texte_sans_les_bruits(t)).unwrap_or_default()).collect();
             let lus = textes.iter().map(|t| if t.is_empty() { "(rien d'exploitable)".to_string() } else { t.clone() }).collect();
             (textes, lus)
         }
-        Err(e) => (vec![String::new(); doutes.len()], vec![format!("(réécoute impossible : {e})"); doutes.len()]),
+        Err(e) => (vec![String::new(); passages.len()], vec![format!("(réécoute impossible : {e})"); passages.len()]),
     };
     arrete()?;
 
     progres(PALIERS[2]);
-    let listage: Vec<String> = doutes
+    let listage: Vec<String> = passages
         .iter()
         .zip(&pour_l_agent)
         .map(|(x, entendu)| {
             let h = if x.hypothese.trim().is_empty() { "?" } else { x.hypothese.trim() };
-            let debut = replique(x.ligne).map_or(0.0, |r| r.debut);
-            format!("- ligne #{} [{}] · extrait : « {} » · ton hypothèse : « {h} »\n  réécoute : « {entendu} »", x.ligne, horodatage_de_lecture(debut), x.extrait)
+            let debut = envoyee(x.replique).map_or(0.0, |r| r.debut);
+            format!("- ligne #{} [{}] · extrait : « {} » · ton hypothèse : « {h} »\n  réécoute : « {entendu} »", x.replique, horodatage_de_lecture(debut), x.extrait)
         })
         .collect();
     let prompt = format!("{deuxieme}\n\n{}", listage.join("\n"));
     let p2: DeuxiemePasse = lire(claude.demander(&appel(prompt, String::new(), schema_de_la_deuxieme_passe(), Session::Reprise(session)), arret)?)?;
 
-    for (x, reecoute) in doutes.into_iter().zip(reecoutes) {
-        let numero = replique(x.ligne).expect("ligne vérifiée").numero;
-        let decision = p2.decisions.iter().find(|y| y.ligne == x.ligne && y.extrait == x.extrait).or_else(|| p2.decisions.iter().find(|y| y.ligne == x.ligne));
+    for (x, reecoute) in passages.into_iter().zip(reecoutes) {
+        let numero = envoyee(x.replique).expect("réplique vérifiée").numero;
+        let decision = p2.decisions.iter().find(|y| y.replique == x.replique && y.extrait == x.extrait).or_else(|| p2.decisions.iter().find(|y| y.replique == x.replique));
         match decision {
             Some(y) if y.statut == "corrige" && hypothese(&y.apres).is_some() => {
                 // Corrigé en lui-même : l'extrait était juste, rien à changer.
