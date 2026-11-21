@@ -33,13 +33,16 @@ use greffier_coeur::adaptateurs::{Autorisation, Autorisations, Capture, DemandeD
 use crate::ecrivain::{Ecrivain, IMAGES_PAR_SECONDE};
 use crate::mixage::{self, Mixeur, Source, FREQUENCE};
 
-/// Largeur maximale des images, comme le vault (base réduite à 1920 de large, dimensions paires).
+/// Taille maximale des images : 1080p (spec #1).
 pub const LARGEUR_MAX: usize = 1920;
+pub const HAUTEUR_MAX: usize = 1080;
 
-/// La taille des images : celle de l'écran en pixels, réduite à [`LARGEUR_MAX`], paire.
+/// La taille des images : celle de l'écran en pixels, réduite pour tenir dans
+/// [`LARGEUR_MAX`] × [`HAUTEUR_MAX`] en gardant ses proportions, en dimensions paires.
 pub fn taille_des_images(largeur: usize, hauteur: usize) -> (usize, usize) {
-    let (l, h) = if largeur > LARGEUR_MAX { (LARGEUR_MAX, (hauteur as f64 * LARGEUR_MAX as f64 / largeur as f64).round() as usize) } else { (largeur, hauteur) };
-    (l & !1, h & !1)
+    let echelle = (LARGEUR_MAX as f64 / largeur as f64).min(HAUTEUR_MAX as f64 / hauteur as f64).min(1.0);
+    let (l, h) = ((largeur as f64 * echelle).round() as usize, (hauteur as f64 * echelle).round() as usize);
+    (l.min(LARGEUR_MAX) & !1, h.min(HAUTEUR_MAX) & !1)
 }
 
 /// Ce que la file de capture partage avec le fil de l'app.
@@ -426,10 +429,14 @@ mod tests {
     use super::taille_des_images;
 
     #[test]
-    fn les_images_font_au_plus_1920_de_large_en_dimensions_paires() {
-        assert_eq!(taille_des_images(3024, 1964), (1920, 1246));
+    fn les_images_tiennent_dans_1920_x_1080_en_gardant_les_proportions_et_en_dimensions_paires() {
+        // 1080p : l'écran tient dans 1920 × 1080, proportions gardées.
+        assert_eq!(taille_des_images(2880, 1800), (1728, 1080), "16:10");
+        assert_eq!(taille_des_images(3024, 1964), (1662, 1080));
+        assert_eq!(taille_des_images(5120, 2880), (1920, 1080), "16:9");
+        assert_eq!(taille_des_images(3440, 1440), (1920, 804), "très large : la largeur limite");
+        // Un écran plus petit garde sa taille, rendue paire.
         assert_eq!(taille_des_images(1920, 1080), (1920, 1080));
         assert_eq!(taille_des_images(1512, 983), (1512, 982));
-        assert_eq!(taille_des_images(5120, 2880), (1920, 1080));
     }
 }
