@@ -9,6 +9,8 @@ pub mod fiche;
 mod mp4;
 pub mod transcription;
 
+pub use mp4::duree as duree_du_mp4;
+
 use std::path::{Path, PathBuf};
 
 use crate::reunion::{Etape, IdReunion, Reunion, Statut};

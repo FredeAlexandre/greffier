@@ -79,12 +79,17 @@ pub enum Commande {
     MarquerLue(IdReunion),
     ChangerReglages(Reglages),
     InstallerRessources,
+    /// Affiche la demande de macOS pour cette autorisation.
+    DemanderAutorisation(Autorisation),
 }
 
 /// Ce qui s'est passé dans le cœur et que l'interface peut vouloir annoncer.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Evenement {
     ReunionEnregistree(IdReunion),
+    /// L'enregistrement a duré moins de [`DUREE_MINIMALE`] : sans doute un faux départ, que
+    /// l'interface propose de supprimer. Le traitement suit son cours tant qu'on la garde.
+    SuppressionProposee(IdReunion),
     EtapeTerminee { reunion: IdReunion, etape: Etape },
     EtapeEnEchec { reunion: IdReunion, etape: Etape, message: String },
     BilanPret { reunion: IdReunion, titre: String },
@@ -93,6 +98,9 @@ pub enum Evenement {
     /// Un fichier de la réunion n'a pas pu être écrit dans le dossier de réunions.
     EcritureImpossible { reunion: IdReunion, message: String },
 }
+
+/// En dessous de cette durée (en secondes), un enregistrement est proposé à la suppression.
+pub const DUREE_MINIMALE: f64 = 60.0;
 
 /// Pourquoi une commande n'a pas été exécutée. L'état n'a pas changé.
 #[derive(Clone, Debug, PartialEq)]
@@ -127,6 +135,8 @@ pub struct Enregistrement {
     pub reperes: Vec<f64>,
     pub nombre_de_locuteurs: Option<u8>,
     pub nom_du_dossier: String,
+    /// Les sources enregistrées (celles des réglages au démarrage).
+    pub sources: Sources,
 }
 
 enum Partie<T> {
@@ -283,6 +293,11 @@ impl Greffier {
         self.adaptateurs.horloge.maintenant()
     }
 
+    /// Les autorisations de macOS dont les sources ont besoin.
+    pub fn autorisations(&self) -> Autorisations {
+        self.adaptateurs.capture.autorisations()
+    }
+
     pub fn ressources(&mut self) -> Vec<Ressource> {
         self.adaptateurs.ressources.etat()
     }
@@ -309,11 +324,12 @@ impl Greffier {
         match commande {
             Commande::DemarrerEnregistrement => self.demarrer_enregistrement()?,
             Commande::ArreterEnregistrement => {
-                let e = self.arreter_enregistrement()?;
-                if let Evenement::ReunionEnregistree(id) = e {
-                    self.persister(id, &mut ev);
+                let id = self.arreter_enregistrement()?;
+                ev.push(Evenement::ReunionEnregistree(id));
+                if self.reunion(id).is_some_and(|r| r.duree < DUREE_MINIMALE) {
+                    ev.push(Evenement::SuppressionProposee(id));
                 }
-                ev.insert(0, e);
+                self.persister(id, &mut ev);
             }
             Commande::PoserRepere => {
                 let Some(e) = &mut self.enregistrement else { return impossible("aucun enregistrement en cours") };
@@ -408,6 +424,7 @@ impl Greffier {
             }
             Commande::MarquerLue(id) => self.reunion_mut(id)?.nouvelle = false,
             Commande::ChangerReglages(r) => self.reglages = r,
+            Commande::DemanderAutorisation(a) => self.adaptateurs.capture.demander_autorisation(a),
             Commande::InstallerRessources => {
                 if self.installation.is_none() {
                     self.installation = Some(self.adaptateurs.ressources.installer());
@@ -441,21 +458,38 @@ impl Greffier {
         if self.enregistrement.is_some() {
             return impossible("un enregistrement est déjà en cours");
         }
+        let sources = self.reglages.sources;
+        if sources.aucune() {
+            return impossible("Aucune source à enregistrer : active l'écran, le son du Mac ou le micro dans les réglages.");
+        }
+        let autorisations = self.adaptateurs.capture.autorisations();
+        for a in sources.autorisations() {
+            match autorisations.etat(a) {
+                EtatDAutorisation::Accordee => {}
+                EtatDAutorisation::ADemander => {
+                    self.adaptateurs.capture.demander_autorisation(a);
+                    return impossible(format!("Greffier demande l'autorisation pour « {} » : accepte la demande de macOS, puis relance l'enregistrement.", a.nom().to_lowercase()));
+                }
+                EtatDAutorisation::Refusee => {
+                    return impossible(format!("Greffier n'a pas l'autorisation pour « {} » : Réglages Système › Confidentialité et sécurité › {}, active Greffier.", a.nom(), a.rubrique()));
+                }
+            }
+        }
         let debut = self.adaptateurs.horloge.maintenant();
         let nom = self.dossier.nom_libre(debut, "Réunion");
         std::fs::create_dir_all(self.dossier.dossier(&nom)).map_err(|e| Refus::Impossible(format!("dossier de la réunion : {e}")))?;
-        let demande = DemandeDeCapture { fichier: self.dossier.fichier(&nom, Role::Enregistrement), sources: self.reglages.sources };
+        let demande = DemandeDeCapture { fichier: self.dossier.fichier(&nom, Role::Enregistrement), sources };
         self.adaptateurs.capture.demarrer(demande).map_err(Refus::Impossible)?;
         // La fiche dit qu'un enregistrement est en cours : si l'app s'arrête, la réunion sera
         // relue « enregistrement interrompu ».
         let mut r = Reunion::new(0, nom.clone(), debut, 0.0);
         r.statut = Statut::EnregistrementEnCours;
         let _ = self.dossier.ecrire(&r);
-        self.enregistrement = Some(Enregistrement { debut, duree: 0.0, niveaux: Niveaux::default(), reperes: vec![], nombre_de_locuteurs: None, nom_du_dossier: nom });
+        self.enregistrement = Some(Enregistrement { debut, duree: 0.0, niveaux: Niveaux::default(), reperes: vec![], nombre_de_locuteurs: None, nom_du_dossier: nom, sources });
         Ok(())
     }
 
-    fn arreter_enregistrement(&mut self) -> Result<Evenement, Refus> {
+    fn arreter_enregistrement(&mut self) -> Result<IdReunion, Refus> {
         let Some(e) = self.enregistrement.take() else { return impossible("aucun enregistrement en cours") };
         let duree = self.adaptateurs.capture.arreter().map_err(Refus::Impossible)?;
         let id = self.prochain_id;
@@ -469,7 +503,7 @@ impl Greffier {
         if self.reglages.traiter_a_l_arret {
             self.mettre_en_file(id, Etape::Transcription);
         }
-        Ok(Evenement::ReunionEnregistree(id))
+        Ok(id)
     }
 
     fn mettre_en_file(&mut self, id: IdReunion, etape: Etape) {
