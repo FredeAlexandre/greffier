@@ -182,6 +182,10 @@ impl App {
                     }
                     self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
                 }
+                Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
+                    // La relecture a pu enrichir le lexique.
+                    self.lexique = reglages::lexique();
+                }
                 Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
                 Evenement::RessourcesInstallees => {
                     self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
@@ -198,6 +202,16 @@ impl App {
                 }
                 _ => {}
             }
+        }
+    }
+    /// Ouvre le lexique dans l'éditeur de texte par défaut (sans fenêtre, rien).
+    pub fn open_lexique(&mut self) {
+        if rune::is_headless() {
+            return;
+        }
+        let Some(chemin) = reglages::chemin_du_lexique() else { return };
+        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-t").arg(&chemin).spawn() {
+            eprintln!("greffier : ouvrir le lexique : {e}");
         }
     }
     pub fn open(&mut self, id: IdReunion) {

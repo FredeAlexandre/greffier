@@ -113,13 +113,15 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
-/// sans séparation des locuteurs pour l'instant (un seul locuteur), la vraie capture
-/// (ScreenCaptureKit), l'heure du Mac et les vraies ressources. La relecture et le bilan échouent
-/// avec un message clair tant que l'agent n'est pas branché (plutôt qu'inventer un bilan dans le
-/// vrai dossier de réunions).
+/// sans séparation des locuteurs pour l'instant (un seul locuteur), la relecture par la CLI
+/// `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure du Mac et
+/// les vraies ressources. Le bilan échoue avec un message clair tant qu'il n'est pas branché
+/// (plutôt qu'inventer un bilan dans le vrai dossier de réunions).
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
     use greffier_coeur::adaptateurs::{Adaptateurs, UnSeulLocuteur};
+    use greffier_coeur::claude::{AgentClaude, ClaudeDuMac};
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
+    use std::sync::Arc;
     let app = dossier_de_l_app();
     let ressources = RessourcesDeLApp::new(app.clone(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
     Adaptateurs {
@@ -127,22 +129,9 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         ressources: Box::new(ressources),
         transcripteur: Box::new(greffier_moteurs::TranscripteurWhisper::de_l_app(&app)),
         separateur: Box::new(UnSeulLocuteur),
-        agent: Box::new(AgentPasEncoreBranche),
+        agent: Box::new(AgentClaude::new(Arc::new(ClaudeDuMac::default()), Arc::new(greffier_moteurs::ReecouteWhisper::de_l_app(&app)))),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
         ..greffier_coeur::fictif::adaptateurs()
-    }
-}
-
-/// La relecture et le bilan par Claude, pas encore branchés : l'étape échoue avec ce message, et
-/// « Réessayer cette étape » la relancera quand ils le seront.
-struct AgentPasEncoreBranche;
-
-impl greffier_coeur::adaptateurs::Agent for AgentPasEncoreBranche {
-    fn relire(&mut self, _: greffier_coeur::adaptateurs::DemandeDeRelecture) -> greffier_coeur::adaptateurs::TacheDe<greffier_coeur::adaptateurs::ResultatDeRelecture> {
-        greffier_coeur::faux::FausseTache::boite(0.0, Err("La relecture par Claude n'est pas encore disponible dans cette version de Greffier.".into()))
-    }
-    fn faire_le_bilan(&mut self, _: greffier_coeur::adaptateurs::DemandeDeBilan) -> greffier_coeur::adaptateurs::TacheDe<greffier_coeur::adaptateurs::ResultatDuBilan> {
-        greffier_coeur::faux::FausseTache::boite(0.0, Err("Le bilan par Claude n'est pas encore disponible dans cette version de Greffier.".into()))
     }
 }
 
