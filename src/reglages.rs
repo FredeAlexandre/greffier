@@ -1,6 +1,7 @@
 //! Les réglages de l'app qui survivent à un redémarrage, dans son dossier
 //! (`~/Library/Application Support/Greffier/reglages.json`) : le dossier de réunions, le raccourci
-//! global, les sources et le démarrage automatique du traitement. Rien n'est écrit dans le dossier
+//! global, les sources, le démarrage automatique du traitement et les dossiers de contexte de
+//! l'agent. Rien n'est écrit dans le dossier
 //! de réunions lui-même. Les clés inconnues sont gardées.
 //!
 //! `GREFFIER_DOSSIER=/chemin` remplace le dossier choisi le temps d'un lancement, sans toucher
@@ -58,6 +59,7 @@ pub fn enregistrement() -> (greffier_coeur::Reglages, String) {
     }
     let source = |nom: &str, defaut: bool| v.get("sources").and_then(|s| s.get(nom)).and_then(serde_json::Value::as_bool).unwrap_or(defaut);
     r.sources = greffier_coeur::adaptateurs::Sources { ecran: source("ecran", r.sources.ecran), son_du_mac: source("son_du_mac", r.sources.son_du_mac), micro: source("micro", r.sources.micro) };
+    r.dossiers_de_contexte = v.get("dossiers_de_contexte").and_then(serde_json::Value::as_array).map(|a| a.iter().filter_map(serde_json::Value::as_str).map(PathBuf::from).collect()).unwrap_or_default();
     let raccourci = v.get("raccourci").and_then(serde_json::Value::as_str).unwrap_or(RACCOURCI_PAR_DEFAUT).to_string();
     (r, raccourci)
 }
@@ -68,6 +70,7 @@ pub fn retenir_enregistrement(r: &greffier_coeur::Reglages, raccourci: &str) -> 
         v["traiter_a_l_arret"] = r.traiter_a_l_arret.into();
         v["sources"] = serde_json::json!({ "ecran": r.sources.ecran, "son_du_mac": r.sources.son_du_mac, "micro": r.sources.micro });
         v["raccourci"] = raccourci.into();
+        v["dossiers_de_contexte"] = r.dossiers_de_contexte.iter().map(|d| serde_json::Value::String(d.to_string_lossy().into_owned())).collect();
     })
 }
 
@@ -113,12 +116,11 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
 }
 
 /// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
-/// sans séparation des locuteurs pour l'instant (un seul locuteur), la relecture par la CLI
-/// `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure du Mac et
-/// les vraies ressources. Le bilan échoue avec un message clair tant qu'il n'est pas branché
-/// (plutôt qu'inventer un bilan dans le vrai dossier de réunions).
+/// la vraie séparation des locuteurs (pyannote dans le Python privé), la relecture et le bilan
+/// par la CLI `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure
+/// du Mac et les vraies ressources.
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
-    use greffier_coeur::adaptateurs::{Adaptateurs, UnSeulLocuteur};
+    use greffier_coeur::adaptateurs::Adaptateurs;
     use greffier_coeur::claude::{AgentClaude, ClaudeDuMac};
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
     use std::sync::Arc;
@@ -128,10 +130,9 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         horloge: Box::new(HorlogeDuMac),
         ressources: Box::new(ressources),
         transcripteur: Box::new(greffier_moteurs::TranscripteurWhisper::de_l_app(&app)),
-        separateur: Box::new(UnSeulLocuteur),
+        separateur: Box::new(greffier_moteurs::SeparateurPyannote::de_l_app(&app)),
         agent: Box::new(AgentClaude::new(Arc::new(ClaudeDuMac::default()), Arc::new(greffier_moteurs::ReecouteWhisper::de_l_app(&app)))),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
-        ..greffier_coeur::fictif::adaptateurs()
     }
 }
 

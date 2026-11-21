@@ -274,7 +274,7 @@ pub fn recording(s: &App, k: &Kit) -> El {
         .child(check_row(k, r.sources.micro, "Micro", if r.sources.micro { "Micro par défaut du Mac" } else { "coupé" }))
         .child(
             row().w_full().gap(10.0).center_y().pt(6.0)
-                .child(text("Personnes").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
+                .child(text("Nombre de locuteurs").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
                 .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                     .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(match people { Some(n) if n > 2 => Some(n - 1), _ => None }))).build(k))
                 .child(text(people.map_or("Détecté".to_string(), |n| format!("{n}"))).font(k.ty.ui_medium).color(k.c.text_base).w(64.0).align(rune::Align::Center))
@@ -337,6 +337,28 @@ pub fn settings(s: &App, k: &Kit) -> El {
         )
         .child(check_row(k, true, "Prompt de relecture", "prompt-relecture.md"))
         .child(check_row(k, true, "Prompt du bilan", "prompt-bilan.md"));
+    let dossiers = &s.core.reglages().dossiers_de_contexte;
+    let mut contexte = card(k)
+        .key("context")
+        .child(
+            row().w_full().justify_between().center_y()
+                .child(heading(k, "Dossiers de contexte de l'agent"))
+                .child(Button::new("Ajouter…").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
+                    .help("Ouvrir un dossier de plus à l'agent du bilan")
+                    .on_press_tx(|s: &mut App, tx| s.pick_context_folder(tx)).build(k).key("add-context")),
+        )
+        .child(muted(k, "L'agent du bilan démarre dans le dossier de réunions et peut y relire les bilans précédents. Les dossiers ajoutés ici (notes, projets, documents) lui sont ouverts en plus, pour comprendre un nom ou un projet."));
+    if dossiers.is_empty() {
+        contexte = contexte.child(text("Aucun pour l'instant.").font(k.ty.small).color(k.c.text_faint));
+    }
+    for (i, d) in dossiers.iter().enumerate() {
+        contexte = contexte.child(
+            row().key(format!("context{i}")).w_full().gap(8.0).center_y()
+                .child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted))
+                .child(text(reglages::afficher(d)).font(k.ty.ui).color(k.c.text_base).truncate_middle().grow(1.0).min_w(0.0))
+                .child(Button::new("Retirer").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(move |s: &mut App| s.remove_context_folder(i)).build(k).key(format!("remove-context{i}"))),
+        );
+    }
     let ressources = s.core.ressources();
     let place: u64 = ressources.iter().map(|r| r.taille).sum();
     let mut health = card(k)
@@ -357,7 +379,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
                 .child(muted(k, "Modèles, Python privé et lexique sont dans ~/Library/Application Support/Greffier.").grow(1.0).min_w(0.0))
                 .child(Button::new("Ressources…").variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|s: &mut App| s.page = Page::Installation).build(k).key("open-resources")),
         );
-    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(health))
+    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(contexte).child(health))
 }
 
 /// L'état d'une ressource en quelques mots.

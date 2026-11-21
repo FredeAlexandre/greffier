@@ -195,8 +195,8 @@ pub trait Separateur {
     fn separer(&mut self, demande: DemandeDeSeparation) -> TacheDe<Vec<TourDeParole>>;
 }
 
-/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur.
-/// Branché tant que le vrai séparateur (pyannote) ne l'est pas.
+/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur
+/// (pour les tests).
 pub struct UnSeulLocuteur;
 
 impl Separateur for UnSeulLocuteur {
@@ -306,8 +306,13 @@ pub struct LocuteurPourLAgent {
 pub struct DemandeDeBilan {
     /// Le répertoire de travail de l'agent.
     pub dossier_de_reunions: PathBuf,
+    /// Les dossiers de contexte des réglages, ouverts à l'agent en plus du dossier de réunions.
+    pub dossiers_de_contexte: Vec<PathBuf>,
     /// Le fichier que l'agent doit écrire.
     pub fichier_du_bilan: PathBuf,
+    /// La fiche et la transcription lisible de la réunion, que l'agent lit.
+    pub fiche: PathBuf,
+    pub transcription: PathBuf,
     pub titre: String,
     pub debut: DateHeure,
     pub duree: f64,

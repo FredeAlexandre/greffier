@@ -5,8 +5,10 @@
 //! - [`Claude`] : un appel à la CLI, qui rend la sortie structurée ; [`ClaudeDuMac`] la lance
 //!   vraiment, les tests la remplacent.
 //! - [`relecture`] : la relecture en deux passes, réécoute comprise.
+//! - [`bilan`] : le bilan, que l'agent écrit lui-même.
 //! - [`AgentClaude`] : l'adaptateur [`Agent`] branché dans l'app.
 
+pub mod bilan;
 pub mod relecture;
 
 use std::io::{Read, Write};
@@ -43,6 +45,10 @@ pub struct AppelAClaude {
     pub repertoire: PathBuf,
     pub outils_permis: Vec<String>,
     pub outils_interdits: Vec<String>,
+    /// L'agent écrit des fichiers sans demander (`--permission-mode acceptEdits`).
+    pub ecriture: bool,
+    /// Des dossiers ouverts à l'agent en plus de son répertoire de travail (`--add-dir`).
+    pub dossiers_en_plus: Vec<PathBuf>,
 }
 
 impl AppelAClaude {
@@ -54,6 +60,13 @@ impl AppelAClaude {
             Session::Reprise(id) => a.extend(["--resume".into(), id.clone()]),
         }
         a.extend(["--output-format".into(), "json".into(), "--json-schema".into(), self.schema.clone()]);
+        if self.ecriture {
+            a.extend(["--permission-mode".into(), "acceptEdits".into()]);
+        }
+        if !self.dossiers_en_plus.is_empty() {
+            a.push("--add-dir".into());
+            a.extend(self.dossiers_en_plus.iter().map(|d| d.display().to_string()));
+        }
         a.push("--allowedTools".into());
         a.extend(self.outils_permis.iter().cloned());
         a.push("--disallowedTools".into());
@@ -188,7 +201,8 @@ impl Claude for ClaudeDuMac {
     }
 }
 
-/// L'agent branché dans l'app : la relecture par la CLI `claude`, avec la réécoute donnée.
+/// L'agent branché dans l'app : la relecture (avec la réécoute donnée) et le bilan par la CLI
+/// `claude`.
 pub struct AgentClaude {
     claude: Arc<dyn Claude + Send + Sync>,
     reecoute: Arc<dyn relecture::Reecoute + Send + Sync>,
@@ -206,14 +220,9 @@ impl Agent for AgentClaude {
         sur_un_fil(&relecture::PALIERS, move |arret, progres| relecture::relire(claude.as_ref(), reecoute.as_ref(), &demande, arret, progres))
     }
 
-    fn faire_le_bilan(&mut self, _: DemandeDeBilan) -> TacheDe<ResultatDuBilan> {
-        struct PasEncore;
-        impl Tache<ResultatDuBilan> for PasEncore {
-            fn sonder(&mut self, _: f64) -> Avancement<ResultatDuBilan> {
-                Avancement::Echec("Le bilan par Claude n'est pas encore disponible dans cette version de Greffier.".into())
-            }
-        }
-        Box::new(PasEncore)
+    fn faire_le_bilan(&mut self, demande: DemandeDeBilan) -> TacheDe<ResultatDuBilan> {
+        let claude = self.claude.clone();
+        sur_un_fil(&[], move |arret, _| bilan::faire(claude.as_ref(), &demande, arret))
     }
 }
 
