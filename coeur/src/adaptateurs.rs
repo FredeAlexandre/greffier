@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use crate::reunion::{Mot, Repere, TourDeParole};
+use crate::reunion::{Etape, Mot, Repere, TourDeParole};
 use crate::temps::DateHeure;
 
 /// Où en est une tâche.
@@ -225,7 +225,15 @@ pub trait Agent {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EtatDeRessource {
     Absente,
-    EnTelechargement(f64),
+    /// Un téléchargement interrompu (app quittée, connexion coupée) : il reprendra là où il s'est
+    /// arrêté. En octets.
+    Interrompue { recu: u64, total: u64 },
+    /// En octets.
+    EnTelechargement { recu: u64, total: u64 },
+    /// Le calcul du sha256, ou la vérification de la CLI `claude`.
+    EnVerification,
+    /// L'installation de l'environnement Python, sans progression mesurable.
+    EnInstallation,
     Prete,
     Echec(String),
 }
@@ -234,14 +242,26 @@ pub enum EtatDeRessource {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ressource {
     pub nom: String,
+    /// D'où elle vient, ou ce que la vérification a trouvé (« huggingface.co », « 2.1.3 · connectée »).
+    pub detail: String,
     pub etat: EtatDeRessource,
+    /// Place prise sur le disque, en octets (téléchargements partiels compris).
+    pub taille: u64,
+    /// Taille du téléchargement, en octets (0 : rien à télécharger, ou taille inconnue).
+    pub total: u64,
+    /// Ce qu'il faut faire quand elle manque et que l'app ne peut pas l'installer elle-même.
+    pub aide: Option<String>,
+    /// Les étapes du traitement qui ne peuvent pas démarrer sans elle.
+    pub etapes: Vec<Etape>,
 }
 
-/// Télécharge et vérifie les modèles et l'environnement Python.
+/// Télécharge et vérifie les modèles et l'environnement Python ; vérifie la CLI `claude`.
 pub trait Ressources {
     fn etat(&mut self) -> Vec<Ressource>;
-    /// Télécharge et vérifie ce qui manque.
+    /// Télécharge, installe et vérifie ce qui manque, et refait les vérifications.
     fn installer(&mut self) -> TacheDe<()>;
+    /// Refait les vérifications (la CLI `claude`) sans rien télécharger.
+    fn verifier(&mut self) -> TacheDe<()>;
 }
 
 // --- Horloge -------------------------------------------------------------------------------
