@@ -65,6 +65,7 @@ pub fn adaptateurs() -> Adaptateurs {
         ressources: Box::new(FaussesRessources::pretes()),
         horloge: Box::new(FausseHorloge(DateHeure::new(2026, 11, 21, 14, 2))),
         corbeille: Box::new(FausseCorbeille::new()),
+        mise_en_mp4: Box::new(greffier_coeur::faux::FausseMiseEnMp4),
     }
 }
 

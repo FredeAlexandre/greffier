@@ -585,7 +585,7 @@ impl Greffier {
             }
             Commande::Importer(import) => {
                 let id = self.prochain_id;
-                let r = self.dossier.importer(&import, id).map_err(Refus::Impossible)?;
+                let r = self.dossier.importer(&import, id, self.adaptateurs.mise_en_mp4.as_ref()).map_err(Refus::Impossible)?;
                 // Les fichiers copiés par Greffier ne sont pas des modifications faites hors de l'app.
                 self.noter(&r.nom_du_dossier.clone(), &Role::TOUS);
                 self.prochain_id += 1;

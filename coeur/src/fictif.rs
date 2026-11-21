@@ -6,7 +6,7 @@
 //! transcripteur et un séparateur qui inventent une réunion courte, un agent qui en écrit le bilan.
 
 use crate::adaptateurs::{Adaptateurs, DemandeDeBilan, EtatDeRessource, Participant, Ressource, ResultatDeRelecture, ResultatDuBilan};
-use crate::faux::{FausseCapture, FausseCorbeille, FausseHorloge, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
+use crate::faux::{FausseCapture, FausseCorbeille, FausseHorloge, FausseMiseEnMp4, FaussesRessources, FauxAgent, FauxSeparateur, FauxTranscripteur};
 use crate::reunion::{Etape, Locuteur, Mot, PassageAVerifier, Repere, Replique, Reunion, Statut, StatutDuPassage, TourDeParole};
 use crate::temps::{DateHeure, hms};
 use crate::{bilan, dossier};
@@ -448,6 +448,7 @@ pub fn adaptateurs() -> Adaptateurs {
         ressources: Box::new(FaussesRessources::fixes(ressources())),
         horloge: Box::new(FausseHorloge(AUJOURD_HUI)),
         corbeille: Box::new(FausseCorbeille::new()),
+        mise_en_mp4: Box::new(FausseMiseEnMp4),
     }
 }
 

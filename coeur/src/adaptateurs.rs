@@ -425,6 +425,16 @@ pub trait Corbeille {
     fn jeter(&self, chemin: &std::path::Path) -> Result<(), String>;
 }
 
+// --- Mise en MP4 ----------------------------------------------------------------------------
+
+/// Passer un média importé de la famille MP4 (QuickTime `.mov`, `.m4a`, `.m4v`) dans un fichier
+/// `.mp4`, sans le réencoder : l'enregistrement d'une réunion s'appelle `… - enregistrement.mp4`.
+pub trait MiseEnMp4 {
+    /// Écrit `vers` (un `.mp4`) avec les pistes de `de`, sans toucher à `de`. L'erreur est un
+    /// message ; le cœur copie alors le média tel quel, avec son extension.
+    fn en_mp4(&self, de: &std::path::Path, vers: &std::path::Path) -> Result<(), String>;
+}
+
 /// Tous les adaptateurs branchés sur le cœur.
 pub struct Adaptateurs {
     pub capture: Box<dyn Capture>,
@@ -434,4 +444,5 @@ pub struct Adaptateurs {
     pub ressources: Box<dyn Ressources>,
     pub horloge: Box<dyn Horloge>,
     pub corbeille: Box<dyn Corbeille>,
+    pub mise_en_mp4: Box<dyn MiseEnMp4>,
 }

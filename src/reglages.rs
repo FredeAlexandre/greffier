@@ -134,6 +134,7 @@ pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
         agent: Box::new(AgentClaude::new(Arc::new(ClaudeDuMac::default()), Arc::new(greffier_moteurs::ReecouteWhisper::de_l_app(&app)))),
         capture: Box::new(greffier_capture::CaptureDuMac::new()),
         corbeille: Box::new(greffier_capture::CorbeilleDuMac),
+        mise_en_mp4: Box::new(greffier_capture::MiseEnMp4DuMac),
     }
 }
 
