@@ -1,0 +1,41 @@
+#!/bin/sh
+# Copie dans moteurs/whisper.cpp/ les sources de whisper.cpp dont Greffier a besoin (whisper,
+# ggml, CPU, Metal, BLAS d'Accelerate), depuis l'archive de la version figée. Le build.rs de
+# moteurs/ les compile sans cmake.
+#
+#     scripts/vendre-whisper
+#
+# Pour changer de version : modifier VERSION et SHA256 ici et dans moteurs/build.rs, relancer.
+set -eu
+VERSION=1.9.5
+SHA256=ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720
+ICI=$(cd "$(dirname "$0")/.." && pwd)
+CIBLE="$ICI/moteurs/whisper.cpp"
+ETAPE=$(mktemp -d)
+trap 'rm -rf "$ETAPE"' EXIT
+
+curl -fsSL -o "$ETAPE/w.tgz" "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v$VERSION.tar.gz"
+echo "$SHA256  $ETAPE/w.tgz" | shasum -a 256 -c - >/dev/null || { echo "sha256 inattendu" >&2; exit 1; }
+tar xzf "$ETAPE/w.tgz" -C "$ETAPE"
+S="$ETAPE/whisper.cpp-$VERSION"
+
+rm -rf "$CIBLE"
+mkdir -p "$CIBLE"
+cd "$S"
+{
+    echo LICENSE
+    echo include/whisper.h
+    find src -maxdepth 1 -name 'whisper*'
+    find src/aneforge -type f
+    find ggml/include -name '*.h'
+    find ggml/src -maxdepth 1 -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.in' \)
+    find ggml/src/ggml-cpu -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) \
+        -not -path '*/kleidiai/*' -not -path '*/spacemit/*' -not -path '*/cmake/*' \
+        \( -not -path '*/arch/*' -o -path '*/arch/arm/*' \)
+    find ggml/src/ggml-metal -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.m' -o -name '*.metal' -o -name CMakeLists.txt \)
+    echo ggml/src/ggml-blas/ggml-blas.cpp
+} | sort | while read -r f; do
+    mkdir -p "$CIBLE/$(dirname "$f")"
+    cp "$f" "$CIBLE/$f"
+done
+echo "whisper.cpp $VERSION → $CIBLE ($(du -sh "$CIBLE" | cut -f1))"

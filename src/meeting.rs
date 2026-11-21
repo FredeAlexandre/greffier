@@ -22,7 +22,7 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>) -> El {
     let view_h = cx.layout_size("meeting").map_or(780.0, |v| v[1]);
     let mut inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
     if m.statut != Statut::Terminee {
-        inner = inner.child(pending(m, k));
+        inner = inner.child(pending(s, m, k));
     }
     if playable(m) {
         inner = inner
@@ -508,7 +508,7 @@ fn info(s: &App, m: &Reunion, k: &Kit) -> El {
     row().w_full().gap(12.0).flex_wrap().items_start().child(processing).child(files).child(marks)
 }
 
-fn pending(m: &Reunion, k: &Kit) -> El {
+fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
     let id = m.id;
     // Une transcription importée : le traitement reprend à la relecture (#5).
     if m.statut == Statut::ATraiter && m.etape_faite == Some(Etape::Transcription) {
@@ -569,11 +569,14 @@ fn pending(m: &Reunion, k: &Kit) -> El {
         }
         list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(row().w(18.0).h(18.0).center().child(icon)).child(col_));
     }
-    let eta = m.temps_restant_estime().unwrap_or(0.0);
+    let eta = ui::dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0));
     let (status, action) = match &m.statut {
-        Statut::EnAttente(_) => ("En attente : une autre réunion est en cours de traitement.".to_string(), None),
-        Statut::Echec { etape, message } => (format!("{} : {message}", ui::step(*etape)), Some("Réessayer")),
-        _ => (format!("Environ {} restantes. Une notification arrive à la fin.", ui::dur(eta.max(60.0))), None),
+        Statut::EnAttente(_) => match s.core.rang(id).unwrap_or(0) {
+            0 | 1 => (format!("En attente : une autre réunion est en cours de traitement. Environ {eta} avant la fin."), None),
+            n => (format!("En attente : {n} réunions passent avant celle-ci. Environ {eta} avant la fin."), None),
+        },
+        Statut::Echec { etape, message } => (format!("{} : {message}", ui::step(*etape)), Some("Réessayer cette étape")),
+        _ => (format!("Environ {eta} restantes. Une notification arrive à la fin."), None),
     };
     let button = match action {
         Some(label) => Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.process(id)).build(k).key("retry"),
@@ -581,8 +584,7 @@ fn pending(m: &Reunion, k: &Kit) -> El {
     };
     card(k)
         .gap(16.0)
-        .child(row().gap(10.0).center_y().child(heading(k, "Traitement en cours")).child(el().grow(1.0)).child(button))
+        .child(row().gap(10.0).center_y().child(heading(k, if matches!(m.statut, Statut::Echec { .. }) { "Traitement en échec" } else { "Traitement en cours" })).child(el().grow(1.0)).child(button))
         .child(muted(k, status))
         .child(list)
-        .child(muted(k, "Démo : chaque étape dure quelques secondes."))
 }

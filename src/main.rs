@@ -491,8 +491,11 @@ fn prototype() -> Greffier {
 /// tout de suite les vérifications.
 fn real_core(folder: &Path, reunions: bool) -> Greffier {
     let mut core = if reunions { Greffier::ouvrir(folder, reglages::adaptateurs()) } else { Greffier::avec_reunions(folder, reglages::adaptateurs(), vec![]) };
-    if let Err(e) = core.executer(Commande::VerifierRessources) {
-        eprintln!("greffier : {e}");
+    let lexique = reglages::chemin_du_lexique();
+    for c in [Commande::ChangerReglages(greffier_coeur::Reglages { lexique, ..core.reglages().clone() }), Commande::VerifierRessources] {
+        if let Err(e) = core.executer(c) {
+            eprintln!("greffier : {e}");
+        }
     }
     core
 }
@@ -781,6 +784,25 @@ fn scene_processing(s: &mut App) {
     s.core.avancer(fictif::duree_simulee(Etape::Transcription));
     s.core.avancer(0.4 * fictif::duree_simulee(Etape::Relecture));
 }
+/// La file : la réunion du jour en transcription, la revue de release en attente derrière elle.
+fn scene_queue(s: &mut App) {
+    let second = s.core.reunions()[1].id;
+    s.process(1);
+    s.core.avancer(0.0);
+    s.core.avancer(0.5 * fictif::duree_simulee(Etape::Transcription));
+    s.command(Commande::Refaire { reunion: second, etape: Etape::Bilan });
+    s.open(second);
+}
+/// La transcription a échoué : le message et « Réessayer cette étape ».
+fn scene_failed(s: &mut App) {
+    let transcripteur = greffier_coeur::faux::FauxTranscripteur::new(1.0, |_| Err("Le média n'a pas de son.".into()));
+    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { transcripteur: Box::new(transcripteur), ..fictif::adaptateurs() };
+    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    s.open(1);
+    s.process(1);
+    s.core.avancer(0.0);
+    s.core.avancer(1.0);
+}
 fn scene_unprocessed(s: &mut App) {
     s.open(1);
 }
@@ -886,6 +908,8 @@ fn main() {
             ("record-ready", scene_record_ready),
             ("short-recording", scene_short_recording),
             ("processing", scene_processing),
+            ("queue", scene_queue),
+            ("failed", scene_failed),
             ("unprocessed", scene_unprocessed),
             ("settings", scene_settings),
             ("installation", scene_installation),

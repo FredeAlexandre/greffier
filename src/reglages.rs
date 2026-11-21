@@ -112,18 +112,43 @@ impl greffier_coeur::adaptateurs::Horloge for HorlogeDuMac {
     }
 }
 
-/// Vrai quand [`adaptateurs`] branche les vraies étapes (transcription, séparation des
-/// locuteurs, relecture, bilan : #7, #8, #9). D'ici là, « Lancer le traitement maintenant »
-/// après un import laisse la réunion à traiter plutôt que d'y écrire une transcription inventée.
-pub const ETAPES_REELLES: bool = false;
-
-/// Les adaptateurs de l'app : ceux du prototype pour le traitement (en attendant les vrais),
-/// avec l'heure du Mac, la vraie capture (ScreenCaptureKit) et les vraies ressources du dossier
-/// de l'app.
+/// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
+/// sans séparation des locuteurs pour l'instant (un seul locuteur), la vraie capture
+/// (ScreenCaptureKit), l'heure du Mac et les vraies ressources. La relecture et le bilan échouent
+/// avec un message clair tant que l'agent n'est pas branché (plutôt qu'inventer un bilan dans le
+/// vrai dossier de réunions).
 pub fn adaptateurs() -> greffier_coeur::adaptateurs::Adaptateurs {
+    use greffier_coeur::adaptateurs::{Adaptateurs, UnSeulLocuteur};
     use greffier_coeur::ressources::{Catalogue, RessourcesDeLApp};
-    let ressources = RessourcesDeLApp::new(dossier_de_l_app(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
-    greffier_coeur::adaptateurs::Adaptateurs { horloge: Box::new(HorlogeDuMac), capture: Box::new(greffier_capture::CaptureDuMac::new()), ressources: Box::new(ressources), ..greffier_coeur::fictif::adaptateurs() }
+    let app = dossier_de_l_app();
+    let ressources = RessourcesDeLApp::new(app.clone(), Catalogue::de_greffier(), greffier_coeur::mac::OutilsDuMac::new());
+    Adaptateurs {
+        horloge: Box::new(HorlogeDuMac),
+        ressources: Box::new(ressources),
+        transcripteur: Box::new(greffier_moteurs::TranscripteurWhisper::de_l_app(&app)),
+        separateur: Box::new(UnSeulLocuteur),
+        agent: Box::new(AgentPasEncoreBranche),
+        capture: Box::new(greffier_capture::CaptureDuMac::new()),
+        ..greffier_coeur::fictif::adaptateurs()
+    }
+}
+
+/// La relecture et le bilan par Claude, pas encore branchés : l'étape échoue avec ce message, et
+/// « Réessayer cette étape » la relancera quand ils le seront.
+struct AgentPasEncoreBranche;
+
+impl greffier_coeur::adaptateurs::Agent for AgentPasEncoreBranche {
+    fn relire(&mut self, _: greffier_coeur::adaptateurs::DemandeDeRelecture) -> greffier_coeur::adaptateurs::TacheDe<greffier_coeur::adaptateurs::ResultatDeRelecture> {
+        greffier_coeur::faux::FausseTache::boite(0.0, Err("La relecture par Claude n'est pas encore disponible dans cette version de Greffier.".into()))
+    }
+    fn faire_le_bilan(&mut self, _: greffier_coeur::adaptateurs::DemandeDeBilan) -> greffier_coeur::adaptateurs::TacheDe<greffier_coeur::adaptateurs::ResultatDuBilan> {
+        greffier_coeur::faux::FausseTache::boite(0.0, Err("Le bilan par Claude n'est pas encore disponible dans cette version de Greffier.".into()))
+    }
+}
+
+/// Le chemin du lexique du dossier de l'app (le lexique livré y est écrit s'il manque).
+pub fn chemin_du_lexique() -> Option<PathBuf> {
+    greffier_coeur::lexique::installer(&dossier_de_l_app()).map_err(|e| eprintln!("greffier : lexique : {e}")).ok()
 }
 
 /// Le lexique : celui du dossier de l'app (le lexique livré y est écrit s'il manque) ; sans

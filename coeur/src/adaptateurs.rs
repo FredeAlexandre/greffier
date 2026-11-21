@@ -190,6 +190,22 @@ pub trait Separateur {
     fn separer(&mut self, demande: DemandeDeSeparation) -> TacheDe<Vec<TourDeParole>>;
 }
 
+/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur.
+/// Branché tant que le vrai séparateur (pyannote) ne l'est pas.
+pub struct UnSeulLocuteur;
+
+impl Separateur for UnSeulLocuteur {
+    fn separer(&mut self, _: DemandeDeSeparation) -> TacheDe<Vec<TourDeParole>> {
+        struct Aucun;
+        impl Tache<Vec<TourDeParole>> for Aucun {
+            fn sonder(&mut self, _: f64) -> Avancement<Vec<TourDeParole>> {
+                Avancement::Fini(Vec::new())
+            }
+        }
+        Box::new(Aucun)
+    }
+}
+
 // --- Agent ---------------------------------------------------------------------------------
 
 /// Une réplique telle qu'on la donne à l'agent.

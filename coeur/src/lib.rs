@@ -39,11 +39,15 @@ pub struct Reglages {
     /// Mettre la réunion dans la file de traitement dès l'arrêt de l'enregistrement.
     pub traiter_a_l_arret: bool,
     pub sources: Sources,
+    /// Le lexique (`lexique.md` du dossier de l'app). Sa section Vocabulaire est donnée au
+    /// transcripteur ; il est relu au début de chaque transcription. Absent ou illisible : pas de
+    /// vocabulaire.
+    pub lexique: Option<PathBuf>,
 }
 
 impl Default for Reglages {
     fn default() -> Reglages {
-        Reglages { traiter_a_l_arret: true, sources: Sources::default() }
+        Reglages { traiter_a_l_arret: true, sources: Sources::default(), lexique: None }
     }
 }
 
@@ -318,6 +322,14 @@ impl Greffier {
     pub fn rang(&self, id: IdReunion) -> Option<usize> {
         let en_cours = self.traitement.as_ref().map(|t| t.reunion);
         en_cours.into_iter().chain(self.file.iter().copied()).position(|x| x == id)
+    }
+
+    /// Le temps estimé avant la fin du traitement d'une réunion de la file, en secondes : le reste
+    /// de la sienne et celui des réunions qui passent avant elle.
+    pub fn temps_restant(&self, id: IdReunion) -> Option<f64> {
+        let rang = self.rang(id)?;
+        let en_cours = self.traitement.as_ref().map(|t| t.reunion);
+        en_cours.into_iter().chain(self.file.iter().copied()).take(rang + 1).map(|x| self.reunion(x).and_then(Reunion::temps_restant_estime)).sum()
     }
 
     pub fn aujourd_hui(&self) -> DateHeure {
@@ -659,8 +671,8 @@ impl Greffier {
         }
         Ok(match etape {
             Etape::Transcription => {
-                // Le vocabulaire du lexique arrive avec la relecture (#9).
-                let mots = a.transcripteur.transcrire(DemandeDeTranscription { audio: audio.clone(), duree: r.duree, vocabulaire: String::new() });
+                let vocabulaire = self.reglages.lexique.as_ref().and_then(|l| std::fs::read_to_string(l).ok()).map(|md| lexique::vocabulaire(&md)).unwrap_or_default();
+                let mots = a.transcripteur.transcrire(DemandeDeTranscription { audio: audio.clone(), duree: r.duree, vocabulaire });
                 let tours = a.separateur.separer(DemandeDeSeparation { audio, duree: r.duree, nombre_de_locuteurs: r.nombre_de_locuteurs });
                 Travail::Transcription { mots: Partie::EnCours(mots), tours: Partie::EnCours(tours) }
             }
@@ -704,9 +716,9 @@ impl Greffier {
             Ok(x) => Avancement::EnCours(x),
         };
         let issue = match &mut t.travail {
-            // Les deux moitiés comptent autant.
+            // Les deux moitiés tournent en même temps : l'étape avance comme la plus lente.
             Travail::Transcription { mots, tours } => match (mots.sonder(ecoule), tours.sonder(ecoule)) {
-                (Ok(a), Ok(b)) => issue(Ok((a + b) / 2.0), mots.fini() && tours.fini()),
+                (Ok(a), Ok(b)) => issue(Ok(a.min(b)), mots.fini() && tours.fini()),
                 (Err(e), _) | (_, Err(e)) => Avancement::Echec(e),
             },
             Travail::Relecture(p) => {
@@ -769,6 +781,7 @@ impl Greffier {
         let Ok(r) = self.reunion_mut(id) else { return };
         match produit {
             Produit::Transcription(mots, tours) => {
+                let mots = attribution::sans_les_bruits(mots);
                 let (locuteurs, repliques) = attribution::attribuer(&mots, &tours);
                 r.mots = mots;
                 r.tours = tours;

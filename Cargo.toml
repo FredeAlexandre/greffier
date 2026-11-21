@@ -5,11 +5,12 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur", "capture", "barre"]
-default-members = [".", "coeur", "capture", "barre"]
+members = [".", "coeur", "moteurs", "capture", "barre"]
+default-members = [".", "coeur", "moteurs", "capture", "barre"]
 
 [dependencies]
 greffier-coeur = { path = "coeur" }
+greffier-moteurs = { path = "moteurs" }
 greffier-capture = { path = "capture" }
 greffier-barre = { path = "barre" }
 serde_json = "1"
@@ -28,3 +29,7 @@ accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d32
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Le rééchantillonnage de l'audio (une heure de réunion = des milliards de multiplications).
+[profile.dev.package.greffier-moteurs]
+opt-level = 3
