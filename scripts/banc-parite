@@ -1,0 +1,3 @@
+#!/bin/sh
+# Banc de parité des moteurs (#19), à lancer à la main : voir scripts/banc_parite.py.
+exec python3 -I "$(dirname "$0")/banc_parite.py" "$@"
