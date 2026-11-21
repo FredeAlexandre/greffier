@@ -161,6 +161,35 @@ pub struct PassageAVerifier {
     pub statut: StatutDuPassage,
 }
 
+/// Marge de la réécoute autour de la réplique, et longueur maximale d'un extrait (Whisper entend
+/// 30 s d'un coup), en secondes.
+const MARGE: f64 = 1.5;
+const EXTRAIT_AU_PLUS: f64 = 28.0;
+
+/// L'extrait à réécouter (ou à écouter pour trancher) d'un passage d'une réplique : ±1,5 s autour
+/// de la réplique ; au-delà de 28 s, 26 s centrées sur l'endroit du passage dans la réplique.
+pub fn extrait_a_reecouter(debut: f64, fin: f64, texte: &str, passage: &str) -> (f64, f64) {
+    let (mut de, mut a) = (debut - MARGE, fin + MARGE);
+    if a - de > EXTRAIT_AU_PLUS {
+        let position = texte.find(passage).map_or(0, |i| texte[..i].chars().count());
+        let centre = debut + position as f64 / texte.chars().count().max(1) as f64 * (fin - debut);
+        (de, a) = (centre - 12.0, centre + 14.0);
+    }
+    (de.max(0.0), a)
+}
+
+impl PassageAVerifier {
+    /// Ce que le passage met dans sa réplique avec ce statut : l'extrait tant qu'il est en attente
+    /// ou gardé, sinon l'hypothèse acceptée ou la correction.
+    pub fn texte<'a>(&'a self, statut: &'a StatutDuPassage) -> &'a str {
+        match statut {
+            StatutDuPassage::HypotheseAcceptee => self.hypothese.as_deref().unwrap_or(&self.extrait),
+            StatutDuPassage::CorrigeALaMain(t) => t,
+            StatutDuPassage::EnAttente | StatutDuPassage::OriginalGarde => &self.extrait,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Repere {
     pub instant: f64,
@@ -290,6 +319,20 @@ impl Reunion {
     pub fn avec_bilan(mut self, md: impl Into<String>) -> Reunion {
         self.poser_bilan(md.into());
         self
+    }
+
+    /// Si `etape` peut être refaite ([`crate::Commande::Refaire`]) : la réunion n'est ni dans la
+    /// file ni en enregistrement, et les étapes d'avant sont faites.
+    pub fn peut_refaire(&self, etape: Etape) -> bool {
+        !self.statut.dans_la_file() && self.statut != Statut::EnregistrementEnCours && etape.precedente().is_none_or(|p| self.etape_faite >= Some(p))
+    }
+
+    /// Le début et la fin de l'extrait à écouter pour trancher ce passage : le même que la
+    /// réécoute de la relecture.
+    pub fn extrait_a_ecouter(&self, passage: usize) -> Option<(f64, f64)> {
+        let p = self.passages.get(passage)?;
+        let x = self.repliques.get(p.replique)?;
+        Some(extrait_a_reecouter(x.debut, x.fin, &x.texte, p.texte(&p.statut)))
     }
 
     pub fn passages_en_attente(&self) -> usize {

@@ -76,8 +76,11 @@ faire que les vérifications). Les scènes et parcours gardent de fausses ressou
 | Glisser sur les pistes | déplace la lecture ; clic sur un sujet ou un ◆ : y saute |
 | ⌘1 … ⌘5 | Bilan / Transcription / À vérifier / Locuteurs / Infos |
 | Bilan | Markdown rendu ; les ▶ horodatages lancent la lecture, les cases se cochent, « Refaire le bilan » |
+| À vérifier | ↑ ↓ d'un passage à l'autre, E écoute l'extrait (s'arrête à sa fin), A accepte l'hypothèse, G garde l'original, C corrige (↩ enregistre) ; « Annuler » rouvre un passage |
+| Transcription : clic droit sur une réplique, ou C | corrige son texte (↩ enregistre, esc annule) ; `transcription.md` et `.json` sont réécrits |
 | ⌘K ou « Rechercher » | cherche dans les titres, bilans et transcriptions ; ↩ ouvre au bon moment |
-| Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan, Finder, supprimer (avec confirmation) |
+| Transcription › « Refaire… » | refaire la relecture (lexique actuel) puis le bilan, ou refaire la transcription avec un autre nombre de locuteurs, puis la relecture et le bilan |
+| Clic droit sur une réunion | menu : ouvrir, transcription, refaire le bilan / la relecture / la transcription, Finder, supprimer (avec confirmation) |
 
 ## Sans fenêtre
 

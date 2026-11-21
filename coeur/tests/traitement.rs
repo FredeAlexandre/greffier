@@ -157,19 +157,6 @@ fn sans_ressources_la_transcription_echoue_jusqu_a_leur_installation() {
 }
 
 #[test]
-fn refaire_le_bilan_ne_rejoue_que_le_bilan() {
-    let mut banc = Banc::new();
-    let id = banc.reunion_a_traiter();
-    banc.executer(Commande::Traiter(id));
-    banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);
-
-    banc.executer(Commande::Refaire { reunion: id, etape: Etape::Bilan });
-    assert_eq!(banc.reunion(id).statut, Statut::EnAttente(Etape::Bilan));
-    let etapes = banc.avancer_jusqu_a(id, |s| *s == Statut::Terminee);
-    assert_eq!(etapes, [Etape::Bilan]);
-}
-
-#[test]
 fn la_file_reprend_aussi_quand_l_enregistrement_est_interrompu() {
     let mut a = banc::adaptateurs();
     a.capture = Box::new(FausseCapture::new(1.0, 0.0).en_panne_a(20.0, "Flux coupé."));

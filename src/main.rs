@@ -15,12 +15,14 @@ mod locuteurs;
 mod meeting;
 mod overlays;
 mod pages;
+mod refaire;
 mod reglages;
 mod sidebar;
 mod surveillance;
 mod timeline;
 mod titre;
 mod ui;
+mod verifier;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -33,7 +35,7 @@ use greffier_barre::{Choix, IconeDeLaBarre};
 use greffier_capture::veille::PasDeVeille;
 use greffier_coeur::adaptateurs::EtatDeRessource;
 use greffier_coeur::faux::FaussesRessources;
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif, lexique};
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, fictif, lexique};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -132,9 +134,19 @@ pub struct App {
     pub menu_bar: Option<IconeDeLaBarre>,
     /// La fenêtre « Changer le titre », ouverte quand `Some`.
     pub rename: Option<titre::Renaming>,
+    /// La fenêtre « Refaire la transcription », ouverte quand `Some`.
+    pub redo_transcription: Option<refaire::RedoTranscription>,
+    /// Le menu « Refaire… » de l'onglet Transcription, ouvert.
+    pub redo_menu: bool,
     /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
     /// seulement).
     pub awake: Option<PasDeVeille>,
+    /// Le passage à vérifier sélectionné au clavier (voir `verifier::selected`).
+    pub doubt: usize,
+    /// La correction à la main en cours (passage à vérifier ou réplique).
+    pub correction: Option<verifier::Correction>,
+    /// « Écouter » un passage : la lecture s'arrête à la fin de son extrait.
+    pub listen_until: Option<f64>,
 }
 
 impl App {
@@ -226,11 +238,14 @@ impl App {
     pub fn open(&mut self, id: IdReunion) {
         if self.page != Page::Meeting(id) {
             self.page = Page::Meeting(id);
+            self.redo_menu = false;
             self.pos = 0.0;
             self.playing = false;
             self.current = None;
             self.followed = None;
             self.picking = None;
+            self.doubt = 0;
+            self.correction = None;
             self.tab = Tab::Summary;
             self.fullscreen = false;
             self.load_video(id);
@@ -280,6 +295,7 @@ impl App {
         self.video = Some((id, player));
     }
     pub fn seek(&mut self, t: f64) {
+        self.listen_until = None;
         self.pos = t.clamp(0.0, self.duration());
         if let Some(p) = self.player() {
             p.seek(self.pos);
@@ -296,15 +312,19 @@ impl App {
         }
         self.playing = true;
     }
+    fn pause(&mut self) {
+        self.listen_until = None;
+        if let Some(p) = self.player() {
+            p.pause();
+        }
+        self.playing = false;
+    }
     pub fn toggle_play(&mut self) {
         if !self.meeting().is_some_and(meeting::playable) {
             return;
         }
         if self.playing {
-            if let Some(p) = self.player() {
-                p.pause();
-            }
-            self.playing = false;
+            self.pause();
         } else {
             self.play();
         }
@@ -473,9 +493,6 @@ impl App {
     pub fn process(&mut self, id: IdReunion) {
         self.command(Commande::Traiter(id));
     }
-    pub fn redo_bilan(&mut self, id: IdReunion) {
-        self.command(Commande::Refaire { reunion: id, etape: Etape::Bilan });
-    }
     pub fn stop_processing(&mut self, id: IdReunion) {
         self.command(Commande::ArreterTraitement(id));
     }
@@ -512,11 +529,6 @@ impl App {
     pub fn add_marker(&mut self) {
         if self.recording() {
             self.command(Commande::PoserRepere);
-        }
-    }
-    pub fn resolve_doubt(&mut self, passage: usize, tranche: Tranche) {
-        if let Page::Meeting(reunion) = self.page {
-            self.command(Commande::Trancher { reunion, passage, tranche });
         }
     }
     /// Écran, son du Mac, micro.
@@ -659,7 +671,12 @@ fn init() -> App {
         process_imported: None,
         menu_bar: None,
         rename: None,
+        redo_transcription: None,
+        redo_menu: false,
         awake: None,
+        doubt: 0,
+        correction: None,
+        listen_until: None,
     }
 }
 
@@ -705,6 +722,16 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
             s.playing = false;
         }
         s.current = s.meeting().and_then(|m| m.replique_a(s.pos));
+    }
+    // « Écouter » un passage à vérifier s'arrête à la fin de son extrait.
+    if s.listen_until.is_some_and(|t| s.playing && s.pos >= t) {
+        s.pause();
+        changed = true;
+    }
+    // Une correction qui n'est plus affichée (autre onglet, autre page) est abandonnée.
+    if s.correction.is_some() && !verifier::correction_shown(s) {
+        s.correction = None;
+        changed = true;
     }
     // La transcription suit la réplique en cours (lecture, saut, changement d'onglet).
     if s.tab != Tab::Transcript {
@@ -767,7 +794,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.shortcut.is_recording() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -787,6 +814,16 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if s.meeting().is_none() || ev.mods.cmd {
         return false;
+    }
+    if s.tab == Tab::Doubts && verifier::on_key(s, ev, tx) {
+        return true;
+    }
+    if s.tab == Tab::Transcript
+        && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("c"))
+        && let Some(i) = s.current
+    {
+        s.start_correction(verifier::Cible::Replique(i));
+        return true;
     }
     match &ev.key {
         Key::Text(t) if t == " " => s.toggle_play(),
@@ -809,7 +846,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Page::Settings => pages::settings(s, &k),
         Page::Installation => pages::installation(s, &k),
         Page::Meeting(_) => match s.meeting() {
-            Some(m) => meeting::page(s, m, &k, cx),
+            Some(m) => meeting::page(s, m, &k, cx, &mut layer),
             None => pages::overview(s, &k),
         },
     };
@@ -832,6 +869,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     overlays::confirm_delete(s, &k, &mut layer);
     overlays::short_recording(s, &k, &mut layer);
     titre::window(s, &k, &mut layer);
+    refaire::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
     // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
@@ -849,6 +887,21 @@ fn scene_transcript(s: &mut App) {
 fn scene_doubts(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Doubts;
+}
+/// Un passage tranché (hypothèse acceptée), et le suivant en cours de correction.
+fn scene_doubt_fix(s: &mut App) {
+    scene_doubts(s);
+    s.resolve_doubt(0, greffier_coeur::Tranche::AccepterHypothese);
+    if let Some(i) = s.meeting().and_then(|m| verifier::selected(s, m)) {
+        s.start_correction(verifier::Cible::Passage(i));
+    }
+}
+/// La correction d'une réplique dans l'onglet Transcription.
+fn scene_transcript_fix(s: &mut App) {
+    scene_transcript(s);
+    if let Some(i) = s.current {
+        s.start_correction(verifier::Cible::Replique(i));
+    }
 }
 fn scene_people(s: &mut App) {
     scene_meeting(s);
@@ -915,6 +968,19 @@ fn scene_failed(s: &mut App) {
     s.process(1);
     s.core.avancer(0.0);
     s.core.avancer(1.0);
+}
+/// Le menu « Refaire… » de l'onglet Transcription.
+fn scene_redo(s: &mut App) {
+    scene_transcript(s);
+    s.redo_menu = true;
+}
+/// « Refaire la transcription… » : le nombre de locuteurs avant de relancer.
+fn scene_redo_transcription(s: &mut App) {
+    scene_transcript(s);
+    s.start_redo_transcription(2);
+    if let Some(r) = &mut s.redo_transcription {
+        r.nombre = Some(4);
+    }
 }
 fn scene_unprocessed(s: &mut App) {
     s.open(1);
@@ -1026,6 +1092,8 @@ fn main() {
             ("meeting", scene_meeting),
             ("transcript", scene_transcript),
             ("doubts", scene_doubts),
+            ("doubt-fix", scene_doubt_fix),
+            ("transcript-fix", scene_transcript_fix),
             ("people", scene_people),
             ("people-naming", scene_people_naming),
             ("people-merged", scene_people_merged),
@@ -1037,6 +1105,8 @@ fn main() {
             ("queue", scene_queue),
             ("failed", scene_failed),
             ("unprocessed", scene_unprocessed),
+            ("redo", scene_redo),
+            ("redo-transcription", scene_redo_transcription),
             ("settings", scene_settings),
             ("context", scene_context),
             ("rename", scene_rename),
