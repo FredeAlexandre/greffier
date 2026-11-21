@@ -1,0 +1,31 @@
+[package]
+name = "greffier-capture"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "La vraie capture de Greffier : ScreenCaptureKit (écran, son du Mac, micro), écrite au fil de l'eau en MP4 fragmenté par AVAssetWriter."
+
+[dependencies]
+greffier-coeur = { path = "../coeur" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-core-foundation = "0.3"
+objc2-screen-capture-kit = "0.3"
+objc2-av-foundation = { version = "0.3", features = ["objc2-core-media"] }
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-core-audio-types = "0.3"
+objc2-core-graphics = "0.3"
+
+[[example]]
+name = "essai_ecrivain"
+
+[[example]]
+name = "essai_capture"
+
+[[example]]
+name = "rejouer"

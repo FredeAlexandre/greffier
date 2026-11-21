@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur"]
-default-members = [".", "coeur"]
+members = [".", "coeur", "capture"]
+default-members = [".", "coeur", "capture"]
 
 [dependencies]
 greffier-coeur = { path = "coeur" }

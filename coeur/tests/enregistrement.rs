@@ -153,3 +153,12 @@ fn la_fausse_capture_ecrit_un_mp4_dont_on_lit_la_duree() {
     let duree = greffier_coeur::dossier::duree_du_mp4(&fichier).expect("durée du mp4");
     assert!((duree - 75.0).abs() < 0.05, "{duree}");
 }
+
+#[test]
+fn un_mp4_d_avassetwriter_coupe_en_plein_enregistrement_garde_sa_duree() {
+    // Écrit par la vraie capture (essai_ecrivain --couper) : 2 s dans le moov, puis des fragments
+    // sans tfdt ; ffprobe y lit 6,04 s.
+    let fichier = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/avassetwriter-coupe.mp4");
+    let duree = greffier_coeur::dossier::duree_du_mp4(&fichier).expect("durée");
+    assert!((duree - 6.04).abs() < 0.01, "{duree}");
+}
