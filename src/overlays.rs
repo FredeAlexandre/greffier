@@ -3,12 +3,13 @@
 use rune::{El, ScrollSpec, Span, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
 
-use crate::data::Stage;
+use greffier_coeur::{IdReunion, Statut, bilan};
+
 use crate::ui::{self, glyph, muted, tnum};
 use crate::{App, Tab};
 
 pub struct Hit {
-    pub id: u32,
+    pub id: IdReunion,
     pub at: Option<f64>,
     pub kind: &'static str,
     pub meeting: String,
@@ -47,17 +48,17 @@ pub fn hits(s: &App) -> Vec<Hit> {
     let q = s.search.as_ref().map(|e| e.text.trim().to_lowercase()).unwrap_or_default();
     let mut out = Vec::new();
     if q.is_empty() {
-        for m in s.meetings.iter().take(6) {
-            let title = if m.stage == Stage::Done { m.title.clone() } else { format!("Réunion du {}", m.date_label) };
-            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: format!("{} · {}", m.date_label, m.start), who: None, snippet: title, range: None, transcript: false });
+        for m in s.core.reunions().iter().take(6) {
+            let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
+            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte()), who: None, snippet: title, range: None, transcript: false });
         }
         return out;
     }
-    for m in s.meetings.iter().filter(|m| m.stage == Stage::Done) {
-        let when = format!("{} · {}", m.date_label, m.start);
+    for m in s.core.reunions().iter().filter(|m| m.statut == Statut::Terminee) {
+        let when = format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte());
         let mut n = 0;
-        if let Some(r) = find(&m.title, &q) {
-            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: when.clone(), who: None, snippet: m.title.clone(), range: Some(r), transcript: false });
+        if let Some(r) = find(&m.titre, &q) {
+            out.push(Hit { id: m.id, at: None, kind: "Réunion", meeting: when.clone(), who: None, snippet: m.titre.clone(), range: Some(r), transcript: false });
         }
         // Une puce sans horodatage prend celui du sujet `###` qui la contient.
         let mut topic_at = None;
@@ -65,14 +66,14 @@ pub fn hits(s: &App) -> Vec<Hit> {
             if line.starts_with("## ") {
                 topic_at = None;
             }
-            if let Some(t) = crate::bilan::topics(&format!("## Sujets\n{line}")).first() {
-                topic_at = Some(t.0);
+            if let Some(t) = bilan::sujets(&format!("## Sujets\n{line}")).first() {
+                topic_at = Some(t.debut);
             }
             let clean = line.trim_start_matches(['#', '-', ' ', '|']).replace("**", "");
             if let Some((a, b)) = find(&clean, &q) {
-                let at = crate::bilan::decisions(&format!("## Décisions\n{line}")).first().map(|d| d.0).or(topic_at);
+                let at = bilan::decisions(&format!("## Décisions\n{line}")).first().map(|d| d.instant).or(topic_at);
                 let (snippet, range) = excerpt(&clean, a, b);
-                out.push(Hit { id: m.id, at, kind: "Bilan", meeting: format!("{} · {when}", m.title), who: None, snippet, range: Some(range), transcript: false });
+                out.push(Hit { id: m.id, at, kind: "Bilan", meeting: format!("{} · {when}", m.titre), who: None, snippet, range: Some(range), transcript: false });
                 n += 1;
                 if n >= 3 {
                     break;
@@ -80,11 +81,11 @@ pub fn hits(s: &App) -> Vec<Hit> {
             }
         }
         let mut n = 0;
-        for u in &m.utterances {
-            if let Some((a, b)) = find(&u.text, &q) {
-                let (snippet, range) = excerpt(&u.text, a, b);
-                let who = m.speakers[m.resolve(u.speaker)].display();
-                out.push(Hit { id: m.id, at: Some(u.start), kind: "Transcription", meeting: format!("{} · {when}", m.title), who: Some(who), snippet, range: Some(range), transcript: true });
+        for u in &m.repliques {
+            if let Some((a, b)) = find(&u.texte, &q) {
+                let (snippet, range) = excerpt(&u.texte, a, b);
+                let who = m.locuteurs[m.locuteur_affiche(u.locuteur)].affiche();
+                out.push(Hit { id: m.id, at: Some(u.debut), kind: "Transcription", meeting: format!("{} · {when}", m.titre), who: Some(who), snippet, range: Some(range), transcript: true });
                 n += 1;
                 if n >= 4 {
                     break;
@@ -193,15 +194,15 @@ pub fn search(s: &App, k: &Kit, layer: &mut Vec<El>) {
 
 pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(id) = s.confirm_delete else { return };
-    let Some(m) = s.meetings.iter().find(|m| m.id == id) else { return };
-    let title = if m.stage == Stage::Done { m.title.clone() } else { format!("Réunion du {}", m.date_label) };
+    let Some(m) = s.core.reunion(id) else { return };
+    let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
     let body = col()
         .w_full()
         .px(16.0)
         .pb(16.0)
         .gap(14.0)
         .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(title).font(k.ty.ui_medium).color(k.c.text_base).truncate().min_w(0.0)))
-        .child(muted(k, format!("La vidéo ({}), la transcription et le bilan iront à la corbeille du Mac.", ui::dur(m.duration))))
+        .child(muted(k, format!("La vidéo ({}), la transcription et le bilan iront à la corbeille du Mac.", ui::dur(m.duree))))
         .child(
             row().w_full().gap(8.0).justify_end()
                 .child(Button::new("Annuler").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.confirm_delete = None).build(k).key("del-cancel"))

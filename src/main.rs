@@ -1,12 +1,11 @@
-//! Greffier — prototype d'interface (Rune). Données fictives, traitements simulés.
+//! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
+//! commandes ; le cœur tourne ici sur les données fictives et les faux adaptateurs du prototype.
 //!
 //! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
 //! sans fenêtre (`--list-scenes` pour la liste).
 
 #![forbid(unsafe_code)]
 
-mod bilan;
-mod data;
 mod meeting;
 mod overlays;
 mod pages;
@@ -20,17 +19,15 @@ use rune::{AppSpec, Chrome, Cx, El, Key, KeyEvent, PointerPress, Spring, TextEdi
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit};
 
-use data::{DoubtStatus, Meeting, Stage};
+use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Reunion, Statut, Tranche, fictif};
 
-/// Le temps de l'enregistrement va 20 fois plus vite que l'horloge, pour la démo.
-pub const REC_SPEED: f64 = 20.0;
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Overview,
     Recording,
-    Meeting(u32),
+    Meeting(IdReunion),
     Settings,
 }
 
@@ -39,28 +36,22 @@ pub enum Tab {
     Summary,
     Transcript,
     Doubts,
-    People,
+    Speakers,
     Info,
 }
 
-pub const TABS: [Tab; 5] = [Tab::Summary, Tab::Transcript, Tab::Doubts, Tab::People, Tab::Info];
-
-pub struct Recording {
-    pub elapsed: f64,
-    pub markers: Vec<f64>,
-    pub people: Option<u8>,
-    pub phase: f64,
-}
+pub const TABS: [Tab; 5] = [Tab::Summary, Tab::Transcript, Tab::Doubts, Tab::Speakers, Tab::Info];
 
 pub struct Toast {
     pub text: String,
-    pub meeting: Option<u32>,
+    pub meeting: Option<IdReunion>,
     pub until: f64,
 }
 
 pub struct App {
+    /// Le cœur : réunions, enregistrement, file de traitement. On ne le change que par commandes.
+    pub core: Greffier,
     pub sidebar: PaneState,
-    pub meetings: Vec<Meeting>,
     pub page: Page,
     pub tab: Tab,
     pub pos: f64,
@@ -71,41 +62,52 @@ pub struct App {
     pub followed: Option<usize>,
     /// Images depuis l'ouverture de l'onglet Transcription (la liste doit exister pour défiler).
     pub transcript_frames: u32,
-    pub rec: Option<Recording>,
+    /// Phase de l'animation de l'enregistrement (pulsation, niveaux).
+    pub rec_phase: f64,
     pub picking: Option<usize>,
     pub toast: Option<Toast>,
-    pub auto_process: bool,
-    pub sources: [bool; 3],
     pub clock: f64,
     pub last: Option<f64>,
-    pub next_id: u32,
     pub collapsed: [bool; 4],
     /// Recherche ⌘K : ouverte quand `Some`.
     pub search: Option<TextEdit>,
     /// Menu du clic droit sur une réunion de la barre latérale.
-    pub menu: Option<(u32, PointerPress)>,
-    pub confirm_delete: Option<u32>,
+    pub menu: Option<(IdReunion, PointerPress)>,
+    pub confirm_delete: Option<IdReunion>,
     /// Vidéo en plein écran (la fenêtre passe aussi en plein écran macOS).
     pub fullscreen: bool,
 }
 
 impl App {
-    pub fn meeting(&self) -> Option<&Meeting> {
+    pub fn meeting(&self) -> Option<&Reunion> {
         match self.page {
-            Page::Meeting(id) => self.meetings.iter().find(|m| m.id == id),
+            Page::Meeting(id) => self.core.reunion(id),
             _ => None,
         }
     }
-    pub fn meeting_mut(&mut self) -> Option<&mut Meeting> {
-        match self.page {
-            Page::Meeting(id) => self.meetings.iter_mut().find(|m| m.id == id),
-            _ => None,
+    /// Envoie une commande au cœur et donne suite à ses événements.
+    pub fn command(&mut self, c: Commande) {
+        match self.core.executer(c) {
+            Ok(events) => self.handle(events),
+            Err(refus) => eprintln!("greffier : {refus}"),
         }
     }
-    pub fn by_id(&mut self, id: u32) -> Option<&mut Meeting> {
-        self.meetings.iter_mut().find(|m| m.id == id)
+    fn handle(&mut self, events: Vec<Evenement>) {
+        for e in events {
+            match e {
+                Evenement::ReunionEnregistree(id) => self.open(id),
+                Evenement::BilanPret { reunion, titre } => {
+                    if self.page == Page::Meeting(reunion) {
+                        self.command(Commande::MarquerLue(reunion));
+                    }
+                    self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
+                }
+                Evenement::EtapeEnEchec { message, .. } => eprintln!("greffier : {message}"),
+                _ => {}
+            }
+        }
     }
-    pub fn open(&mut self, id: u32) {
+    pub fn open(&mut self, id: IdReunion) {
         if self.page != Page::Meeting(id) {
             self.page = Page::Meeting(id);
             self.pos = 0.0;
@@ -116,68 +118,55 @@ impl App {
             self.tab = Tab::Summary;
             self.fullscreen = false;
         }
-        if let Some(m) = self.by_id(id) {
-            m.unread = false;
+        if self.core.reunion(id).is_some_and(|m| m.nouvelle) {
+            self.command(Commande::MarquerLue(id));
         }
     }
-    pub fn open_at(&mut self, id: u32, t: f64) {
+    pub fn open_at(&mut self, id: IdReunion, t: f64) {
         self.open(id);
         self.seek(t);
     }
     pub fn seek(&mut self, t: f64) {
-        let d = self.meeting().map_or(0.0, |m| m.duration);
+        let d = self.meeting().map_or(0.0, |m| m.duree);
         self.pos = t.clamp(0.0, d);
-        self.current = self.meeting().and_then(|m| m.utterance_at(self.pos));
+        self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
     }
     pub fn seek_and_play(&mut self, t: f64) {
         self.seek(t);
         self.playing = true;
     }
     pub fn toggle_play(&mut self) {
-        if self.meeting().is_some_and(|m| m.stage == Stage::Done) {
+        if self.meeting().is_some_and(|m| m.statut == Statut::Terminee) {
             self.playing = !self.playing;
         }
     }
+    pub fn recording(&self) -> bool {
+        self.core.enregistrement().is_some()
+    }
     pub fn start_recording(&mut self) {
-        if self.rec.is_none() {
-            self.rec = Some(Recording { elapsed: 0.0, markers: vec![], people: None, phase: 0.0 });
+        if !self.recording() {
+            self.rec_phase = 0.0;
+            self.command(Commande::DemarrerEnregistrement);
         }
         self.playing = false;
         self.page = Page::Recording;
     }
     pub fn stop_recording(&mut self) {
-        let Some(rec) = self.rec.take() else { return };
-        let id = self.next_id;
-        self.next_id += 1;
-        let mut m = data::unprocessed(id, 0, "sam. 21/11", "14h02", rec.elapsed.max(60.0));
-        m.people = rec.people;
-        m.markers = rec.markers.iter().enumerate().map(|(i, t)| data::Marker { at: *t, label: format!("Repère {}", i + 1) }).collect();
-        if self.auto_process {
-            m.stage = Stage::Queued;
-        }
-        self.meetings.insert(0, m);
-        self.open(id);
-    }
-    pub fn process(&mut self, id: u32) {
-        if let Some(m) = self.by_id(id) {
-            m.stage = Stage::Queued;
-            m.progress = 0.0;
+        if self.recording() {
+            self.command(Commande::ArreterEnregistrement);
         }
     }
-    pub fn redo_bilan(&mut self, id: u32) {
-        if let Some(m) = self.by_id(id) {
-            m.stage = Stage::Summarizing;
-            m.progress = 0.0;
-        }
+    pub fn process(&mut self, id: IdReunion) {
+        self.command(Commande::Traiter(id));
     }
-    pub fn stop_processing(&mut self, id: u32) {
-        if let Some(m) = self.by_id(id) {
-            m.stage = Stage::Recorded;
-            m.progress = 0.0;
-        }
+    pub fn redo_bilan(&mut self, id: IdReunion) {
+        self.command(Commande::Refaire { reunion: id, etape: Etape::Bilan });
     }
-    pub fn delete(&mut self, id: u32) {
-        self.meetings.retain(|m| m.id != id);
+    pub fn stop_processing(&mut self, id: IdReunion) {
+        self.command(Commande::ArreterTraitement(id));
+    }
+    pub fn delete(&mut self, id: IdReunion) {
+        self.command(Commande::Supprimer(id));
         if self.page == Page::Meeting(id) {
             self.page = Page::Overview;
             self.playing = false;
@@ -185,17 +174,34 @@ impl App {
         self.confirm_delete = None;
     }
     pub fn add_marker(&mut self) {
-        if let Some(r) = &mut self.rec {
-            r.markers.push(r.elapsed);
+        if self.recording() {
+            self.command(Commande::PoserRepere);
         }
     }
-    pub fn resolve_doubt(&mut self, i: usize, status: DoubtStatus) {
-        if let Some(m) = self.meeting_mut() {
-            m.doubts[i].status = status;
+    pub fn resolve_doubt(&mut self, passage: usize, tranche: Tranche) {
+        if let Page::Meeting(reunion) = self.page {
+            self.command(Commande::Trancher { reunion, passage, tranche });
         }
+    }
+    /// Écran, son du Mac, micro.
+    pub fn source(&self, i: usize) -> bool {
+        let s = &self.core.reglages().sources;
+        [s.ecran, s.son_du_mac, s.micro][i]
+    }
+    pub fn toggle_source(&mut self, i: usize) {
+        let mut r = self.core.reglages().clone();
+        let s = &mut r.sources;
+        let v = [&mut s.ecran, &mut s.son_du_mac, &mut s.micro];
+        *v[i] = !*v[i];
+        self.command(Commande::ChangerReglages(r));
+    }
+    pub fn toggle_auto_process(&mut self) {
+        let mut r = self.core.reglages().clone();
+        r.traiter_a_l_arret = !r.traiter_a_l_arret;
+        self.command(Commande::ChangerReglages(r));
     }
     pub fn toggle_fullscreen(&mut self, tx: &mut Tx) {
-        self.fullscreen = !self.fullscreen && self.meeting().is_some_and(|m| m.stage == Stage::Done);
+        self.fullscreen = !self.fullscreen && self.meeting().is_some_and(|m| m.statut == Statut::Terminee);
         tx.toggle_full_screen();
     }
     pub fn open_search(&mut self) {
@@ -206,10 +212,17 @@ impl App {
     }
 }
 
+/// Le dossier de réunions du prototype : un répertoire temporaire, vidé à chaque lancement.
+fn prototype_folder() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("greffier-prototype");
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
 fn init() -> App {
     App {
+        core: Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions()),
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
-        meetings: data::sample(),
         page: Page::Overview,
         tab: Tab::Summary,
         pos: 0.0,
@@ -219,14 +232,11 @@ fn init() -> App {
         current: None,
         followed: None,
         transcript_frames: 0,
-        rec: None,
+        rec_phase: 0.0,
         picking: None,
         toast: None,
-        auto_process: true,
-        sources: [true, true, true],
         clock: 0.0,
         last: None,
-        next_id: 100,
         collapsed: [false; 4],
         search: None,
         menu: None,
@@ -235,7 +245,7 @@ fn init() -> App {
     }
 }
 
-/// Avance la lecture, l'enregistrement et les traitements simulés.
+/// Avance la lecture et fait passer le temps du cœur (enregistrement, file de traitement).
 fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let dt = s.last.map_or(0.0, |l| (clock - l).clamp(0.0, 0.25));
     s.clock = clock;
@@ -246,12 +256,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         active = true;
         changed = true;
         let speed = SPEEDS[s.speed];
-        let dur = s.meeting().map_or(0.0, |m| m.duration);
+        let dur = s.meeting().map_or(0.0, |m| m.duree);
         s.pos = (s.pos + dt * speed).min(dur);
         if s.pos >= dur {
             s.playing = false;
         }
-        s.current = s.meeting().and_then(|m| m.utterance_at(s.pos));
+        s.current = s.meeting().and_then(|m| m.replique_a(s.pos));
     }
     // La transcription suit la réplique en cours (lecture, saut, changement d'onglet).
     if s.tab != Tab::Transcript {
@@ -266,52 +276,15 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         active = true;
     }
 
-    if let Some(r) = &mut s.rec {
+    if s.recording() {
+        s.rec_phase += dt;
+    }
+    let events = s.core.avancer(dt);
+    if s.core.occupe() || !events.is_empty() {
         active = true;
         changed = true;
-        r.elapsed += dt * REC_SPEED;
-        r.phase += dt;
     }
-
-    // Une réunion à la fois : la première en attente démarre quand rien ne tourne.
-    if !s.meetings.iter().any(|m| m.stage.processing()) {
-        if let Some(m) = s.meetings.iter_mut().rev().find(|m| m.stage == Stage::Queued) {
-            m.stage = Stage::Transcribing;
-            m.progress = 0.0;
-            changed = true;
-        }
-    }
-    let mut finished = None;
-    if let Some(m) = s.meetings.iter_mut().find(|m| m.stage.processing()) {
-        active = true;
-        changed = true;
-        m.progress += dt / m.stage.sim_secs();
-        if m.progress >= 1.0 {
-            m.progress = 0.0;
-            m.stage = m.stage.next();
-            if m.stage == Stage::Done {
-                finished = Some(m.id);
-            }
-        }
-    }
-    if let Some(id) = finished {
-        if let Some(i) = s.meetings.iter().position(|m| m.id == id) {
-            let old = &s.meetings[i];
-            // Un bilan refait garde sa réunion ; une nouvelle reçoit le contenu simulé.
-            if old.utterances.is_empty() {
-                let mut done = data::generic(id, old.ago, &old.date_label.clone(), &old.start.clone(), old.duration, &data::NEW_MEETING, u64::from(id));
-                done.markers = std::mem::take(&mut s.meetings[i].markers);
-                done.people = s.meetings[i].people;
-                for sp in &mut done.speakers {
-                    sp.name = None;
-                }
-                s.meetings[i] = done;
-            }
-            let m = &mut s.meetings[i];
-            m.unread = s.page != Page::Meeting(id);
-            s.toast = Some(Toast { text: format!("Bilan prêt : {}", m.title), meeting: Some(id), until: clock + 6.0 });
-        }
-    }
+    s.handle(events);
 
     if let Some(t) = &s.toast {
         if clock > t.until {
@@ -348,10 +321,10 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if ev.is_command('r') && ev.mods.shift {
-        if s.rec.is_some() { s.stop_recording() } else { s.start_recording() }
+        if s.recording() { s.stop_recording() } else { s.start_recording() }
         return true;
     }
-    if ev.is_command('m') && s.rec.is_some() {
+    if ev.is_command('m') && s.recording() {
         s.add_marker();
         return true;
     }
@@ -408,7 +381,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
 
 fn scene_meeting(s: &mut App) {
     s.open(2);
-    s.seek(data::hms(0, 44, 5));
+    s.seek(greffier_coeur::hms(0, 44, 5));
 }
 fn scene_transcript(s: &mut App) {
     scene_meeting(s);
@@ -420,26 +393,27 @@ fn scene_doubts(s: &mut App) {
 }
 fn scene_people(s: &mut App) {
     scene_meeting(s);
-    s.tab = Tab::People;
+    s.tab = Tab::Speakers;
 }
 fn scene_info(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Info;
 }
+/// 12 min 34 d'enregistrement (temps accéléré ×20), un repère à 5 min 12.
 fn scene_recording(s: &mut App) {
     s.start_recording();
-    if let Some(r) = &mut s.rec {
-        r.elapsed = 754.0;
-        r.markers = vec![312.0];
-        r.phase = 1.3;
-    }
+    s.core.avancer(312.0 / fictif::VITESSE_D_ENREGISTREMENT);
+    s.add_marker();
+    s.core.avancer(442.0 / fictif::VITESSE_D_ENREGISTREMENT);
+    s.rec_phase = 1.3;
 }
+/// La réunion à traiter, transcrite, à 40 % de la relecture.
 fn scene_processing(s: &mut App) {
     s.open(1);
-    if let Some(m) = s.by_id(1) {
-        m.stage = Stage::Reviewing;
-        m.progress = 0.4;
-    }
+    s.process(1);
+    s.core.avancer(0.0);
+    s.core.avancer(fictif::duree_simulee(Etape::Transcription));
+    s.core.avancer(0.4 * fictif::duree_simulee(Etape::Relecture));
 }
 fn scene_unprocessed(s: &mut App) {
     s.open(1);

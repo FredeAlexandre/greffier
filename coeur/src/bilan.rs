@@ -1,10 +1,11 @@
-//! Le bilan est du Markdown écrit par le LLM à partir d'un template (celui de `prompt-bilan.md`).
-//! L'app ne stocke que ce texte. Elle en tire ce dont l'interface a besoin : les sujets
-//! (chapitres de la timeline), les décisions (◆), le résumé, et rend les horodatages
-//! « (0:44:12) » cliquables.
+//! Le bilan est du Markdown écrit par l'agent à partir du prompt du bilan. Greffier ne stocke
+//! que ce texte. Il en tire ce dont il a besoin : les sujets (chapitres de la timeline), les
+//! décisions (◆), le résumé, les actions, et rend les horodatages « (0:44:12) » cliquables.
+
+use crate::reunion::{Decision, Sujet};
 
 /// Lit « h:mm:ss » au début de `s`. Renvoie les secondes et la longueur lue.
-fn parse_ts(s: &str) -> Option<(f64, usize)> {
+fn lire_horodatage(s: &str) -> Option<(f64, usize)> {
     let b = s.as_bytes();
     let mut i = 0;
     while i < b.len() && b[i].is_ascii_digit() {
@@ -24,19 +25,19 @@ fn parse_ts(s: &str) -> Option<(f64, usize)> {
 }
 
 /// Tous les « (h:mm:ss) » d'une ligne : (position de la parenthèse ouvrante, longueur, secondes).
-fn stamps(line: &str) -> Vec<(usize, usize, f64)> {
+fn horodatages(line: &str) -> Vec<(usize, usize, f64)> {
     let mut out = Vec::new();
     for (i, _) in line.match_indices('(') {
-        if let Some((t, n)) = parse_ts(&line[i + 1..]) {
-            if line[i + 1 + n..].starts_with(')') {
-                out.push((i, n + 2, t));
-            }
+        if let Some((t, n)) = lire_horodatage(&line[i + 1..])
+            && line[i + 1 + n..].starts_with(')')
+        {
+            out.push((i, n + 2, t));
         }
     }
     out
 }
 
-fn strip(s: &str) -> String {
+fn nettoyer(s: &str) -> String {
     s.replace("**", "").trim().to_string()
 }
 
@@ -52,42 +53,67 @@ fn section<'a>(md: &'a str, title: &str) -> impl Iterator<Item = &'a str> {
     })
 }
 
+fn est_une_case(ligne: &str) -> bool {
+    let t = ligne.trim_start();
+    t.starts_with("- [ ]") || t.starts_with("- [x]") || t.starts_with("- [X]")
+}
+
 /// Les sujets : les `### Titre (h:mm:ss)` de « Sujets abordés ».
-pub fn topics(md: &str) -> Vec<(f64, String)> {
-    let mut v: Vec<(f64, String)> = section(md, "Sujets")
+pub fn sujets(md: &str) -> Vec<Sujet> {
+    let mut v: Vec<Sujet> = section(md, "Sujets")
         .filter_map(|l| {
             let h = l.strip_prefix("### ")?;
-            let (i, _, t) = *stamps(h).first()?;
-            Some((t, strip(&h[..i])))
+            let (i, _, t) = *horodatages(h).first()?;
+            Some(Sujet { debut: t, titre: nettoyer(&h[..i]) })
         })
         .collect();
-    v.sort_by(|a, b| a.0.total_cmp(&b.0));
+    v.sort_by(|a, b| a.debut.total_cmp(&b.debut));
     v
 }
 
 /// Les décisions : les puces horodatées de « Décisions ».
-pub fn decisions(md: &str) -> Vec<(f64, String)> {
+pub fn decisions(md: &str) -> Vec<Decision> {
     section(md, "Décisions")
         .filter_map(|l| {
             let item = l.trim_start().strip_prefix("- ")?;
-            let (i, n, t) = *stamps(item).first()?;
+            let (i, n, t) = *horodatages(item).first()?;
             let text = format!("{}{}", &item[..i], &item[i + n..]);
-            Some((t, strip(&text)))
+            Some(Decision { instant: t, texte: nettoyer(&text) })
         })
         .collect()
 }
 
+/// Les actions : les cases `- [ ]` de la section « Actions ».
+pub fn actions(md: &str) -> Vec<String> {
+    section(md, "Actions").filter(|l| est_une_case(l)).map(|l| nettoyer(&l.trim_start()[5..])).collect()
+}
+
 /// Le premier paragraphe de « En bref ».
-pub fn brief(md: &str) -> String {
+pub fn en_bref(md: &str) -> String {
     section(md, "En bref").map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
+/// Ce qu'il manque au bilan pour que l'interface s'en serve, ou rien.
+pub fn manques(md: &str) -> Option<String> {
+    let mut manque = Vec::new();
+    if sujets(md).is_empty() {
+        manque.push("sujets horodatés");
+    }
+    if decisions(md).is_empty() {
+        manque.push("décisions horodatées");
+    }
+    if actions(md).is_empty() {
+        manque.push("actions");
+    }
+    (!manque.is_empty()).then(|| format!("Le bilan n'a pas de {}.", manque.join(", ni de ")))
+}
+
 /// Rend les horodatages cliquables : « (0:44:12) » devient un lien `t:2652`.
-pub fn enrich(md: &str) -> String {
+pub fn avec_liens_de_lecture(md: &str) -> String {
     let mut out = String::with_capacity(md.len() + 256);
     for line in md.lines() {
         let mut last = 0;
-        for (i, n, t) in stamps(line) {
+        for (i, n, t) in horodatages(line) {
             out.push_str(&line[last..i]);
             let label = &line[i + 1..i + n - 1];
             out.push_str(&format!("[▶ {label}](t:{})", t as u64));
@@ -100,16 +126,16 @@ pub fn enrich(md: &str) -> String {
 }
 
 /// Coche ou décoche la `index`-ième case `- [ ]` du Markdown.
-pub fn set_task(md: &mut String, index: usize, done: bool) {
+pub fn cocher(md: &mut String, index: usize, faite: bool) {
     let mut n = 0;
     let mut out = String::with_capacity(md.len());
     for line in md.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("- [ ]") || trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
+        if est_une_case(line) {
             if n == index {
+                let trimmed = line.trim_start();
                 let pad = &line[..line.len() - trimmed.len()];
                 out.push_str(pad);
-                out.push_str(if done { "- [x]" } else { "- [ ]" });
+                out.push_str(if faite { "- [x]" } else { "- [ ]" });
                 out.push_str(&trimmed[5..]);
                 out.push('\n');
                 n += 1;
@@ -123,15 +149,9 @@ pub fn set_task(md: &mut String, index: usize, done: bool) {
     *md = out;
 }
 
-/// L'index de la case dont le `[` est à `offset` dans `src` (pour le rappel `on_task`).
-pub fn task_index(src: &str, offset: usize) -> usize {
-    src[..offset.min(src.len())]
-        .lines()
-        .filter(|l| {
-            let t = l.trim_start();
-            t.starts_with("- [ ]") || t.starts_with("- [x]") || t.starts_with("- [X]")
-        })
-        .count()
+/// L'index de la case dont le `[` est à `offset` dans `src`.
+pub fn index_de_la_case(src: &str, offset: usize) -> usize {
+    src[..offset.min(src.len())].lines().filter(|l| est_une_case(l)).count()
 }
 
 #[cfg(test)]
@@ -141,14 +161,16 @@ mod tests {
     const MD: &str = "## En bref\nUn.\nDeux.\n\n## Sujets abordés\n### Bandeau (0:00:01)\n- a\n### Search **fermé** (1:05:17)\n## Décisions\n- (0:44:12) On vend.\n- Rien\n## Actions\n- [ ] A\n- [x] B\n";
 
     #[test]
-    fn reads_the_template() {
-        assert_eq!(topics(MD), vec![(1.0, "Bandeau".into()), (3917.0, "Search fermé".into())]);
-        assert_eq!(decisions(MD), vec![(2652.0, "On vend.".into())]);
-        assert_eq!(brief(MD), "Un. Deux.");
-        assert!(enrich(MD).contains("[▶ 0:44:12](t:2652)"));
+    fn lit_le_modele_du_bilan() {
+        assert_eq!(sujets(MD), vec![Sujet { debut: 1.0, titre: "Bandeau".into() }, Sujet { debut: 3917.0, titre: "Search fermé".into() }]);
+        assert_eq!(decisions(MD), vec![Decision { instant: 2652.0, texte: "On vend.".into() }]);
+        assert_eq!(en_bref(MD), "Un. Deux.");
+        assert_eq!(actions(MD), vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(manques(MD), None);
+        assert!(avec_liens_de_lecture(MD).contains("[▶ 0:44:12](t:2652)"));
         let mut m = MD.to_string();
-        set_task(&mut m, 1, false);
-        set_task(&mut m, 0, true);
+        cocher(&mut m, 1, false);
+        cocher(&mut m, 0, true);
         assert!(m.contains("- [x] A\n- [ ] B"));
     }
 }

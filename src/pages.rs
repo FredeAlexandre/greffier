@@ -3,7 +3,8 @@
 use rune::{El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Switch};
 
-use crate::data::Stage;
+use greffier_coeur::{Commande, Statut, bilan};
+
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
 use crate::App;
 
@@ -68,13 +69,14 @@ fn stat(k: &Kit, value: String, label: &str) -> El {
 }
 
 pub fn overview(s: &App, k: &Kit) -> El {
-    let total: f64 = s.meetings.iter().map(|m| m.duration).sum::<f64>() + 16.0 * 3600.0;
-    let todo = s.meetings.iter().filter(|m| m.stage != Stage::Done).count();
-    let doubts: usize = s.meetings.iter().map(|m| m.pending_doubts()).sum();
+    let meetings = s.core.reunions();
+    let total: f64 = meetings.iter().map(|m| m.duree).sum::<f64>() + 16.0 * 3600.0;
+    let todo = meetings.iter().filter(|m| m.statut != Statut::Terminee).count();
+    let doubts: usize = meetings.iter().map(|m| m.passages_en_attente()).sum();
     let stats = row()
         .w_full()
         .gap(10.0)
-        .child(stat(k, format!("{}", s.meetings.len() + 16), "réunions depuis le 02/11"))
+        .child(stat(k, format!("{}", meetings.len() + 16), "réunions depuis le 02/11"))
         .child(stat(k, ui::dur(total), "enregistrées"))
         .child(stat(k, format!("{todo}"), "à traiter"))
         .child(stat(k, format!("{doubts}"), "passages à vérifier"));
@@ -97,17 +99,17 @@ pub fn overview(s: &App, k: &Kit) -> El {
     }
 
     let mut recent = card(k).child(heading(k, "Dernières réunions"));
-    for m in s.meetings.iter().take(5) {
+    for m in meetings.iter().take(5) {
         let id = m.id;
-        let title = if m.stage == Stage::Done { m.title.clone() } else { format!("Réunion du {} · {}", m.date_label, m.stage.label().to_lowercase()) };
+        let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {} · {}", m.debut.jour_court(), ui::status(&m.statut).to_lowercase()) };
         recent = recent.child(
             row().key(format!("rec{id}")).w_full().gap(12.0).center_y().px(8.0).py(8.0).radius(k.radius.md).hover(k.c.hover).cursor(rune::Cursor::Pointer)
                 .on_press(move |s: &mut App| s.open(id))
-                .child(col().w(78.0).child(text(m.date_label.clone()).font(k.ty.small_medium).color(k.c.text_base)).child(text(m.start.clone()).font(k.ty.text_xsmall).color(k.c.text_faint)))
+                .child(col().w(78.0).child(text(m.debut.jour_court()).font(k.ty.small_medium).color(k.c.text_base)).child(text(m.debut.heure_courte()).font(k.ty.text_xsmall).color(k.c.text_faint)))
                 .child(col().grow(1.0).min_w(0.0).gap(2.0)
                     .child(text(title).font(k.ty.ui_medium).color(k.c.text_base).truncate())
-                    .child(text(if m.bilan.is_empty() { "Pas encore de bilan.".into() } else { crate::bilan::brief(&m.bilan).replace("**", "") }).font(k.ty.small).color(k.c.text_muted).truncate()))
-                .child(text(ui::dur(m.duration)).font(tnum(k.ty.small)).color(k.c.text_faint)),
+                    .child(text(if m.bilan.is_empty() { "Pas encore de bilan.".into() } else { bilan::en_bref(&m.bilan).replace("**", "") }).font(k.ty.small).color(k.c.text_muted).truncate()))
+                .child(text(ui::dur(m.duree)).font(tnum(k.ty.small)).color(k.c.text_faint)),
         );
     }
 
@@ -134,7 +136,7 @@ fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64,
 }
 
 pub fn recording(s: &App, k: &Kit) -> El {
-    let Some(r) = &s.rec else {
+    let Some(r) = s.core.enregistrement() else {
         let body = card(k).gap(14.0).items_center().padding(32.0)
             .child(glyph(&ui::RECORD, 34.0, red()))
             .child(heading(k, "Prêt à enregistrer"))
@@ -143,7 +145,8 @@ pub fn recording(s: &App, k: &Kit) -> El {
             .child(Keybind::new(&["⇧", "⌘", "R"]).build(k));
         return page("recording", "Enregistrer", "Un clic ou ⇧⌘R, de n'importe où.", k, body);
     };
-    let pulse = 0.5 + 0.5 * (r.phase * 3.0).cos().abs() as f32;
+    let phase = s.rec_phase;
+    let pulse = 0.5 + 0.5 * (phase * 3.0).cos().abs() as f32;
     let timer = card(k)
         .key("rec-card")
         .gap(18.0)
@@ -154,9 +157,9 @@ pub fn recording(s: &App, k: &Kit) -> El {
                 .child(text("Enregistrement en cours").font(k.ty.body_medium).color(k.c.text_base).grow(1.0))
                 .child(text("démo : temps accéléré ×20").font(k.ty.text_xsmall).color(k.c.text_faint)),
         )
-        .child(text(ui::ts(r.elapsed)).key("rec-timer").font(tnum(title_style(56.0))).color(k.c.text_base))
-        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", r.phase, 0.0, s.sources[2]))
-        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", r.phase, 2.1, s.sources[1]))
+        .child(text(ui::ts(r.duree)).key("rec-timer").font(tnum(title_style(56.0))).color(k.c.text_base))
+        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", phase, 0.0, s.source(2)))
+        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", phase, 2.1, s.source(1)))
         .child(
             row().w_full().gap(10.0).pt(4.0)
                 .child(Button::new("Arrêter l'enregistrement").icon(&ui::STOP).variant(ButtonVariant::Danger).on_press(|s: &mut App| s.stop_recording()).build(k).key("stop"))
@@ -164,36 +167,36 @@ pub fn recording(s: &App, k: &Kit) -> El {
         );
 
     let mut markers = card(k).child(heading(k, "Repères"));
-    if r.markers.is_empty() {
+    if r.reperes.is_empty() {
         markers = markers.child(muted(k, "⌘M pendant la réunion pour marquer un moment important. Il apparaîtra sur la timeline."));
     }
-    for (i, t) in r.markers.iter().enumerate() {
+    for (i, t) in r.reperes.iter().enumerate() {
         markers = markers.child(row().key(format!("rm{i}")).gap(8.0).center_y().child(glyph(&ui::FLAG, 13.0, k.c.text_accent)).child(text(format!("Repère {} · {}", i + 1, ui::ts(*t))).font(tnum(k.ty.small_medium)).color(k.c.text_base)));
     }
 
-    let people = r.people;
+    let people = r.nombre_de_locuteurs;
     let setup = card(k)
         .child(heading(k, "Sources et réglages"))
-        .child(check_row(k, s.sources[0], "Écran", "Écran principal · 30 i/s"))
-        .child(check_row(k, s.sources[1], "Son du Mac", "Meet, Zoom, toute l'audio du système"))
-        .child(check_row(k, s.sources[2], "Micro", "Micro du MacBook Pro"))
+        .child(check_row(k, s.source(0), "Écran", "Écran principal · 30 i/s"))
+        .child(check_row(k, s.source(1), "Son du Mac", "Meet, Zoom, toute l'audio du système"))
+        .child(check_row(k, s.source(2), "Micro", "Micro du MacBook Pro"))
         .child(
             row().w_full().gap(10.0).center_y().pt(6.0)
                 .child(text("Personnes").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
                 .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                    .on_press(|s: &mut App| if let Some(r) = &mut s.rec { r.people = match r.people { Some(n) if n > 2 => Some(n - 1), _ => None } }).build(k))
+                    .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(match people { Some(n) if n > 2 => Some(n - 1), _ => None }))).build(k))
                 .child(text(people.map_or("Détecté".to_string(), |n| format!("{n}"))).font(k.ty.ui_medium).color(k.c.text_base).w(64.0).align(rune::Align::Center))
                 .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                    .on_press(|s: &mut App| if let Some(r) = &mut s.rec { r.people = Some(r.people.map_or(2, |n| (n + 1).min(12))) }).build(k)),
+                    .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(Some(people.map_or(2, |n| (n + 1).min(12)))))).build(k)),
         )
-        .child(Switch::new(s.auto_process).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.auto_process = !s.auto_process).build(k));
+        .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
 
     page("recording", "Enregistrement", "La réunion arrive dans la liste à l'arrêt, avec son traitement.", k,
         col().w_full().gap(16.0).child(timer).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(setup)).child(col().grow(1.0).min_w(0.0).child(markers))))
 }
 
 pub fn settings(s: &App, k: &Kit) -> El {
-    let src = |i: usize, label: &str| Switch::new(s.sources[i]).label(label.to_owned()).on_toggle(move |s: &mut App| s.sources[i] = !s.sources[i]).build(k);
+    let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k);
     let rec = card(k)
         .child(heading(k, "Enregistrement"))
         .child(src(0, "Écran"))
@@ -201,7 +204,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
         .child(src(2, "Micro"))
         .child(row().w_full().justify_between().center_y().child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⇧", "⌘", "R"]).build(k)))
         .child(row().w_full().justify_between().center_y().child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(Keybind::new(&["⌘", "M"]).build(k)))
-        .child(Switch::new(s.auto_process).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.auto_process = !s.auto_process).build(k));
+        .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
     let storage = card(k)
         .child(heading(k, "Stockage"))
         .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text("~/Vault/Falcon HQ/Réunions").font(k.ty.ui).color(k.c.text_base)))

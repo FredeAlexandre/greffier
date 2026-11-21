@@ -1,0 +1,262 @@
+//! Les interfaces de tout ce qui sort du processus. Le cœur ne connaît qu'elles : les vrais
+//! moteurs (ScreenCaptureKit, whisper.cpp, pyannote, la CLI `claude`, les téléchargements) et les
+//! faux adaptateurs des tests et du prototype les implémentent.
+//!
+//! Un travail long rend une [`Tache`] que le cœur sonde à chaque [`crate::Greffier::avancer`] :
+//! un vrai adaptateur fait tourner son travail sur un fil à lui et rapporte son avancement ; un
+//! faux avance avec le temps écoulé qu'on lui passe, ce qui rend les tests déterministes.
+
+use std::path::PathBuf;
+
+use crate::reunion::{Mot, Repere, TourDeParole};
+use crate::temps::DateHeure;
+
+/// Où en est une tâche.
+#[derive(Debug, PartialEq)]
+pub enum Avancement<T> {
+    /// En cours, de 0 à 1.
+    EnCours(f64),
+    Fini(T),
+    Echec(String),
+}
+
+/// Un travail qui tourne hors du cœur.
+pub trait Tache<T> {
+    /// Appelée à chaque avancée du cœur ; `ecoule` est le temps passé depuis l'appel précédent,
+    /// en secondes. Après `Fini` ou `Echec`, la tâche n'est plus sondée.
+    fn sonder(&mut self, ecoule: f64) -> Avancement<T>;
+    /// Abandonne le travail (arrêt du traitement, suppression de la réunion).
+    fn arreter(&mut self) {}
+}
+
+pub type TacheDe<T> = Box<dyn Tache<T>>;
+
+// --- Capture -------------------------------------------------------------------------------
+
+/// Les sources enregistrées.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sources {
+    pub ecran: bool,
+    pub son_du_mac: bool,
+    pub micro: bool,
+}
+
+impl Default for Sources {
+    fn default() -> Sources {
+        Sources { ecran: true, son_du_mac: true, micro: true }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemandeDeCapture {
+    /// Le fichier de l'enregistrement, à écrire au fil de l'eau.
+    pub fichier: PathBuf,
+    pub sources: Sources,
+}
+
+/// Niveaux en direct, de 0 à 1.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Niveaux {
+    pub micro: f32,
+    pub son_du_mac: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EtatDeCapture {
+    /// Durée enregistrée, en secondes.
+    pub duree: f64,
+    pub niveaux: Niveaux,
+}
+
+/// Enregistre l'écran, le son du Mac et le micro dans un fichier.
+pub trait Capture {
+    fn demarrer(&mut self, demande: DemandeDeCapture) -> Result<(), String>;
+    fn sonder(&mut self, ecoule: f64) -> EtatDeCapture;
+    /// Arrête et finit d'écrire le fichier ; rend la durée enregistrée.
+    fn arreter(&mut self) -> Result<f64, String>;
+}
+
+// --- Transcripteur et séparateur -----------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemandeDeTranscription {
+    /// L'enregistrement de la réunion (la conversion de sa piste de mixage est l'affaire de
+    /// l'adaptateur).
+    pub audio: PathBuf,
+    /// Durée de la réunion, pour estimer l'avancement.
+    pub duree: f64,
+    /// La section Vocabulaire du lexique, donnée en prompt.
+    pub vocabulaire: String,
+}
+
+/// Un audio et un vocabulaire en entrée ; des mots horodatés avec leur confiance en sortie.
+pub trait Transcripteur {
+    fn transcrire(&mut self, demande: DemandeDeTranscription) -> TacheDe<Vec<Mot>>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemandeDeSeparation {
+    pub audio: PathBuf,
+    pub duree: f64,
+    /// Le nombre de locuteurs indiqué, sinon détecté.
+    pub nombre_de_locuteurs: Option<u8>,
+}
+
+/// Un audio et un nombre de locuteurs éventuel en entrée ; des tours de parole exclusifs en sortie.
+pub trait Separateur {
+    fn separer(&mut self, demande: DemandeDeSeparation) -> TacheDe<Vec<TourDeParole>>;
+}
+
+// --- Agent ---------------------------------------------------------------------------------
+
+/// Une réplique telle qu'on la donne à l'agent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepliquePourLAgent {
+    /// Index de la réplique dans la réunion ; les résultats y renvoient.
+    pub numero: usize,
+    /// « SPEAKER_00 »
+    pub locuteur: String,
+    /// Le nom donné au locuteur, s'il y en a un.
+    pub nom: Option<String>,
+    pub debut: f64,
+    pub fin: f64,
+    pub texte: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemandeDeRelecture {
+    /// Pour la réécoute des passages douteux.
+    pub enregistrement: PathBuf,
+    pub repliques: Vec<RepliquePourLAgent>,
+    pub lexique: String,
+}
+
+/// Une correction sûre : `avant` devient `apres` dans la réplique `replique`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CorrectionSure {
+    pub replique: usize,
+    pub avant: String,
+    pub apres: String,
+}
+
+/// La conversation prouve que la réplique est d'un autre locuteur.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChangementDeLocuteur {
+    pub replique: usize,
+    pub locuteur: String,
+}
+
+/// Un passage que la relecture n'a pas su trancher, même après réécoute.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PassageSignale {
+    pub replique: usize,
+    pub extrait: String,
+    pub hypothese: Option<String>,
+    pub reecoute: String,
+}
+
+/// Le résultat des deux passes de la relecture ; Greffier l'applique lui-même.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ResultatDeRelecture {
+    pub session: Option<String>,
+    pub corrections: Vec<CorrectionSure>,
+    pub changements_de_locuteur: Vec<ChangementDeLocuteur>,
+    pub passages_a_verifier: Vec<PassageSignale>,
+    pub ajouts_au_lexique: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocuteurPourLAgent {
+    pub etiquette: String,
+    pub nom: Option<String>,
+    pub proposition: Option<String>,
+    pub justification: String,
+    /// La fusion déjà proposée (« SPEAKER_00 »), s'il y en a une.
+    pub meme_voix_proposee: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemandeDeBilan {
+    /// Le répertoire de travail de l'agent.
+    pub dossier_de_reunions: PathBuf,
+    /// Le fichier que l'agent doit écrire.
+    pub fichier_du_bilan: PathBuf,
+    pub titre: String,
+    pub debut: DateHeure,
+    pub duree: f64,
+    pub repliques: Vec<RepliquePourLAgent>,
+    pub locuteurs: Vec<LocuteurPourLAgent>,
+    pub reperes: Vec<Repere>,
+    /// Le bilan précédent quand on refait le bilan.
+    pub bilan_actuel: Option<String>,
+}
+
+/// Ce que l'agent propose pour un locuteur.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Participant {
+    /// « SPEAKER_00 »
+    pub locuteur: String,
+    pub nom_propose: String,
+    pub justification: String,
+    /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).
+    pub meme_voix_que: Option<String>,
+}
+
+/// Ce que l'agent renvoie après avoir écrit le fichier du bilan.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResultatDuBilan {
+    pub session: Option<String>,
+    pub titre: String,
+    pub resume: String,
+    /// Les 3 actions principales, au plus.
+    pub actions: Vec<String>,
+    pub participants: Vec<Participant>,
+}
+
+/// La relecture en deux passes (réécoute comprise) et le bilan, confiés à un agent.
+pub trait Agent {
+    fn relire(&mut self, demande: DemandeDeRelecture) -> TacheDe<ResultatDeRelecture>;
+    /// Écrit `demande.fichier_du_bilan` et renvoie titre, résumé, actions et participants.
+    fn faire_le_bilan(&mut self, demande: DemandeDeBilan) -> TacheDe<ResultatDuBilan>;
+}
+
+// --- Ressources ----------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum EtatDeRessource {
+    Absente,
+    EnTelechargement(f64),
+    Prete,
+    Echec(String),
+}
+
+/// Un modèle, l'environnement Python, ou une vérification (la CLI `claude`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ressource {
+    pub nom: String,
+    pub etat: EtatDeRessource,
+}
+
+/// Télécharge et vérifie les modèles et l'environnement Python.
+pub trait Ressources {
+    fn etat(&mut self) -> Vec<Ressource>;
+    /// Télécharge et vérifie ce qui manque.
+    fn installer(&mut self) -> TacheDe<()>;
+}
+
+// --- Horloge -------------------------------------------------------------------------------
+
+/// L'heure locale : le début des enregistrements et le jour d'aujourd'hui.
+pub trait Horloge {
+    fn maintenant(&self) -> DateHeure;
+}
+
+/// Tous les adaptateurs branchés sur le cœur.
+pub struct Adaptateurs {
+    pub capture: Box<dyn Capture>,
+    pub transcripteur: Box<dyn Transcripteur>,
+    pub separateur: Box<dyn Separateur>,
+    pub agent: Box<dyn Agent>,
+    pub ressources: Box<dyn Ressources>,
+    pub horloge: Box<dyn Horloge>,
+}
