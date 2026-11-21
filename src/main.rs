@@ -27,6 +27,7 @@ use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent,
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
+use greffier_barre::{Choix, IconeDeLaBarre};
 use greffier_coeur::adaptateurs::EtatDeRessource;
 use greffier_coeur::faux::FaussesRessources;
 use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, Tranche, fictif, lexique};
@@ -121,6 +122,8 @@ pub struct App {
     pub import: Option<import::Draft>,
     /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
     pub process_imported: Option<IdReunion>,
+    /// L'icône de la barre des menus (fenêtre seulement, posée au lancement).
+    pub menu_bar: Option<IconeDeLaBarre>,
 }
 
 impl App {
@@ -149,8 +152,9 @@ impl App {
         }
     }
     fn try_command(&mut self, c: Commande) -> Result<(), Refus> {
-        let events = self.core.executer(c)?;
-        self.handle(events);
+        let events = self.core.executer(c);
+        self.show_menu_bar();
+        self.handle(events?);
         Ok(())
     }
     fn handle(&mut self, events: Vec<Evenement>) {
@@ -272,6 +276,7 @@ impl App {
         self.folder = Some(dir);
         self.watch_folder();
         self.needs_folder = false;
+        self.show_menu_bar();
         self.folder_error = None;
         self.video = None;
         self.playing = false;
@@ -294,6 +299,28 @@ impl App {
     pub fn recording(&self) -> bool {
         self.core.enregistrement().is_some()
     }
+    /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
+    /// global, sur le thread de l'interface (`AppHandle::update`), comme lui.
+    fn install_menu_bar(&mut self) {
+        let Some(h) = self.handle.clone() else { return };
+        self.menu_bar = IconeDeLaBarre::new(move |choix| match choix {
+            Choix::Demarrer => h.update(|s: &mut App, _| if !s.recording() { s.toggle_recording() }),
+            Choix::Arreter => h.update(|s: &mut App, _| if s.recording() { s.toggle_recording() }),
+            Choix::Ouvrir => h.open(),
+            Choix::Quitter => h.quit(),
+        });
+        self.show_menu_bar();
+    }
+    /// Montre l'état de l'enregistrement dans la barre des menus.
+    fn show_menu_bar(&mut self) {
+        let etat = match self.core.enregistrement() {
+            Some(r) => greffier_barre::Etat::Enregistrement { duree: r.duree },
+            None => greffier_barre::Etat::Pret { possible: !self.needs_folder },
+        };
+        if let Some(b) = &mut self.menu_bar {
+            b.montrer(etat);
+        }
+    }
     pub fn start_recording(&mut self) {
         if self.needs_folder {
             return;
@@ -303,6 +330,9 @@ impl App {
             self.record_error = self.try_command(Commande::DemarrerEnregistrement).err().map(|r| r.to_string());
             if self.recording() {
                 self.register_marker_shortcut(true);
+            } else if let Some(h) = &self.handle {
+                // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
+                h.open();
             }
         }
         if let Some((_, p)) = &self.video {
@@ -525,6 +555,7 @@ fn init() -> App {
         watch: None,
         import: None,
         process_imported: None,
+        menu_bar: None,
     }
 }
 
@@ -599,6 +630,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     s.handle(events);
+    s.show_menu_bar();
 
     if let Some(t) = &s.toast {
         if clock > t.until {
@@ -870,12 +902,16 @@ fn main() {
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
     let importer = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
-    let app = rune::App::new(spec).chrome(chrome).menu_item(importer);
+    // Fermer la fenêtre garde l'app (et l'icône de la barre des menus) : ⌘Q la quitte.
+    let app = rune::App::new(spec).chrome(chrome).menu_item(importer).keep_running();
     let handle = app.handle();
     let shared = handle.clone();
     handle.update(move |s, _| {
         s.handle = Some(shared);
         s.register_record_shortcut();
+        if !rune::is_headless() {
+            s.install_menu_bar();
+        }
     });
     app.run();
 }

@@ -1,0 +1,13 @@
+[package]
+name = "greffier-barre"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "L'icône de Greffier dans la barre des menus : ce que montre son menu (calcul pur, testé) et, sur macOS, le NSStatusItem écrit en objc2 depuis le thread principal."
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"

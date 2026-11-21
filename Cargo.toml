@@ -5,12 +5,13 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur", "capture"]
-default-members = [".", "coeur", "capture"]
+members = [".", "coeur", "capture", "barre"]
+default-members = [".", "coeur", "capture", "barre"]
 
 [dependencies]
 greffier-coeur = { path = "coeur" }
 greffier-capture = { path = "capture" }
+greffier-barre = { path = "barre" }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rune = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", features = ["tooling", "native-file-dialog"] }
