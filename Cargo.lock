@@ -1137,6 +1137,7 @@ version = "0.0.1"
 dependencies = [
  "chrono",
  "greffier-coeur",
+ "greffier-moteurs",
  "notify",
  "rune",
  "rune-kit",
@@ -1150,6 +1151,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "greffier-moteurs"
+version = "0.0.1"
+dependencies = [
+ "cc",
+ "greffier-coeur",
+ "objc2 0.6.5",
+ "objc2-av-foundation",
+ "objc2-core-media",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]

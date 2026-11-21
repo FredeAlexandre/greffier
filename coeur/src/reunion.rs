@@ -326,7 +326,7 @@ impl Reunion {
     pub fn temps_restant_estime(&self) -> Option<f64> {
         let (depuis, progres) = match &self.statut {
             Statut::EnCours { etape, progres } => (*etape, *progres),
-            Statut::EnAttente(_) => (Etape::Transcription, 0.0),
+            Statut::EnAttente(etape) => (*etape, 0.0),
             _ => return None,
         };
         let total: f64 = Etape::TOUTES.iter().map(|e| e.poids()).sum();

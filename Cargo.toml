@@ -5,11 +5,12 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur"]
-default-members = [".", "coeur"]
+members = [".", "coeur", "moteurs"]
+default-members = [".", "coeur", "moteurs"]
 
 [dependencies]
 greffier-coeur = { path = "coeur" }
+greffier-moteurs = { path = "moteurs" }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rune = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", features = ["tooling", "native-file-dialog"] }
@@ -26,3 +27,7 @@ accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d32
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Le rééchantillonnage de l'audio (une heure de réunion = des milliards de multiplications).
+[profile.dev.package.greffier-moteurs]
+opt-level = 3

@@ -11,7 +11,7 @@ use greffier_coeur::dossier::{EXTENSIONS_DE_MEDIA, Import};
 use greffier_coeur::{Commande, DateHeure, IdReunion, Statut};
 
 use crate::ui::{self, glyph, muted};
-use crate::{App, Toast, reglages};
+use crate::{App, Toast};
 
 /// La fenêtre d'import ouverte.
 pub struct Draft {
@@ -130,16 +130,10 @@ impl App {
         }
     }
 
-    /// « Lancer le traitement maintenant ». Tant que les étapes réelles ne sont pas branchées
-    /// ([`reglages::ETAPES_REELLES`]), la réunion reste à traiter : les adaptateurs du prototype
-    /// inventeraient une transcription dans le vrai dossier de réunions.
+    /// « Lancer le traitement maintenant ».
     pub fn process_imported_now(&mut self) {
         let Some(id) = self.process_imported.take() else { return };
-        if reglages::ETAPES_REELLES || self.folder.is_none() {
-            self.process(id);
-        } else {
-            self.toast = Some(Toast { text: "Le traitement n'est pas encore branché : la réunion reste à traiter.".into(), meeting: Some(id), until: self.clock + 6.0 });
-        }
+        self.process(id);
     }
 }
 

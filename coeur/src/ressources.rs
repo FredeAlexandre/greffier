@@ -27,6 +27,11 @@ pub fn dossier_de_l_app() -> PathBuf {
     maison.join("Library/Application Support/Greffier")
 }
 
+/// Le modèle de Whisper, dans le dossier de l'app.
+pub const MODELE_WHISPER: &str = "modeles/ggml-large-v3.bin";
+/// Le modèle du VAD Silero, dans le dossier de l'app.
+pub const MODELE_VAD: &str = "modeles/ggml-silero-v5.1.2.bin";
+
 /// Un fichier à télécharger.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fichier {
@@ -91,7 +96,7 @@ impl Catalogue {
                 "huggingface.co/ggerganov/whisper.cpp",
                 &[Etape::Transcription],
                 vec![Fichier::new(
-                    "modeles/ggml-large-v3.bin",
+                    MODELE_WHISPER,
                     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
                     3_095_033_483,
                     "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
@@ -102,7 +107,7 @@ impl Catalogue {
                 "huggingface.co/ggml-org/whisper-vad",
                 &[Etape::Transcription],
                 vec![Fichier::new(
-                    "modeles/ggml-silero-v5.1.2.bin",
+                    MODELE_VAD,
                     "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
                     885_098,
                     "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
