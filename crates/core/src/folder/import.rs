@@ -331,8 +331,28 @@ pub(crate) fn propose(paths: &[PathBuf], to_local_time: impl Fn(SystemTime) -> D
     let instant = mp4::creation_date(&recording).or_else(|| std::fs::metadata(&recording).and_then(|m| m.modified()).ok());
     let start = instant.map(to_local_time).ok_or_else(|| format!("{} : fichier introuvable.", recording.display()))?;
     let title = summary.as_ref().and_then(|b| std::fs::read_to_string(b).ok()).and_then(|md| summary_title(&md));
-    let title = title.unwrap_or_else(|| recording.file_stem().map(|s| s.to_string_lossy().trim().to_string()).unwrap_or_default());
+    let title = title.unwrap_or_else(|| title_from_file_name(&recording.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()));
     Ok(Import { recording, transcription, summary, start, title })
+}
+
+/// A title from a media file's name, without what a meetings folder adds to it: the leading
+/// `YYYY-MM-DD HHhMM - ` and the trailing role (`- enregistrement`, `- transcription`…), so a
+/// file from another meetings folder does not give its date twice. « Réunion » if nothing is left.
+fn title_from_file_name(stem: &str) -> String {
+    let stem = stem.trim();
+    let mut title = match super::read_folder_name(stem) {
+        Some(_) => stem[19..].trim(),
+        None => stem,
+    };
+    for role in Role::ALL {
+        let role = role.suffix().split('.').next().unwrap_or_default();
+        if title == role {
+            title = "";
+        } else if let Some(t) = title.strip_suffix(role).and_then(|t| t.trim_end().strip_suffix('-')) {
+            title = t.trim_end();
+        }
+    }
+    if title.is_empty() { "Réunion".to_string() } else { title.to_string() }
 }
 
 fn file_name(c: &Path) -> String {

@@ -415,6 +415,18 @@ fn without_date_in_media_the_date_is_the_modification_date_and_the_title_the_fil
 }
 
 #[test]
+fn a_title_from_a_file_name_drops_the_meetings_folder_date_and_role() {
+    let bench = Bench::new();
+    let outside = Outside::new(&bench);
+    let title = |name: &str| bench.greffier.propose_import(&[outside.write(name, "")]).unwrap().title;
+    assert_eq!(title("2026-11-04 14h33 - Point client - enregistrement.mp4"), "Point client");
+    assert_eq!(title("2026-11-04 14h33 - enregistrement.mp4"), "Réunion");
+    assert_eq!(title("Point client - transcription.m4a"), "Point client");
+    assert_eq!(title("2026-11-04 14h33 - Revue - sprint 12.mov"), "Revue - sprint 12");
+    assert_eq!(title("Démo du jeudi.mp4"), "Démo du jeudi");
+}
+
+#[test]
 fn an_import_without_media_or_with_two_media_is_rejected() {
     let bench = Bench::new();
     let outside = Outside::new(&bench);
