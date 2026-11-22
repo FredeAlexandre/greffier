@@ -62,6 +62,28 @@ impl<Id> RecordShortcut<Id> {
     }
 }
 
+/// The settings field's error, in French: rune-kit's `shortcut_error_message`, case for case.
+/// `shortcut` is the refused chord, None when clearing was refused or the key can't be one.
+pub fn error_message(error: &ShortcutError, shortcut: Option<&Shortcut>) -> String {
+    let Some(shortcut) = shortcut else {
+        return if matches!(error, ShortcutError::InvalidAccelerator(_)) {
+            "Cette touche ne peut pas faire partie d'un raccourci.".into()
+        } else {
+            "Le raccourci n'a pas pu être effacé.".into()
+        };
+    };
+    let chord = shortcut.keycaps().join(if cfg!(target_os = "macos") { "" } else { "+" });
+    match error {
+        ShortcutError::InvalidAccelerator(_) if shortcut.require_modifier().is_err() => {
+            if cfg!(target_os = "macos") { "Ajoute ⌘, ⌃ ou ⌥.".into() } else { "Ajoute Ctrl, Alt ou Super.".into() }
+        }
+        ShortcutError::Conflict => format!("{chord} est déjà utilisé."),
+        ShortcutError::Unsupported => "Ce bureau ne prend pas en charge les raccourcis globaux.".into(),
+        ShortcutError::PermissionDenied => format!("L'autorisation d'utiliser {chord} a été refusée."),
+        _ => format!("{chord} n'a pas pu être activé."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +202,18 @@ mod tests {
         rec.follow_capture(&system, true, Some(&sc("cmd+shift+r"))).unwrap();
         rec.follow_capture(&system, false, Some(&sc("cmd+shift+r"))).unwrap();
         assert_eq!(system.active(), ["shift+super+r"]);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn the_field_s_errors_are_in_french() {
+        let key = || ShortcutError::InvalidAccelerator("k".into());
+        assert_eq!(error_message(&key(), Some(&sc("k"))), "Ajoute ⌘, ⌃ ou ⌥.");
+        assert_eq!(error_message(&key(), None), "Cette touche ne peut pas faire partie d'un raccourci.");
+        assert_eq!(error_message(&ShortcutError::Conflict, None), "Le raccourci n'a pas pu être effacé.");
+        assert_eq!(error_message(&ShortcutError::Conflict, Some(&sc("cmd+shift+k"))), "⇧⌘K est déjà utilisé.");
+        assert_eq!(error_message(&ShortcutError::PermissionDenied, Some(&sc("cmd+shift+k"))), "L'autorisation d'utiliser ⇧⌘K a été refusée.");
+        assert_eq!(error_message(&ShortcutError::Unsupported, Some(&sc("cmd+shift+k"))), "Ce bureau ne prend pas en charge les raccourcis globaux.");
+        assert_eq!(error_message(&ShortcutError::NotRunning, Some(&sc("cmd+shift+k"))), "⇧⌘K n'a pas pu être activé.");
     }
 }

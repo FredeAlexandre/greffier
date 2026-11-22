@@ -8,7 +8,7 @@ use greffier_core::adapters::{Permission, PermissionState, ResourceState, Resour
 use greffier_core::{Command, Status, summary};
 
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
-use crate::{App, Page, settings};
+use crate::{App, Page, record_shortcut, settings};
 
 fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
     col()
@@ -302,6 +302,28 @@ pub fn recording(s: &App, k: &Kit) -> El {
         col().w_full().gap(16.0).child(timer).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(setup)).child(col().grow(1.0).min_w(0.0).child(markers))))
 }
 
+/// The recording shortcut's field. rune-kit words its empty field in English ("Record
+/// shortcut", "Press shortcut") with no option to change it: French words cover them, drawn as
+/// rune-kit draws its own (inset by the field's border, 8 pt from its edge), and inert so the
+/// field still takes the press.
+fn shortcut_field(s: &App, k: &Kit) -> El {
+    let field = ShortcutRecorder::new("record-shortcut", &s.shortcut, App::shortcut_field)
+        .label("Raccourci d'enregistrement")
+        .error_message(record_shortcut::error_message)
+        .on_change(|s: &mut App, next, _| s.change_shortcut(next))
+        .build(k);
+    if !s.shortcut.keycaps().is_empty() {
+        return field;
+    }
+    let words = if s.shortcut.is_recording() { "Tape un raccourci…" } else { "Choisir un raccourci" };
+    field.child(
+        row().pin(Some(1.0), Some(1.0), Some(1.0), None).h(30.0).px(7.0).center_y()
+            .radius(k.radius.md - 1.0).fill(k.c.bg_base)
+            .child(text(words).font(k.ty.ui_compact).color(k.c.text_faint))
+            .inert().a11y_hidden(),
+    )
+}
+
 pub fn settings(s: &App, k: &Kit) -> El {
     let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k);
     let rec = card(k)
@@ -311,8 +333,9 @@ pub fn settings(s: &App, k: &Kit) -> El {
         .child(src(2, "Micro"))
         .child(
             row().w_full().justify_between().center_y()
-                .child(col().gap(2.0).child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "Démarre et arrête l'enregistrement, même app en arrière-plan.")))
-                .child(ShortcutRecorder::new("record-shortcut", &s.shortcut, App::shortcut_field).on_change(|s: &mut App, next, _| s.change_shortcut(next)).build(k)),
+                .child(col().gap(2.0).child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(muted(k,
+                    if s.shortcut.is_recording() { "Échap annule, ⌫ efface le raccourci." } else { "Démarre et arrête l'enregistrement, même app en arrière-plan." })))
+                .child(shortcut_field(s, k)),
         )
         .child(
             row().w_full().justify_between().center_y()
