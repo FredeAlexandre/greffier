@@ -34,7 +34,7 @@ use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
 use greffier_menubar::{Choice, MenubarIcon};
 use greffier_capture::sleep::KeepAwake;
-use greffier_core::adapters::ResourceState;
+use greffier_core::adapters::{PermissionState, Permissions, ResourceState};
 use greffier_core::fake::FakeResources;
 use greffier_core::{Command, Stage, Event, Greffier, MeetingId, Rejection, Meeting, Role, demo, lexicon};
 
@@ -152,6 +152,9 @@ pub struct App {
     pub correction: Option<check::Correction>,
     /// « Écouter » on a passage: playback stops at the end of its excerpt.
     pub listen_until: Option<f64>,
+    /// The macOS permissions as last drawn (sources, then notifications), to redraw the page
+    /// when an answer to a macOS prompt or a change in System Settings changes them.
+    pub permissions_shown: Option<(Permissions, Option<PermissionState>)>,
 }
 
 impl App {
@@ -789,6 +792,7 @@ fn init() -> App {
         doubt: 0,
         correction: None,
         listen_until: None,
+        permissions_shown: None,
     }
 }
 
@@ -878,6 +882,23 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
 
     if s.recorded() {
         s.rec_phase += dt;
+    }
+    // The permissions card follows macOS: the answer to its prompt (« Allow », « Don't Allow »)
+    // or a change in System Settings shows within a second, without a click.
+    if matches!(s.page, Page::Recording | Page::Settings) && !rune::is_headless() {
+        let notifications = rune_notify::available().then(greffier_capture::notifications::state);
+        let now = (s.core.permissions(), notifications);
+        if s.permissions_shown != Some(now) {
+            s.permissions_shown = Some(now);
+            changed = true;
+        }
+        let all_granted = greffier_core::adapters::Permission::ALL.into_iter().all(|p| now.0.state(p) == PermissionState::Granted)
+            && notifications.is_none_or(|n| n == PermissionState::Granted);
+        if !all_granted && !active {
+            tx.wake_after(Duration::from_millis(500));
+        }
+    } else {
+        s.permissions_shown = None;
     }
     // A file changed in the meetings folder: the core rereads what changed outside the app.
     if s.watch.as_ref().is_some_and(watch::FolderWatch::has_changed) {
