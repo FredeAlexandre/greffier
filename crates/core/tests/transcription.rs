@@ -293,6 +293,20 @@ fn remaining_time_counts_meetings_ahead_in_line() {
 }
 
 #[test]
+fn the_estimate_follows_the_meeting_duration() {
+    let waiting = |duration: f64| {
+        let mut m = greffier_core::Meeting::new(1, "2026-11-22 14h00 - Essai".into(), DateTime::new(2026, 11, 22, 14, 0), duration);
+        m.status = Status::Pending(Stage::Transcription);
+        m.estimated_time_remaining().expect("waiting")
+    };
+    // A 32 s test recording went through all three stages in about 40 s.
+    let short = waiting(32.0);
+    assert!((30.0..90.0).contains(&short), "{short} s for 32 s");
+    let hour = waiting(3600.0);
+    assert!((600.0..960.0).contains(&hour), "{hour} s for an hour");
+}
+
+#[test]
 fn a_meeting_waiting_at_a_later_stage_has_less_to_wait() {
     let mut bench = Bench::new();
     let done = bench.meeting_to_process();

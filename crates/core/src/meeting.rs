@@ -478,8 +478,9 @@ impl Meeting {
         if total > 0.0 { own / total } else { 0.0 }
     }
 
-    /// Estimated processing time remaining, in seconds, for a meeting in the queue. About 90 s
-    /// per 10 min of meeting, plus a fixed 4 min, split according to the stages' weights.
+    /// Estimated processing time remaining, in seconds, for a meeting in the queue. About 2 min
+    /// per 10 min of meeting, plus 45 s of loading (models, agent), split according to the
+    /// stages' weights: a 30 s meeting takes under a minute, an hour about 13 min.
     pub fn estimated_time_remaining(&self) -> Option<f64> {
         let (from_meeting, progress) = match &self.status {
             Status::Running { stage, progress } => (*stage, *progress),
@@ -488,6 +489,6 @@ impl Meeting {
         };
         let total: f64 = Stage::ALL.iter().map(|e| e.weight()).sum();
         let rest: f64 = Stage::ALL.iter().filter(|e| **e >= from_meeting).map(|e| e.weight()).sum::<f64>() - progress * from_meeting.weight();
-        Some(rest / total * (self.duration / 600.0 * 90.0 + 240.0))
+        Some(rest / total * (self.duration / 600.0 * 120.0 + 45.0))
     }
 }

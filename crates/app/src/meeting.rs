@@ -467,6 +467,7 @@ fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
             n => (format!("En attente : {n} réunions passent avant celle-ci. Environ {eta} avant la fin."), None),
         },
         Status::Failed { stage, message } => (format!("{} : {message}", ui::step(*stage)), Some("Réessayer cette étape")),
+        _ if s.core.time_remaining(id).unwrap_or(0.0) <= 60.0 => ("Moins d'une minute restante. Une notification arrive à la fin.".to_string(), None),
         _ => (format!("Environ {eta} restantes. Une notification arrive à la fin."), None),
     };
     let button = match action {
