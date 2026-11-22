@@ -312,7 +312,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
         .child(
             row().w_full().justify_between().center_y()
                 .child(col().gap(2.0).child(text("Raccourci global").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "Démarre et arrête l'enregistrement, même app en arrière-plan.")))
-                .child(ShortcutRecorder::new("record-shortcut", &s.shortcut, |s: &mut App| &mut s.shortcut).on_change(|s: &mut App, next, _| s.change_shortcut(next)).build(k)),
+                .child(ShortcutRecorder::new("record-shortcut", &s.shortcut, App::shortcut_field).on_change(|s: &mut App, next, _| s.change_shortcut(next)).build(k)),
         )
         .child(
             row().w_full().justify_between().center_y()

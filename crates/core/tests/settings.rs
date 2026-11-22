@@ -75,6 +75,21 @@ fn unknown_file_keys_are_kept() {
 }
 
 #[test]
+fn a_shortcut_set_back_to_the_default_is_remembered() {
+    let app = AppFolder::new("shortcut-back");
+    let mut r = PersistedSettings { shortcut: "ctrl+alt+super+r".into(), ..PersistedSettings::default() };
+    r.remember(&app.0).unwrap();
+    // The UI writes the shortcut as Rune displays it.
+    r.shortcut = "shift+super+r".into();
+    r.remember(&app.0).unwrap();
+    assert_eq!(app.settings_json()["shortcut"], "shift+super+r");
+    assert_eq!(PersistedSettings::read(&app.0).shortcut, "shift+super+r");
+    r.shortcut = DEFAULT_SHORTCUT.into();
+    r.remember(&app.0).unwrap();
+    assert_eq!(PersistedSettings::read(&app.0).shortcut, DEFAULT_SHORTCUT, "the default is written, not dropped");
+}
+
+#[test]
 fn an_unreadable_file_gives_the_default_settings() {
     let app = AppFolder::new("unreadable");
     std::fs::create_dir_all(&app.0).unwrap();

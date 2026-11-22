@@ -15,6 +15,7 @@ mod speakers;
 mod meeting;
 mod overlays;
 mod pages;
+mod record_shortcut;
 mod redo;
 mod settings;
 mod sidebar;
@@ -36,6 +37,8 @@ use greffier_capture::sleep::KeepAwake;
 use greffier_core::adapters::ResourceState;
 use greffier_core::fake::FakeResources;
 use greffier_core::{Command, Stage, Event, Greffier, MeetingId, Rejection, Meeting, Role, demo, lexicon};
+
+use record_shortcut::{RecordShortcut, Registrar};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -111,9 +114,10 @@ pub struct App {
     pub folder_error: Option<String>,
     /// To register (and unregister) the global shortcuts once the app is running.
     pub handle: Option<AppHandle<App>>,
-    /// The global shortcut that starts and stops recording (configurable).
+    /// The global shortcut that starts and stops recording (configurable): the settings field,
+    /// and what is registered of it.
     pub shortcut: ShortcutRecorderState,
-    pub shortcut_id: Option<ShortcutId>,
+    pub record_shortcut: RecordShortcut<ShortcutId>,
     /// ⌘M adds a marker from anywhere, for the duration of the recording.
     pub marker_id: Option<ShortcutId>,
     /// Why the recording did not start (permission, source…).
@@ -468,23 +472,47 @@ impl App {
             self.shortcut.mark_unregistered();
         }
     }
-    /// Replaces the global recording shortcut; keeps the old one if the new one is refused.
+    /// Replaces the global recording shortcut and remembers it; keeps the old one (and
+    /// remembers nothing) if the new one is refused.
     pub fn change_shortcut(&mut self, next: Option<&Shortcut>) -> Result<(), ShortcutError> {
         let h = self.handle.as_ref().ok_or(ShortcutError::NotRunning)?;
-        let new = next.map(|sc| h.register_shortcut(sc.clone(), |s: &mut App, _| s.toggle_recording())).transpose()?;
-        if let Some(old) = self.shortcut_id.take() {
-            let _ = h.unregister_shortcut(old);
-        }
-        self.shortcut_id = new;
-        self.save_settings();
+        self.record_shortcut.change(h, next)?;
+        // The field takes `next` only once this returns: remember `next`, not the field's value.
+        self.save_settings_with(next);
         Ok(())
+    }
+    /// The settings field of the recording shortcut. Each press or key it handles may start or
+    /// end a capture: the registration follows right after (`follow_shortcut_capture`).
+    pub fn shortcut_field(&mut self) -> &mut ShortcutRecorderState {
+        if let Some(h) = &self.handle {
+            h.update_if(|s: &mut App, _| {
+                s.follow_shortcut_capture();
+                false
+            });
+        }
+        &mut self.shortcut
+    }
+    /// Releases the global recording shortcut while the settings field captures one (its keys
+    /// reach the field instead of starting a recording), and registers the field's value after.
+    fn follow_shortcut_capture(&mut self) {
+        let Some(h) = &self.handle else { return };
+        let chosen = self.shortcut.shortcut().cloned();
+        if let Err(e) = self.record_shortcut.follow_capture(h, self.shortcut.is_recording(), chosen.as_ref()) {
+            eprintln!("greffier: shortcut {}: {e}", chosen.map(|s| s.to_string()).unwrap_or_default());
+            self.shortcut.mark_unregistered();
+        }
     }
     /// Remembers sources, automatic start and shortcut (not for the fake data).
     fn save_settings(&mut self) {
+        let shortcut = self.shortcut.shortcut().cloned();
+        self.save_settings_with(shortcut.as_ref());
+    }
+    /// [`App::save_settings`] with `shortcut` as the recording shortcut (`None`: none).
+    fn save_settings_with(&self, shortcut: Option<&Shortcut>) {
         if rune::is_headless() || self.folder.is_none() && !self.needs_folder {
             return;
         }
-        let shortcut = self.shortcut.shortcut().map(|s| s.to_string()).unwrap_or_default();
+        let shortcut = shortcut.map(|s| s.to_string()).unwrap_or_default();
         if let Err(e) = settings::remember_recording_settings(self.core.settings(), &shortcut) {
             eprintln!("greffier: settings: {e}");
         }
@@ -698,7 +726,7 @@ fn init() -> App {
         folder_error: None,
         handle: None,
         shortcut: ShortcutRecorderState::new(shortcut.parse().ok()),
-        shortcut_id: None,
+        record_shortcut: RecordShortcut::default(),
         marker_id: None,
         record_error: None,
         short_recording: None,
@@ -724,6 +752,17 @@ fn setup(s: &mut App, waker: Waker) {
     }
     s.waker = Some(waker);
     s.watch_folder();
+}
+
+/// The app registers the recording shortcut system-wide; it starts or stops the recording.
+impl Registrar for AppHandle<App> {
+    type Id = ShortcutId;
+    fn register(&self, shortcut: &Shortcut) -> Result<ShortcutId, ShortcutError> {
+        self.register_shortcut(shortcut.clone(), |s: &mut App, _| s.toggle_recording())
+    }
+    fn unregister(&self, id: ShortcutId) {
+        let _ = self.unregister_shortcut(id);
+    }
 }
 
 /// Advances playback and moves the core's time forward (recording, processing queue).
@@ -836,7 +875,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     // The global shortcut takes ⇧⌘R when registered; otherwise (headless, refused), the app keeps it.
-    if ev.is_command('r') && ev.mods.shift && s.shortcut_id.is_none() {
+    if ev.is_command('r') && ev.mods.shift && !s.record_shortcut.is_registered() {
         s.toggle_recording();
         return true;
     }
