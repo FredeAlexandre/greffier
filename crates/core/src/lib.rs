@@ -532,11 +532,11 @@ impl Greffier {
                 }
                 let r = self.meeting_mut(meeting)?;
                 speaker_mut(r, speaker)?;
-                // A merged speaker bears the name of the one replacing it.
+                // Naming a merged speaker names the one replacing it: a split leaves that name to
+                // the one that stays, and the merged speaker finds its own again.
+                r.name(speaker, name.to_string());
                 let i = r.displayed_speaker(speaker);
-                let l = &mut r.speakers[i];
-                l.name = Some(name.to_string());
-                l.suggested_merge = None;
+                r.speakers[i].suggested_merge = None;
             }
             Command::MergeSpeakers { meeting, speaker, into } => {
                 let r = self.meeting_mut(meeting)?;
@@ -546,18 +546,13 @@ impl Greffier {
                 if !r.merge(i, j) {
                     return impossible("ces deux locuteurs sont déjà la même voix");
                 }
-                // The name follows the voice: the one that stays takes the other's name if it has
-                // none. A merged speaker has no name of its own.
-                let name = r.speakers[i].name.take();
-                if r.speakers[j].name.is_none() {
-                    r.speakers[j].name = name;
-                }
                 r.speakers[speaker].suggested_merge = None;
                 r.speakers[i].suggested_merge = None;
             }
             Command::SplitSpeaker { meeting, speaker } => {
-                let l = speaker_mut(self.meeting_mut(meeting)?, speaker)?;
-                if l.merged_into.take().is_none() {
+                let r = self.meeting_mut(meeting)?;
+                speaker_mut(r, speaker)?;
+                if !r.split(speaker) {
                     return impossible("ce locuteur n'est pas fusionné");
                 }
             }
@@ -873,7 +868,8 @@ impl Greffier {
                         .iter()
                         .map(|l| AgentSpeaker {
                             label: l.label.clone(),
-                            name: l.name.clone(),
+                            // A merged speaker's own name stays out of sight until split.
+                            name: l.name.clone().filter(|_| l.merged_into.is_none()),
                             proposal: l.proposal.clone(),
                             justification: l.justification.clone(),
                             proposed_same_voice: l.suggested_merge.map(|j| r.speakers[j].label.clone()),

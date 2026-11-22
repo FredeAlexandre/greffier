@@ -183,6 +183,8 @@ fn from_lines(lines: Vec<Line>) -> (StructuredTranscription, Vec<(String, String
         speakers,
         names: Default::default(),
         merges: Default::default(),
+        names_before_merge: Default::default(),
+        lent_names: Default::default(),
         words: vec![],
         turns: vec![],
         utterances,

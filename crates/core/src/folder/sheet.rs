@@ -16,6 +16,10 @@
 //!   SPEAKER_02: "Alexandre"
 //! fusions:                      # SPEAKER_xx merged into SPEAKER_yy
 //!   SPEAKER_02: SPEAKER_00
+//! noms_avant_fusion:            # a merged speaker's own name, given back at split
+//!   SPEAKER_02: "Alex"
+//! noms_pretes:                  # SPEAKER_xx bears the name SPEAKER_yy lent at merge, as it had
+//!   SPEAKER_04: SPEAKER_03      #   none: it goes back to SPEAKER_yy at split
 //! propositions:                 # what the summary agent proposes
 //!   SPEAKER_01:
 //!     nom: "Khalid"
@@ -77,6 +81,11 @@ pub struct Sheet {
     pub names: Vec<(String, String)>,
     /// The merges: ("SPEAKER_02", "SPEAKER_00") — the first is the same voice as the second.
     pub merges: Vec<(String, String)>,
+    /// The merged speakers' own names, which `names` hides: ("SPEAKER_02", "Alex"). Absent from
+    /// sheets written before they were kept.
+    pub names_before_merge: Vec<(String, String)>,
+    /// ("SPEAKER_04", "SPEAKER_03"): SPEAKER_04's name is the one SPEAKER_03 lent it at merge.
+    pub lent_names: Vec<(String, String)>,
     pub proposals: Vec<Proposal>,
     pub markers: Vec<Marker>,
     pub sessions: Sessions,
@@ -97,6 +106,8 @@ impl Sheet {
             speaker_count: r.speaker_count,
             names: (0..r.speakers.len()).filter_map(|i| Some((label(i), r.speaker_name(i)?.to_string()))).collect(),
             merges: r.speakers.iter().filter_map(|l| Some((l.label.clone(), label(l.merged_into?)))).collect(),
+            names_before_merge: r.merged_names().collect(),
+            lent_names: r.lent_names().collect(),
             proposals: r
                 .speakers
                 .iter()
@@ -143,7 +154,7 @@ impl Sheet {
                 r.restore_merge(i, j);
             }
         }
-        r.forget_merged_names();
+        r.restore_merged_names(self.names_before_merge.iter().map(|(a, b)| (a, b)), self.lent_names.iter().map(|(a, b)| (a, b)));
         for p in &self.proposals {
             if let Some(i) = index(r, &p.speaker) {
                 let same = p.same_voice_as.as_deref().and_then(|e| index(r, e)).filter(|j| *j != i);
@@ -200,6 +211,18 @@ impl Sheet {
             y.push_str("fusions:\n");
             for (e, into) in &self.merges {
                 y.push_str(&format!("  {e}: {into}\n"));
+            }
+        }
+        if !self.names_before_merge.is_empty() {
+            y.push_str("noms_avant_fusion:\n");
+            for (e, name) in &self.names_before_merge {
+                y.push_str(&format!("  {e}: {}\n", c_string(name)));
+            }
+        }
+        if !self.lent_names.is_empty() {
+            y.push_str("noms_pretes:\n");
+            for (e, lender) in &self.lent_names {
+                y.push_str(&format!("  {e}: {lender}\n"));
             }
         }
         if !self.proposals.is_empty() {
@@ -316,6 +339,8 @@ impl Sheet {
             speaker_count: text("nombre_de_locuteurs").and_then(|n| n.parse().ok()),
             names: pairs("locuteurs"),
             merges: pairs("fusions"),
+            names_before_merge: pairs("noms_avant_fusion"),
+            lent_names: pairs("noms_pretes"),
             proposals,
             markers,
             sessions: Sessions { review: session("relecture"), summary: session("bilan") },

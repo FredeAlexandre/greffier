@@ -54,6 +54,13 @@ pub struct StructuredTranscription {
     /// SPEAKER_xx → SPEAKER_yy: the first is the same voice as the second, which replaces it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub merges: BTreeMap<String, String>,
+    /// SPEAKER_xx → its own name, which `names` hides while it is merged; given back at split.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub names_before_merge: BTreeMap<String, String>,
+    /// SPEAKER_xx → SPEAKER_yy: the first bears the name the second lent it at merge, as it had
+    /// none; the name goes back at split.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lent_names: BTreeMap<String, String>,
     #[serde(default)]
     pub words: Vec<StoredWord>,
     #[serde(default)]
@@ -186,6 +193,8 @@ impl StructuredTranscription {
             speakers: r.speakers.iter().map(|l| l.label.clone()).collect(),
             names: (0..r.speakers.len()).filter_map(|i| Some((label(i), r.speaker_name(i)?.to_string()))).collect(),
             merges: r.speakers.iter().filter_map(|l| Some((l.label.clone(), label(l.merged_into?)))).collect(),
+            names_before_merge: r.merged_names().collect(),
+            lent_names: r.lent_names().collect(),
             words: r.words.iter().map(|m| StoredWord { start: m.start, end: m.end, text: m.text.clone(), confidence: m.confidence, speaker: word_speaker(m) }).collect(),
             turns: r.turns.iter().map(|t| StoredTurn { start: t.start, end: t.end, speaker: t.speaker.clone() }).collect(),
             utterances: r.utterances.iter().map(write).collect(),
@@ -238,7 +247,7 @@ impl StructuredTranscription {
                 r.restore_merge(i, j);
             }
         }
-        r.forget_merged_names();
+        r.restore_merged_names(&self.names_before_merge, &self.lent_names);
         r.words = self.words.into_iter().map(|m| Word { speaker: m.speaker.as_deref().map(index), start: m.start, end: m.end, text: m.text, confidence: m.confidence }).collect();
         r.turns = self.turns.into_iter().map(|t| SpeakerTurn { start: t.start, end: t.end, speaker: t.speaker }).collect();
         r.utterances = self.utterances.iter().map(read).collect();

@@ -101,7 +101,8 @@ pub struct SpeakerTurn {
 pub struct Speaker {
     /// "SPEAKER_00", as diarization named it.
     pub label: String,
-    /// The name confirmed or given by the user.
+    /// The name confirmed or given by the user. A merged speaker keeps its own here, never
+    /// displayed (it displays the name of the one replacing it), and gets it back at split.
     pub name: Option<String>,
     /// The name proposed by the agent, and why.
     pub proposal: Option<String>,
@@ -112,6 +113,10 @@ pub struct Speaker {
     pub merged_into: Option<usize>,
     /// The agent thinks it is the same voice as another speaker (index).
     pub suggested_merge: Option<usize>,
+    /// `name` is not this speaker's own: it was lent at merge by this speaker (index, merged into
+    /// this one), as this one had none, and goes back at split. A name given to this speaker
+    /// afterwards is its own.
+    pub name_lent_by: Option<usize>,
 }
 
 impl Speaker {
@@ -121,7 +126,7 @@ impl Speaker {
     }
 
     pub fn new(label: impl Into<String>, tint: f32) -> Speaker {
-        Speaker { label: label.into(), name: None, proposal: None, justification: String::new(), tint, merged_into: None, suggested_merge: None }
+        Speaker { label: label.into(), name: None, proposal: None, justification: String::new(), tint, merged_into: None, suggested_merge: None, name_lent_by: None }
     }
 
     /// The name to display: confirmed, otherwise proposed ("Khalid ?"), otherwise the label.
@@ -358,12 +363,41 @@ impl Meeting {
         self.speakers[self.displayed_speaker(i)].name.as_deref()
     }
 
-    /// After reading back names and merges: a merged speaker has no name of its own (the files
-    /// give it the name of the voice that replaces it).
-    pub(crate) fn forget_merged_names(&mut self) {
+    /// The merged speakers' own names, never displayed: (label, name). The files keep them apart
+    /// from the displayed names, which give a merged speaker the name of the voice replacing it.
+    pub(crate) fn merged_names(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.speakers.iter().filter(|l| l.merged_into.is_some()).filter_map(|l| Some((l.label.clone(), l.name.clone()?)))
+    }
+
+    /// The lent names: (label of the borrower, label of the lender).
+    pub(crate) fn lent_names(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.speakers.iter().filter_map(|l| Some((l.label.clone(), self.speakers[l.name_lent_by?].label.clone())))
+    }
+
+    /// After reading back the displayed names (which give a merged speaker the name of the voice
+    /// replacing it) and the merges: puts back the merged speakers' own names and the lent names,
+    /// both by label. Files written before these were kept have neither: a merged speaker then has
+    /// no name of its own, and the remaining voice keeps the name it bears.
+    pub(crate) fn restore_merged_names<'a>(&mut self, own: impl IntoIterator<Item = (&'a String, &'a String)>, lent: impl IntoIterator<Item = (&'a String, &'a String)>) {
+        let index = |r: &Meeting, e: &str| r.speakers.iter().position(|l| l.label == e);
         for l in &mut self.speakers {
+            l.name_lent_by = None;
             if l.merged_into.is_some() {
                 l.name = None;
+            }
+        }
+        for (e, name) in own {
+            if let Some(i) = index(self, e).filter(|&i| self.speakers[i].merged_into.is_some()) {
+                self.speakers[i].name = Some(name.to_string()).filter(|n| !n.trim().is_empty());
+            }
+        }
+        for (e, lender) in lent {
+            // Only a speaker merged straight into the borrower can have lent it its name.
+            if let (Some(i), Some(k)) = (index(self, e), index(self, lender))
+                && self.speakers[k].merged_into == Some(i)
+                && self.speakers[i].name.is_some()
+            {
+                self.speakers[i].name_lent_by = Some(k);
             }
         }
     }
@@ -371,6 +405,9 @@ impl Meeting {
     /// Merges speaker `i` into `j`: the one `i` displays is from now on replaced everywhere by
     /// the one `j` displays (merges already made follow). Returns `false`, changing nothing, if it
     /// is already the same voice or if an index is unknown: a merge never makes a loop.
+    ///
+    /// The name follows the voice: if the one that stays has no name, the merged one lends it its
+    /// own, taken back at split. The merged one keeps its name, no longer displayed.
     pub fn merge(&mut self, i: usize, j: usize) -> bool {
         if i >= self.speakers.len() || j >= self.speakers.len() {
             return false;
@@ -380,7 +417,35 @@ impl Meeting {
             return false;
         }
         self.speakers[i].merged_into = Some(j);
+        if self.speakers[j].name.is_none() && self.speakers[i].name.is_some() {
+            self.speakers[j].name = self.speakers[i].name.clone();
+            self.speakers[j].name_lent_by = Some(i);
+        }
         true
+    }
+
+    /// Undoes the merge of speaker `i`: it is shown again, with its own name, and takes back the
+    /// name it lent at merge, unless that name was changed since (it is then the other's own).
+    /// A name lent further on, along a chain of merges, goes back with it. The speakers merged into
+    /// `i` stay with it. Returns `false`, changing nothing, if `i` is not merged.
+    pub fn split(&mut self, i: usize) -> bool {
+        let Some(j) = self.speakers.get_mut(i).and_then(|l| l.merged_into.take()) else { return false };
+        let mut borrower = Some(j).filter(|&j| self.speakers[j].name_lent_by == Some(i));
+        while let Some(b) = borrower {
+            self.speakers[b].name = None;
+            self.speakers[b].name_lent_by = None;
+            // The voice `b` was merged into may have borrowed the name in turn.
+            borrower = self.speakers[b].merged_into.filter(|&c| self.speakers[c].name_lent_by == Some(b));
+        }
+        true
+    }
+
+    /// Gives a name to the voice speaker `i` displays: it is that voice's own from now on.
+    pub fn name(&mut self, i: usize, name: String) {
+        let i = self.displayed_speaker(i);
+        let l = &mut self.speakers[i];
+        l.name = Some(name);
+        l.name_lent_by = None;
     }
 
     /// Reads back a written merge (sheet, structured transcription) as is: `i` points to `j`,

@@ -166,7 +166,8 @@ fn a_named_speaker_merged_into_an_unnamed_speaker_gives_it_its_name() {
     let r = bench.meeting(id);
     assert_eq!(r.active_speakers().collect::<Vec<_>>(), [1, 2, 3]);
     assert_eq!(r.speakers[2].name.as_deref(), Some("Alexandre"));
-    assert_eq!(r.speakers[0].name, None, "the name goes to the remaining voice");
+    assert_eq!(r.speakers[2].name_lent_by, Some(0), "lent by the merged voice, until split");
+    assert_eq!(r.speaker_name(0), Some("Alexandre"), "the merged voice displays the remaining one's name");
     assert_eq!(readable_utterances(&file(&bench, id, Role::ReadableTranscription))[0], "[0:00:00] Alexandre : Bonjour à tous.");
 
     // Naming a merged speaker names the one that replaces it.
@@ -251,4 +252,147 @@ fn search_follows_names_and_merges() {
 
     bench.execute(Command::SplitSpeaker { meeting: id, speaker: 2 });
     assert_eq!(speaker(&bench).as_deref(), Some("Alexandre ?"));
+}
+
+/// The three files that carry names and merges: sheet, readable transcription, structured
+/// transcription.
+fn name_files(bench: &Bench, id: MeetingId) -> [String; 3] {
+    [Role::Sheet, Role::ReadableTranscription, Role::StructuredTranscription].map(|role| file(bench, id, role))
+}
+
+/// The displayed name of each speaker (merges followed), as the timeline and the speaker list show
+/// it.
+fn displayed_names(bench: &Bench, id: MeetingId) -> Vec<String> {
+    let r = bench.meeting(id);
+    (0..r.speakers.len()).map(|i| r.speakers[r.displayed_speaker(i)].display_name()).collect()
+}
+
+/// Restarts the core when `relaunch`, then gives the meeting's (possibly new) id back.
+fn maybe_reopen(bench: &mut Bench, id: MeetingId, relaunch: bool) -> MeetingId {
+    if !relaunch {
+        return id;
+    }
+    let name = bench.meeting(id).folder_name.clone();
+    bench.reopen();
+    bench.named_meeting(&name).id
+}
+
+#[test]
+fn splitting_gives_back_the_confirmed_name_and_the_files_from_before_the_merge() {
+    for relaunch in [false, true] {
+        let (mut bench, id) = done_meeting();
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "Khalid".into() });
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 2, name: "Aref".into() });
+        let (speakers, files) = (bench.meeting(id).speakers.clone(), name_files(&bench, id));
+
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 2, into: 1 });
+        // While merged, Aref is Khalid everywhere.
+        assert_eq!(displayed_names(&bench, id), ["Alexandre ?", "Khalid", "Khalid", "SPEAKER_03"]);
+        assert_eq!(bench.meeting(id).speaker_name(2), Some("Khalid"));
+        assert_eq!(readable_utterances(&file(&bench, id, Role::ReadableTranscription))[2], "[0:00:06] Khalid : On commence ?");
+        assert_eq!(block(&file(&bench, id, Role::Sheet), "locuteurs"), "locuteurs:\n  SPEAKER_01: \"Khalid\"\n  SPEAKER_02: \"Khalid\"\n");
+        assert_eq!(json(&bench, id)["names"], serde_json::json!({ "SPEAKER_01": "Khalid", "SPEAKER_02": "Khalid" }));
+
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        assert_eq!(displayed_names(&bench, id), ["Alexandre ?", "Khalid", "Khalid", "SPEAKER_03"], "relaunch: {relaunch}");
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 2 });
+        assert_eq!(bench.meeting(id).speakers, speakers, "relaunch: {relaunch}");
+        assert_eq!(displayed_names(&bench, id), ["Alexandre ?", "Khalid", "Aref", "SPEAKER_03"]);
+        assert_eq!(name_files(&bench, id), files, "relaunch: {relaunch}");
+    }
+}
+
+#[test]
+fn a_name_lent_to_the_remaining_voice_at_merge_goes_back_at_split() {
+    for relaunch in [false, true] {
+        let (mut bench, id) = done_meeting();
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alexandre".into() });
+        let (speakers, files) = (bench.meeting(id).speakers.clone(), name_files(&bench, id));
+
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 2 });
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Khalid ?", "Alexandre", "SPEAKER_03"]);
+
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 0 });
+        assert_eq!(bench.meeting(id).speakers, speakers, "SPEAKER_02 had no name before the merge (relaunch: {relaunch})");
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Khalid ?", "Alexandre ?", "SPEAKER_03"]);
+        assert_eq!(name_files(&bench, id), files, "relaunch: {relaunch}");
+    }
+}
+
+#[test]
+fn a_name_corrected_while_merged_stays_with_the_remaining_voice() {
+    for relaunch in [false, true] {
+        let (mut bench, id) = done_meeting();
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alexandre".into() });
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 2 });
+        // Correcting the merged voice names the one that remains: it is its own name from now on.
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alex".into() });
+        assert_eq!(displayed_names(&bench, id), ["Alex", "Khalid ?", "Alex", "SPEAKER_03"]);
+
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 0 });
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Khalid ?", "Alex", "SPEAKER_03"], "relaunch: {relaunch}");
+        assert_eq!(block(&file(&bench, id, Role::Sheet), "locuteurs"), "locuteurs:\n  SPEAKER_00: \"Alexandre\"\n  SPEAKER_02: \"Alex\"\n");
+    }
+}
+
+#[test]
+fn splitting_one_merge_of_a_chain_undoes_only_that_one() {
+    for relaunch in [false, true] {
+        // Alexandre (SPEAKER_00) into SPEAKER_03, then SPEAKER_03 into SPEAKER_01: neither had a
+        // name, both bear Alexandre's.
+        let (mut bench, id) = done_meeting();
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alexandre".into() });
+        let (alone, alone_files) = (bench.meeting(id).speakers.clone(), name_files(&bench, id));
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 3 });
+        let (first, first_files) = (bench.meeting(id).speakers.clone(), name_files(&bench, id));
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 3, into: 1 });
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Alexandre", "Alexandre ?", "Alexandre"]);
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Alexandre", "Alexandre ?", "Alexandre"], "relaunch: {relaunch}");
+        let both = bench.meeting(id).speakers.clone();
+
+        // Undoing the last merge: back to the first merge alone.
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 3 });
+        assert_eq!(bench.meeting(id).speakers, first, "relaunch: {relaunch}");
+        assert_eq!(name_files(&bench, id), first_files, "relaunch: {relaunch}");
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 0 });
+        assert_eq!(bench.meeting(id).speakers, alone, "relaunch: {relaunch}");
+        assert_eq!(name_files(&bench, id), alone_files, "relaunch: {relaunch}");
+
+        // Undoing the first merge while the second stays: the name leaves both voices that only
+        // bore it through the merges.
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 3 });
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 3, into: 1 });
+        assert_eq!(bench.meeting(id).speakers, both);
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 0 });
+        assert_eq!(displayed_names(&bench, id), ["Alexandre", "Khalid ?", "Alexandre ?", "Khalid ?"], "relaunch: {relaunch}");
+        assert_eq!(bench.meeting(id).speaker_name(3), None);
+    }
+}
+
+#[test]
+fn a_merge_into_a_named_voice_keeps_the_merged_name_through_a_chain() {
+    for relaunch in [false, true] {
+        // Aref (SPEAKER_02) into SPEAKER_00, which takes his name, then SPEAKER_00 into Khalid.
+        let (mut bench, id) = done_meeting();
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "Khalid".into() });
+        bench.execute(Command::NameSpeaker { meeting: id, speaker: 2, name: "Aref".into() });
+        let alone = bench.meeting(id).speakers.clone();
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 2, into: 0 });
+        let first = bench.meeting(id).speakers.clone();
+        bench.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 1 });
+        assert_eq!(displayed_names(&bench, id), ["Khalid", "Khalid", "Khalid", "SPEAKER_03"]);
+
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 0 });
+        assert_eq!(bench.meeting(id).speakers, first, "relaunch: {relaunch}");
+        assert_eq!(displayed_names(&bench, id), ["Aref", "Khalid", "Aref", "SPEAKER_03"]);
+        let id = maybe_reopen(&mut bench, id, relaunch);
+        bench.execute(Command::SplitSpeaker { meeting: id, speaker: 2 });
+        assert_eq!(bench.meeting(id).speakers, alone, "relaunch: {relaunch}");
+    }
 }
