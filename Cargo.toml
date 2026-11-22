@@ -1,25 +1,6 @@
-[package]
-name = "greffier"
-version = "0.0.1"
-edition = "2024"
-publish = false
-
 [workspace]
-members = [".", "core", "tools", "engines", "capture", "menubar", "xtask"]
-default-members = [".", "core", "tools", "engines", "capture", "menubar", "xtask"]
-
-[dependencies]
-greffier-core = { path = "core" }
-greffier-tools = { path = "tools" }
-greffier-engines = { path = "engines" }
-greffier-capture = { path = "capture" }
-greffier-menubar = { path = "menubar" }
-serde_json = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-rune = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", features = ["tooling", "native-file-dialog"] }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", default-features = false, features = ["markdown"] }
-notify = "8"
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c" }
+resolver = "3"
+members = ["crates/*", "xtask"]
 
 [patch.crates-io]
 winit = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c" }

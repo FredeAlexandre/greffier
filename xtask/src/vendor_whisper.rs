@@ -1,6 +1,6 @@
-//! `cargo xtask vendor-whisper`: copies into engines/whisper.cpp/ the whisper.cpp sources Greffier
+//! `cargo xtask vendor-whisper`: copies into crates/engines/whisper.cpp/ the whisper.cpp sources Greffier
 //! needs (whisper, ggml, CPU, Metal, Accelerate's BLAS), from the archive of the version pinned in
-//! engines/whisper-version.rs. engines/build.rs compiles them without cmake.
+//! crates/engines/whisper-version.rs. crates/engines/build.rs compiles them without cmake.
 
 use std::path::Path;
 
@@ -8,15 +8,15 @@ use crate::{Failure, Result, TempDir, download, files_under, root, run, step};
 
 #[allow(dead_code)]
 mod pinned {
-    include!("../../engines/whisper-version.rs");
+    include!("../../crates/engines/whisper-version.rs");
 }
 use pinned::{WHISPER_ARCHIVE_SHA256, WHISPER_VERSION};
 
 pub fn main(args: &[String]) -> Result<()> {
     if let Some(arg) = args.first() {
-        return Err(Failure(format!("unexpected argument \"{arg}\" (the version is pinned in engines/whisper-version.rs).")));
+        return Err(Failure(format!("unexpected argument \"{arg}\" (the version is pinned in crates/engines/whisper-version.rs).")));
     }
-    let target = root().join("engines/whisper.cpp");
+    let target = root().join("crates/engines/whisper.cpp");
     let staging = TempDir::new("greffier-whisper-")?;
     let archive = staging.path().join("whisper.tar.gz");
     step(&format!("Downloading whisper.cpp {WHISPER_VERSION}"));

@@ -4,7 +4,7 @@
 //! the model (revision 3533c8c…).
 //!
 //! The files, their names in the release, the release's tag and the expected sizes and sha256s all
-//! come from the core's catalog (core/src/resources.rs); a file that does not match is not published.
+//! come from the core's catalog (crates/core/src/resources.rs); a file that does not match is not published.
 
 use std::path::{Path, PathBuf};
 

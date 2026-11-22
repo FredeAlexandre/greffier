@@ -6,6 +6,6 @@ publish = false
 description = "Greffier's development tasks, run with `cargo xtask <task>`: install the app, vendor whisper.cpp, publish the pyannote release."
 
 [dependencies]
-greffier-core = { path = "../core" }
-greffier-tools = { path = "../tools" }
+greffier-core = { path = "../crates/core" }
+greffier-tools = { path = "../crates/tools" }
 serde_json = "1"

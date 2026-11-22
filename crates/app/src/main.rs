@@ -1062,7 +1062,7 @@ fn scene_welcome(s: &mut App) {
 /// The core tests' sample meetings (a copy), the complete meeting open at 0:00:05.
 fn scene_folder(s: &mut App) {
     let dir = prototype_folder();
-    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("core/tests/fixtures/meetings-folder"), &dir);
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/tests/fixtures/meetings-folder"), &dir);
     s.core = Greffier::open(&dir, demo::adapters());
     s.folder = Some(dir);
     if let Some(id) = s.core.meetings().first().map(|m| m.id) {
@@ -1092,7 +1092,7 @@ fn scene_video_only(s: &mut App) {
 fn scene_import(s: &mut App) {
     scene_folder(s);
     s.page = Page::Overview;
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("core/tests/fixtures/meetings-folder/2026-11-18 09h15 - Réunion");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/tests/fixtures/meetings-folder/2026-11-18 09h15 - Réunion");
     let dir = std::env::temp_dir().join("greffier-prototype-import");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
