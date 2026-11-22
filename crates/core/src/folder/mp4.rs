@@ -156,9 +156,11 @@ pub fn leading_video_gap(path: &Path) -> Option<f64> {
 /// an empty edit, and the player fails on such a file: no first picture, `play` does nothing.
 ///
 /// Only the edit's media time and rate are rewritten, in place: same length, and the timeline
-/// after the gap, the media and the sound do not move. Returns whether the file changed.
+/// after the gap, the media and the sound do not move. Only a gap of a few frames
+/// ([`MAX_FILLED_GAP`]) is filled: over a longer one, the start of the picture would play twice,
+/// out of step with the sound. Returns whether the file changed.
 pub fn fill_leading_video_gap(path: &Path) -> std::io::Result<bool> {
-    let gaps = gaps(path);
+    let gaps: Vec<Gap> = gaps(path).into_iter().filter(|g| g.seconds <= MAX_FILLED_GAP).collect();
     if gaps.is_empty() {
         return Ok(false);
     }
@@ -170,6 +172,10 @@ pub fn fill_leading_video_gap(path: &Path) -> std::io::Result<bool> {
     f.sync_all()?;
     Ok(true)
 }
+
+/// The longest gap [`fill_leading_video_gap`] fills, in seconds: three frames at 30 fps (ffmpeg's
+/// is one frame, 33 ms).
+pub const MAX_FILLED_GAP: f64 = 0.1;
 
 /// A video track's leading empty edit.
 struct Gap {

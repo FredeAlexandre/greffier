@@ -166,6 +166,24 @@ fn a_video_imported_with_a_gap_before_the_fix_is_repaired_once_when_played() {
 }
 
 #[test]
+fn a_video_that_starts_long_after_the_sound_is_left_as_is() {
+    // Video starting 2 s after the sound: filling that gap would play the first 2 s of picture
+    // twice, out of step with the sound. Only a gap of a few frames is filled.
+    let long_gap = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/ffmpeg-long-leading-gap.mp4");
+    let mut bench = Bench::new();
+    let outside = Outside::new(&bench);
+    let original = outside.copy_to(&long_gap, "point.mp4");
+    assert!(mp4_leading_video_gap(&original).is_some_and(|g| g > 1.9), "the fixture starts 2 s late");
+    let id = run_import(&mut bench, import(original.clone()));
+
+    let r = bench.meeting(id);
+    let copy = bench.greffier.folder().file(&r.folder_name, Role::Recording);
+    assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(&long_gap).unwrap(), "the copy is not rewritten");
+    assert_eq!(bench.greffier.recording_to_play(id), Some(copy.clone()));
+    assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(&long_gap).unwrap(), "nor when played");
+}
+
+#[test]
 fn a_media_that_cannot_become_mp4_keeps_its_extension() {
     let mut bench = Bench::new();
     let outside = Outside::new(&bench);
