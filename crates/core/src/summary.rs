@@ -76,21 +76,29 @@ pub fn topics(md: &str) -> Vec<Topic> {
     v
 }
 
+/// A bullet that says the list is empty (« Aucune décision. », « Pas d'action »): summaries
+/// written before the prompt allowed an empty list put one there, sometimes timestamped.
+fn says_none(text: &str) -> bool {
+    let t = text.replace(['*', '_'], "").replace('’', "'").to_lowercase();
+    let t = t.trim_start();
+    ["aucune décision", "pas de décision", "aucune action", "pas d'action", "aucune tâche", "rien à faire"].iter().any(|p| t.starts_with(p))
+}
+
 /// The decisions: the timestamped bullets of "Décisions".
 pub fn decisions(md: &str) -> Vec<Decision> {
     section(md, "Décisions")
         .filter_map(|l| {
             let item = l.trim_start().strip_prefix("- ")?;
             let (i, n, t) = *timestamps(item).first()?;
-            let text = format!("{}{}", &item[..i], &item[i + n..]);
-            Some(Decision { instant: t, text: clean(&text) })
+            let text = clean(&format!("{}{}", &item[..i], &item[i + n..]));
+            (!says_none(&text)).then_some(Decision { instant: t, text })
         })
         .collect()
 }
 
 /// The actions: the `- [ ]` checkboxes of the "Actions" section.
 pub fn actions(md: &str) -> Vec<String> {
-    section(md, "Actions").filter(|l| is_checkbox(l)).map(|l| clean(&l.trim_start()[5..])).collect()
+    section(md, "Actions").filter(|l| is_checkbox(l)).map(|l| clean(&l.trim_start()[5..])).filter(|a| !says_none(a)).collect()
 }
 
 /// The first paragraph of "En bref".
@@ -98,19 +106,10 @@ pub fn brief(md: &str) -> String {
     section(md, "En bref").map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
-/// What the summary lacks for the interface to use it, or nothing.
+/// What the summary lacks for the interface to use it, or nothing. A meeting may decide nothing
+/// and leave nothing to do, but its timeline needs its timestamped topics.
 pub fn missing_parts(md: &str) -> Option<String> {
-    let mut missing = Vec::new();
-    if topics(md).is_empty() {
-        missing.push("sujets horodatés");
-    }
-    if decisions(md).is_empty() {
-        missing.push("décisions horodatées");
-    }
-    if actions(md).is_empty() {
-        missing.push("actions");
-    }
-    (!missing.is_empty()).then(|| format!("Le bilan n'a pas de {}.", missing.join(", ni de ")))
+    topics(md).is_empty().then(|| "Le bilan n'a pas de sujets horodatés.".to_string())
 }
 
 /// The summary without its YAML front matter (`---` … `---`), which is for agents, not for display.
@@ -195,6 +194,10 @@ mod tests {
         assert_eq!(brief(MD), "Un. Deux.");
         assert_eq!(actions(MD), vec!["A".to_string(), "B".to_string()]);
         assert_eq!(missing_parts(MD), None);
+        let nothing = "## Sujets abordés\n### Essai (0:00:01)\n## Décisions\n- (0:00:25) **Aucune décision** n'a été prise.\n- Aucune décision.\n## Actions\n- [ ] Aucune action.\nRien à faire.\n## Questions ouvertes\n";
+        assert_eq!(decisions("## Décisions\n- (0:01:00) Pas de mise en prod avant lundi.\n").len(), 1);
+        assert_eq!((decisions(nothing), actions(nothing), missing_parts(nothing)), (vec![], Vec::<String>::new(), None));
+        assert_eq!(missing_parts("## Sujets abordés\nRien.\n").as_deref(), Some("Le bilan n'a pas de sujets horodatés."));
         assert!(with_playback_links(MD).contains("[▶ 0:44:12](t:2652)"));
         let with_front_matter = format!("---\ntype: bilan\ndate: 2026-11-22\n---\n{MD}");
         assert_eq!(without_front_matter(&with_front_matter), MD);

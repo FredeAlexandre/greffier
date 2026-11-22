@@ -101,8 +101,8 @@ fn started_stage_runs_to_completion_during_a_recording() {
 }
 
 #[test]
-fn a_summary_without_decisions_fails_the_stage_and_processing_retries_it() {
-    let incomplete = "## En bref\n\nRien.\n\n## Sujets abordés\n\n### Salutations (0:00:00)\n\n## Actions\n\n- [ ] **Alexandre** — rien\n";
+fn a_summary_without_timestamped_topics_fails_the_stage_and_processing_retries_it() {
+    let incomplete = "## En bref\n\nRien.\n\n## Sujets abordés\n\nSalutations.\n\n## Décisions\n\n- (0:00:05) On garde la date.\n";
     let mut a = bench::adapters();
     let summaries = std::rc::Rc::new(std::cell::Cell::new(0));
     let n = summaries.clone();
@@ -119,7 +119,7 @@ fn a_summary_without_decisions_fails_the_stage_and_processing_retries_it() {
     let id = bench.meeting_to_process();
     bench.execute(Command::Process(id));
     bench.advance_until(id, |s| matches!(s, Status::Failed { .. }));
-    assert_eq!(bench.meeting(id).status, Status::Failed { stage: Stage::Summary, message: "Le bilan n'a pas de décisions horodatées.".into() });
+    assert_eq!(bench.meeting(id).status, Status::Failed { stage: Stage::Summary, message: "Le bilan n'a pas de sujets horodatés.".into() });
     // The agent's session is kept anyway, to resume the conversation.
     assert_eq!(bench.meeting(id).sessions.summary.as_deref(), Some("session-bilan"));
     let name = bench.meeting(id).folder_name.clone();
