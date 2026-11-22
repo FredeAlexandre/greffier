@@ -96,6 +96,12 @@ target/debug/greffier --snap out.png --scene meeting --theme dark
 target/debug/greffier --script crates/app/scenarios/recording.json --snap end.png --at 20
 # A scenario can start from a scene: the speaker's name field loses focus, f and space stay out of the page.
 target/debug/greffier --scene people-naming --script crates/app/scenarios/naming-focus-lost.json --snap end.png --at mark:end
+# ⌘2 from the name field, then space: the video plays, not full screen.
+target/debug/greffier --scene people-naming --script crates/app/scenarios/tab-change-space.json --snap end.png --at mark:end
+# A click on a meeting in the sidebar, then space: the video plays.
+target/debug/greffier --script crates/app/scenarios/sidebar-space.json --snap end.png --at mark:end
+# A click on a summary timestamp scrolls back up to the video, which plays.
+target/debug/greffier --scene meeting --script crates/app/scenarios/summary-timestamp.json --snap end.png --at mark:end
 ```
 
 ## Code

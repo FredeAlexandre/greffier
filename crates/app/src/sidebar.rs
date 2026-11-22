@@ -58,7 +58,7 @@ fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
         .height(46.0)
         .subtitle(subtitle)
         .selected(s.page == Page::Meeting(id) || s.menu.is_some_and(|(mid, _)| mid == id))
-        .on_select(move |s: &mut App, _| s.open(id));
+        .on_select(move |s: &mut App, tx| s.open_from_sidebar(id, tx));
     if m.status.in_queue() {
         r = r.status(RowStatus::Busy);
     } else if matches!(m.status, Status::ToProcess | Status::Failed { .. } | Status::RecordingInterrupted) {

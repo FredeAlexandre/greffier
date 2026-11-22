@@ -228,7 +228,8 @@ fn tabs_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
     let tabs = SegmentedControl::new(&labels, TABS.iter().position(|t| *t == s.tab))
         .label("Vue")
         .fit()
-        .on_pick(|s: &mut App, i, _| s.tab = TABS[i])
+        // Picked with the pointer, focus leaves the strip; the arrows keep it there.
+        .on_pick(|s: &mut App, i, tx| if tx.by_keys() { s.tab = TABS[i] } else { s.show_tab(TABS[i], tx) })
         .build(k)
         .key("tabs");
     let id = m.id;
@@ -269,9 +270,11 @@ fn summary(m: &Meeting, k: &Kit) -> El {
     let tasks = src.clone();
     let id = m.id;
     let md = Markdown::new(src.as_str())
-        .on_link(|s: &mut App, url: &str| {
+        .on_link_tx(|s: &mut App, url: &str, tx| {
             if let Some(t) = url.strip_prefix("t:").and_then(|x| x.parse::<f64>().ok()) {
                 s.seek_and_play(t);
+                // The video is above, often off screen: bring it back to watch the moment.
+                tx.scroll_into_view_in("meeting", "video-frame");
             }
         })
         .on_task(move |s: &mut App, _block: &str, offset: usize, done: bool| {

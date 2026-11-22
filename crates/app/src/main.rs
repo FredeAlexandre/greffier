@@ -660,6 +660,25 @@ impl App {
         self.fullscreen = !self.fullscreen && self.meeting().is_some_and(meeting::playable);
         tx.toggle_full_screen();
     }
+    /// Shows a tab of the meeting's page. Focus leaves the control that had it (a field of the
+    /// tab that goes away, the tab strip): the page's keys, Space and those of the tab, act at once.
+    pub fn show_tab(&mut self, tab: Tab, tx: &mut Tx) {
+        self.tab = tab;
+        tx.blur();
+    }
+    /// Opens a meeting from the sidebar. A click leaves nothing focused, so Space plays at once.
+    /// The arrow keys keep focus on the list, to go on through it; Space or Return on the open
+    /// meeting's row then play or pause, as Space does on the page.
+    pub fn open_from_sidebar(&mut self, id: MeetingId, tx: &mut Tx) {
+        if !tx.by_keys() {
+            self.open(id);
+            tx.blur();
+        } else if self.page == Page::Meeting(id) {
+            self.toggle_play();
+        } else {
+            self.open(id);
+        }
+    }
     pub fn open_search(&mut self) {
         let mut edit = TextEdit::new("");
         edit.focused = true;
@@ -922,7 +941,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     for (i, c) in ['1', '2', '3', '4', '5'].into_iter().enumerate() {
         if ev.is_command(c) && s.meeting().is_some() {
-            s.tab = TABS[i];
+            s.show_tab(TABS[i], tx);
             return true;
         }
     }
