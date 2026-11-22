@@ -2,7 +2,7 @@
 //! microphone; AVAssetWriter for writing fragmented MP4; the IOKit sleep assertion
 //! ([`sleep::KeepAwake`]) that keeps the Mac awake during a recording or processing; the Mac's
 //! Trash ([`MacTrash`]), where deleted meetings go; MP4 muxing of imported media
-//! ([`MacMp4Muxer`]).
+//! ([`MacMp4Muxer`]); the notification permission ([`notifications`]).
 //! The capture implements
 //! [`greffier_core::adapters::Capture`]. It is not tested by the automated suite (spec: the real
 //! adapters are covered by use), except the mixing, which is computation.
@@ -19,6 +19,8 @@ mod mac;
 mod mp4_muxing;
 #[cfg(target_os = "macos")]
 pub mod sleep;
+#[cfg(target_os = "macos")]
+pub mod notifications;
 #[cfg(target_os = "macos")]
 pub use trash::MacTrash;
 #[cfg(target_os = "macos")]

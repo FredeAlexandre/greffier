@@ -193,6 +193,21 @@ pub fn permissions(s: &App, k: &Kit) -> El {
         }
         c = c.child(line);
     }
+    // Notifications: only the installed app can post them.
+    if rune_notify::available() {
+        let state = greffier_capture::notifications::state();
+        let detail = match state {
+            PermissionState::Granted => "accordées : « Bilan prêt » arrive même quand Greffier est en arrière-plan",
+            PermissionState::ToRequest => "pas encore demandées : sans elles, « Bilan prêt » ne s'affiche que dans Greffier",
+            PermissionState::Denied => "refusées : Réglages Système › Notifications › Greffier",
+        };
+        let mut line = row().key("perm-notifications").w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, "Notifications", detail).grow(1.0).min_w(0.0));
+        if state != PermissionState::Granted {
+            let label = if state == PermissionState::ToRequest { "Autoriser" } else { "Ouvrir les Réglages" };
+            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|_: &mut App| greffier_capture::notifications::request()).build(k));
+        }
+        c = c.child(line);
+    }
     if states.screen != PermissionState::Granted {
         c = c.child(muted(k, "Le son du Mac passe par l'autorisation de l'écran. Une fois accordée, macOS demande de relancer Greffier."));
     }
