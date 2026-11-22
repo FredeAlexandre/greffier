@@ -59,6 +59,14 @@ impl DateTime {
         format!("{} {:02}/{:02}", DAYS[self.weekday()], self.day, self.month)
     }
 
+    /// "samedi 21 novembre 2026"
+    pub fn long_day(&self) -> String {
+        const WEEKDAYS: [&str; 7] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+        const MONTHS: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+        let month = MONTHS.get(usize::from(self.month).wrapping_sub(1)).copied().unwrap_or("?");
+        format!("{} {} {month} {}", WEEKDAYS[self.weekday()], self.day, self.year)
+    }
+
     /// "14h02"
     pub fn short_time(&self) -> String {
         format!("{:02}h{:02}", self.hour, self.minute)

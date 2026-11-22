@@ -204,6 +204,7 @@ pub fn release_review(id: u32) -> Meeting {
         passages: doubts,
         markers: vec![Marker { instant: hms(1, 58, 45), label: "Ma démo bookmarks".into() }],
         corrections: 147,
+        sessions: crate::meeting::Sessions { review: Some("5f0c2a7e-1b9d-4c3e-9a51-2d8e7f60b4c1".into()), summary: Some("a83d91c4-6e2f-4b7a-8c05-f1e94d27a6b3".into()) },
         ..done_meeting(id, DateTime::new(2026, 11, 20, 9, 39), duration, "Revue de release : permissions, fiscal year, bookmarks")
     }
     .with_summary(RELEASE_SUMMARY)

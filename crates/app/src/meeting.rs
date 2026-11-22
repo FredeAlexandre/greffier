@@ -365,6 +365,40 @@ fn transcript(s: &App, m: &Meeting, k: &Kit, view_h: f32) -> El {
 
 fn info(s: &App, m: &Meeting, k: &Kit) -> El {
     let done = |e: Stage| m.completed_stage.is_some_and(|f| f >= e);
+    let line = |label: &str, value: String| {
+        row().w_full().gap(8.0).center_y()
+            .child(text(label.to_owned()).font(k.ty.small_medium).color(k.c.text_base).w(116.0))
+            .child(text(value).font(k.ty.small).color(k.c.text_muted).wrap().grow(1.0).min_w(0.0))
+    };
+    let mut meeting = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Réunion"))
+        .child(line("Date", format!("{} à {}", m.start.long_day(), m.start.short_time())))
+        .child(line("Durée", ui::dur(m.duration)));
+    // The agent's sessions, to pick up its conversation with `claude --resume` from the meetings
+    // folder, where the agent ran.
+    let sessions = [("Relecture", &m.sessions.review), ("Bilan", &m.sessions.summary)];
+    if sessions.iter().all(|(_, id)| id.is_none()) {
+        meeting = meeting.child(line("Claude", "Aucune session pour l'instant".into()));
+    }
+    for (i, (label, id)) in sessions.into_iter().enumerate() {
+        let Some(id) = id.clone() else { continue };
+        let command = match &s.folder {
+            Some(dir) => format!("cd '{}' && claude --resume {id}", dir.display().to_string().replace('\'', "'\\''")),
+            None => format!("claude --resume {id}"),
+        };
+        meeting = meeting.child(
+            row().w_full().gap(8.0).center_y()
+                .child(text(format!("Session {}", label.to_lowercase())).font(k.ty.small_medium).color(k.c.text_base).w(116.0).help("Session Claude"))
+                .child(text(id).font(tnum(k.ty.small)).color(k.c.text_muted).selectable(true).truncate_middle().grow(1.0).min_w(0.0))
+                .child(Button::new("Copier").variant(ButtonVariant::GhostFaint).control_size(ControlSize::Small)
+                    .help("Copie la commande du Terminal qui reprend cette conversation avec Claude")
+                    .on_press_tx(move |s: &mut App, tx| {
+                        tx.copy(command.clone());
+                        s.toast = Some(crate::Toast { text: "Commande de reprise de la session copiée.".into(), meeting: None, until: s.clock + 4.0 });
+                    })
+                    .build(k)
+                    .key(format!("session{i}"))),
+        );
+    }
     let mut processing = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Traitement"));
     for (ok, label, detail) in [
         (m.files.contains(&Role::Recording), "Enregistrement", ui::dur(m.duration)),
@@ -389,7 +423,7 @@ fn info(s: &App, m: &Meeting, k: &Kit) -> El {
     for (i, mk) in m.markers.iter().enumerate() {
         marks = marks.child(row().gap(8.0).center_y().child(ts_chip(k, mk.instant, format!("mk-ts{i}"))).child(text(mk.label.clone()).font(k.ty.ui).color(k.c.text_base)));
     }
-    row().w_full().gap(12.0).flex_wrap().items_start().child(processing).child(files).child(marks)
+    row().w_full().gap(12.0).flex_wrap().items_start().child(meeting).child(processing).child(files).child(marks)
 }
 
 fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
