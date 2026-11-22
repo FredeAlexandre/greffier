@@ -160,6 +160,23 @@ impl App {
             _ => None,
         }
     }
+    /// A window is open over the page: the page's shortcuts, ⌘ ones included, wait until it
+    /// closes.
+    pub fn window_open(&self) -> bool {
+        self.search.is_some()
+            || self.rename.is_some()
+            || self.import.is_some()
+            || self.process_imported.is_some()
+            || self.confirm_delete.is_some()
+            || self.short_recording.is_some()
+            || self.redo_transcription.is_some()
+    }
+    /// A text field is open: letters, space and arrows are typing, even after a click elsewhere
+    /// took the field's focus, so no single-key shortcut of the page fires. Every field of the
+    /// app belongs here.
+    pub fn text_field_open(&self) -> bool {
+        self.search.is_some() || self.rename.is_some() || self.import.is_some() || self.correction.is_some() || speakers::naming_shown(self)
+    }
     /// The open meeting's video.
     pub fn player(&self) -> Option<&Player> {
         match (self.page, &self.video) {
@@ -871,7 +888,9 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
+    // The correction, inline in the page, keeps the ⌘ shortcuts from it too (⌘1 to ⌘5 would
+    // abandon it).
+    if s.window_open() || s.correction.is_some() || s.shortcut.is_recording() {
         return false;
     }
     // The global shortcut takes ⇧⌘R when registered; otherwise (headless, refused), the app keeps it.
@@ -894,7 +913,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
     }
-    if s.meeting().is_none() || ev.mods.cmd {
+    if s.meeting().is_none() || ev.mods.cmd || s.text_field_open() {
         return false;
     }
     if s.tab == Tab::Doubts && check::on_key(s, ev, tx) {

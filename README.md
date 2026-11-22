@@ -94,6 +94,8 @@ Scripted scenes and scenarios serve as visual tests:
 target/debug/greffier --list-scenes
 target/debug/greffier --snap out.png --scene meeting --theme dark
 target/debug/greffier --script crates/app/scenarios/recording.json --snap end.png --at 20
+# A scenario can start from a scene: the speaker's name field loses focus, f and space stay out of the page.
+target/debug/greffier --scene people-naming --script crates/app/scenarios/naming-focus-lost.json --snap end.png --at mark:end
 ```
 
 ## Code

@@ -9,7 +9,7 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Kit, TextInput};
 use greffier_core::{Command, Meeting};
 
 use crate::ui::{self, dot, glyph, muted, spk_color};
-use crate::App;
+use crate::{App, Tab};
 
 /// What is being done to a speaker.
 pub struct Picking {
@@ -31,6 +31,13 @@ impl Picking {
             Mode::Fusion => unreachable!("the name field only exists while correcting"),
         }
     }
+}
+
+/// The name field is visible: a name correction is open and the Speakers tab is shown. The
+/// correction outlives a tab change (it is back with its text on return), so elsewhere its field
+/// takes no keys.
+pub fn naming_shown(s: &App) -> bool {
+    matches!(&s.picking, Some(Picking { mode: Mode::Name { .. }, .. })) && s.tab == Tab::Speakers && s.meeting().is_some()
 }
 
 impl App {
