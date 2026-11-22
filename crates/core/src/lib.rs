@@ -375,6 +375,19 @@ impl Greffier {
         self.meeting(id).and_then(|r| self.folder.recording(&r.folder_name))
     }
 
+    /// A meeting's recording file, ready for the player: a video imported before Greffier gave
+    /// it a picture from 0 is repaired first, once, in place ([`folder::mp4::fill_leading_video_gap`]),
+    /// and Greffier notes its own write so that the folder's next rescan does not take it for a
+    /// change made outside the app.
+    pub fn recording_to_play(&mut self, id: MeetingId) -> Option<PathBuf> {
+        let file = self.recording_file(id)?;
+        if folder::mp4::fill_leading_video_gap(&file).unwrap_or(false) {
+            let name = self.meeting(id)?.folder_name.clone();
+            self.note_end(&name, &[Role::Recording]);
+        }
+        Some(file)
+    }
+
     /// The settings' lexicon, read now; without a lexicon (or unreadable), the bundled lexicon.
     fn lexicon_text(&self) -> String {
         self.settings.lexicon.as_ref().and_then(|c| std::fs::read_to_string(c).ok()).unwrap_or_else(|| lexicon::INITIAL_LEXICON.to_string())

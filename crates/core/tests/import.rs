@@ -7,12 +7,26 @@ mod bench;
 use std::path::{Path, PathBuf};
 
 use bench::Bench;
-use greffier_core::folder::Import;
+use greffier_core::folder::{Import, mp4_duration, mp4_leading_video_gap};
 use greffier_core::{Command, DateTime, Stage, Event, MeetingId, Role, Status};
 
 /// The fixtures' video (12 s).
 fn video() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings-folder/2026-11-19 15h30 - Réunion/2026-11-19 15h30 - Réunion - enregistrement.mp4")
+}
+
+/// An MP4 whose video starts after a gap, as ffmpeg writes it when the first frame comes after 0
+/// (here at 33 ms): an empty edit leads the video track's edit list. The player can decode no
+/// picture in that gap, and fails on it.
+fn video_after_a_gap() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/ffmpeg-leading-gap.mp4")
+}
+
+/// The number of bytes that differ between two files of the same length.
+fn changed_bytes(a: &Path, b: &Path) -> usize {
+    let (a, b) = (std::fs::read(a).unwrap(), std::fs::read(b).unwrap());
+    assert_eq!(a.len(), b.len(), "same length");
+    a.iter().zip(&b).filter(|(x, y)| x != y).count()
 }
 
 /// Files outside the meetings folder, as on the desktop.
@@ -103,6 +117,52 @@ fn an_mp4_family_media_becomes_the_mp4_recording_without_touching_the_original()
         assert_eq!(r.duration, 12.0);
         assert_eq!(std::fs::read(&original).unwrap(), std::fs::read(video()).unwrap(), "{name}: the original stays as is");
     }
+}
+
+#[test]
+fn a_video_that_starts_after_a_gap_shows_its_first_frame_from_zero() {
+    let mut bench = Bench::new();
+    let outside = Outside::new(&bench);
+    let original = outside.copy_to(&video_after_a_gap(), "point.mp4");
+    assert!(mp4_leading_video_gap(&original).is_some_and(|g| g > 0.03), "the fixture starts with a gap");
+    let id = run_import(&mut bench, import(original.clone()));
+
+    let r = bench.meeting(id);
+    let copy = bench.greffier.folder().file(&r.folder_name, Role::Recording);
+    assert_eq!(mp4_leading_video_gap(&copy), None, "the copy has a picture from 0");
+    // Only the gap's edit changes: the timeline after it, the media and the sound stay as they were.
+    let changed = changed_bytes(&original, &copy);
+    assert!((1..=8).contains(&changed), "{changed} bytes changed");
+    assert_eq!(mp4_duration(&copy), mp4_duration(&original));
+    assert_eq!(r.duration, mp4_duration(&original).unwrap());
+    assert_eq!(std::fs::read(&original).unwrap(), std::fs::read(video_after_a_gap()).unwrap(), "the original stays as is");
+    assert_eq!(bench.greffier.rescan_folder(), [], "Greffier's own copy is not a change made outside the app");
+}
+
+#[test]
+fn a_video_imported_with_a_gap_before_the_fix_is_repaired_once_when_played() {
+    let mut bench = Bench::on_fixtures();
+    // A recording without a gap is played as is.
+    let untouched = bench.named_meeting("2026-11-18 09h15 - Réunion").id;
+    let file = bench.greffier.recording_to_play(untouched).expect("a recording");
+    assert_eq!(std::fs::read(&file).unwrap(), std::fs::read(video()).unwrap());
+
+    let name = "2026-11-19 15h30 - Réunion";
+    let file = bench.greffier.folder().file(name, Role::Recording);
+    std::fs::copy(video_after_a_gap(), &file).unwrap();
+    bench.reopen();
+    let id = bench.named_meeting(name).id;
+    assert!(mp4_leading_video_gap(&file).is_some());
+
+    assert_eq!(bench.greffier.recording_to_play(id), Some(file.clone()));
+    assert_eq!(mp4_leading_video_gap(&file), None, "repaired in place");
+    assert!((1..=8).contains(&changed_bytes(&video_after_a_gap(), &file)));
+    assert_eq!(bench.greffier.rescan_folder(), [], "Greffier's own repair is not a change made outside the app");
+
+    // Once repaired, nothing more is written.
+    let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
+    assert_eq!(bench.greffier.recording_to_play(id), Some(file.clone()));
+    assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), modified);
 }
 
 #[test]

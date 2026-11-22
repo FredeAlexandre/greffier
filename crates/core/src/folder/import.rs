@@ -6,7 +6,8 @@
 //! files into a new meeting folder: the originals are never touched. A media file of the MP4
 //! family (`.mov`, `.m4a`, `.m4v`) becomes `… - enregistrement.mp4` there without re-encoding
 //! ([`Mp4Muxer`]); if it cannot, or for other media (`.wav`, `.mp3`…), it keeps its
-//! extension.
+//! extension. A copied video that starts after a gap gets its first frame from 0
+//! ([`mp4::fill_leading_video_gap`]), or it would not play.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -81,6 +82,11 @@ impl MeetingsFolder {
                 }
             }
             self.copy_recording(&import.recording, &name, mp4_muxing)?;
+            if let Some(f) = self.recording(&name) {
+                // A video that starts after a gap would not play. Should the repair fail, the
+                // meeting is still worth importing: the player tries again (`recording_to_play`).
+                let _ = mp4::fill_leading_video_gap(&f);
+            }
             r.duration = self.recording(&name).and_then(|f| mp4::duration(&f)).or_else(|| r.utterances.iter().map(|x| x.end).reduce(f64::max)).unwrap_or(0.0);
             Ok(r)
         })();

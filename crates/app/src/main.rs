@@ -28,7 +28,7 @@ mod check;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, PointerPress, Shortcut, ShortcutError, ShortcutId, Spring, TextEdit, Tx, Waker};
+use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent, Player, PlayerState, PointerPress, Shortcut, ShortcutError, ShortcutId, Spring, TextEdit, Tx, Waker};
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
@@ -305,7 +305,7 @@ impl App {
         if !m.files.contains(&Role::Recording) {
             return;
         }
-        let Some(file) = self.core.recording_file(id) else { return };
+        let Some(file) = self.core.recording_to_play(id) else { return };
         let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
@@ -327,6 +327,12 @@ impl App {
         self.play();
     }
     fn play(&mut self) {
+        // A video the player cannot open ignores `play`: say why rather than flicker.
+        if let Some(PlayerState::Failed(e)) = self.player().map(Player::state) {
+            eprintln!("greffier: video: {e}");
+            self.toast = Some(Toast { text: format!("Impossible de lire la vidéo : {e}"), meeting: None, until: self.clock + 8.0 });
+            return;
+        }
         if let Some(p) = self.player() {
             p.play();
         }

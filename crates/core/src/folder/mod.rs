@@ -9,12 +9,12 @@
 
 pub mod sheet;
 pub(crate) mod import;
-mod mp4;
+pub(crate) mod mp4;
 mod renaming;
 pub mod watch;
 pub mod transcription;
 
-pub use mp4::duration as mp4_duration;
+pub use mp4::{duration as mp4_duration, leading_video_gap as mp4_leading_video_gap};
 
 use std::path::{Path, PathBuf};
 
