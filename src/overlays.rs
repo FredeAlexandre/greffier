@@ -1,4 +1,4 @@
-//! Les fenêtres par-dessus l'app : la recherche ⌘K et la confirmation de suppression.
+//! The windows over the app: the ⌘K search and the delete confirmation.
 
 use rune::{El, ScrollSpec, Span, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
@@ -20,7 +20,7 @@ pub struct Hit {
     pub location: Option<Location>,
 }
 
-/// Les résultats de la recherche du cœur ; sans requête, les réunions récentes.
+/// The core's search results; without a query, the recent meetings.
 pub fn hits(s: &App) -> Vec<Hit> {
     let q = s.search.as_ref().map(|e| e.text.trim().to_string()).unwrap_or_default();
     let when = |m: &Meeting| format!("{} · {}", m.start.short_day(), m.start.short_time());
@@ -42,8 +42,8 @@ pub fn hits(s: &App) -> Vec<Hit> {
         .collect()
 }
 
-/// Ouvre la réunion du résultat à l'instant visé : la réplique dans la transcription, le sujet
-/// (la décision) d'une ligne du bilan dans l'onglet Bilan.
+/// Opens the result's meeting at the target moment: the utterance in the transcript, or the
+/// topic (decision) of a summary line in the Summary tab.
 fn go(s: &mut App, h: &Hit) {
     s.open(h.id);
     if let Some(t) = h.at {
@@ -105,7 +105,7 @@ pub fn search(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .large()
         .width(None)
         .clear_button()
-        .on_edit(|s: &mut App| s.search.as_mut().expect("recherche ouverte"))
+        .on_edit(|s: &mut App| s.search.as_mut().expect("search open"))
         .on_key(|s: &mut App, ev, _| {
             if ev.key == rune::Key::Enter {
                 if let Some(h) = hits(s).into_iter().next() {
@@ -158,7 +158,7 @@ pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
     Dialog::new("delete", "Supprimer la réunion ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.confirm_delete = None).child(body).build(k, layer);
 }
 
-/// À l'arrêt d'un enregistrement de moins d'une minute : sans doute un faux départ.
+/// When a recording shorter than a minute stops: probably a false start.
 pub fn short_recording(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(id) = s.short_recording else { return };
     let Some(m) = s.core.meeting(id) else { return };

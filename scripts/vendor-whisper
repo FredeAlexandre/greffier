@@ -1,26 +1,26 @@
 #!/bin/sh
-# Copie dans moteurs/whisper.cpp/ les sources de whisper.cpp dont Greffier a besoin (whisper,
-# ggml, CPU, Metal, BLAS d'Accelerate), depuis l'archive de la version figée. Le build.rs de
-# moteurs/ les compile sans cmake.
+# Copies into engines/whisper.cpp/ the whisper.cpp sources Greffier needs (whisper, ggml, CPU,
+# Metal, Accelerate's BLAS), from the archive of the pinned version. engines/build.rs compiles
+# them without cmake.
 #
-#     scripts/vendre-whisper
+#     scripts/vendor-whisper
 #
-# Pour changer de version : modifier VERSION et SHA256 ici et dans moteurs/build.rs, relancer.
+# To change version: update VERSION and SHA256 here and in engines/build.rs, then run again.
 set -eu
 VERSION=1.9.5
 SHA256=ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720
-ICI=$(cd "$(dirname "$0")/.." && pwd)
-CIBLE="$ICI/moteurs/whisper.cpp"
-ETAPE=$(mktemp -d)
-trap 'rm -rf "$ETAPE"' EXIT
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+TARGET="$ROOT/engines/whisper.cpp"
+STAGING=$(mktemp -d)
+trap 'rm -rf "$STAGING"' EXIT
 
-curl -fsSL -o "$ETAPE/w.tgz" "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v$VERSION.tar.gz"
-echo "$SHA256  $ETAPE/w.tgz" | shasum -a 256 -c - >/dev/null || { echo "sha256 inattendu" >&2; exit 1; }
-tar xzf "$ETAPE/w.tgz" -C "$ETAPE"
-S="$ETAPE/whisper.cpp-$VERSION"
+curl -fsSL -o "$STAGING/w.tgz" "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v$VERSION.tar.gz"
+echo "$SHA256  $STAGING/w.tgz" | shasum -a 256 -c - >/dev/null || { echo "unexpected sha256" >&2; exit 1; }
+tar xzf "$STAGING/w.tgz" -C "$STAGING"
+S="$STAGING/whisper.cpp-$VERSION"
 
-rm -rf "$CIBLE"
-mkdir -p "$CIBLE"
+rm -rf "$TARGET"
+mkdir -p "$TARGET"
 cd "$S"
 {
     echo LICENSE
@@ -35,7 +35,7 @@ cd "$S"
     find ggml/src/ggml-metal -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.m' -o -name '*.metal' -o -name CMakeLists.txt \)
     echo ggml/src/ggml-blas/ggml-blas.cpp
 } | sort | while read -r f; do
-    mkdir -p "$CIBLE/$(dirname "$f")"
-    cp "$f" "$CIBLE/$f"
+    mkdir -p "$TARGET/$(dirname "$f")"
+    cp "$f" "$TARGET/$f"
 done
-echo "whisper.cpp $VERSION → $CIBLE ($(du -sh "$CIBLE" | cut -f1))"
+echo "whisper.cpp $VERSION → $TARGET ($(du -sh "$TARGET" | cut -f1))"

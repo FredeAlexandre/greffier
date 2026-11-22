@@ -1,37 +1,36 @@
-//! La transcription structurée (`… - transcription.json`) et la transcription lisible
+//! The structured transcription (`… - transcription.json`) and the readable transcription
 //! (`… - transcription.md`).
 //!
-//! Le JSON garde tout ce que le traitement a produit : les mots (horodatages, confiance,
-//! locuteur), les tours de parole, les répliques, la transcription brute d'avant relecture, le
-//! journal de la relecture, les passages à vérifier et les corrections faites à la main. Les
-//! locuteurs y sont toujours désignés par leur étiquette (« SPEAKER_00 »), même nommés ou
-//! fusionnés ; `noms` et `fusions` donnent la correspondance, la même que dans la fiche (qui fait
-//! foi quand elle existe).
+//! The JSON keeps everything processing produced: the words (timestamps, confidence, speaker),
+//! the speaker turns, the utterances, the raw transcription from before review, the review log,
+//! the passages to check and the manual corrections. Speakers are always referred to by their
+//! label ("SPEAKER_00"), even when named or merged; `names` and `merges` give the mapping, the
+//! same as in the sheet (which is authoritative when it exists).
 //!
 //! ```json
 //! {
 //!   "version": 1,
-//!   "locuteurs": ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"],
-//!   "noms": { "SPEAKER_00": "Alexandre", "SPEAKER_01": "Khalid", "SPEAKER_02": "Alexandre" },
-//!   "fusions": { "SPEAKER_02": "SPEAKER_00" },
-//!   "mots": [{ "debut": 0.0, "fin": 0.25, "texte": "Bonjour", "confiance": 0.9, "locuteur": "SPEAKER_00" }],
-//!   "tours": [{ "debut": 0.0, "fin": 2.0, "locuteur": "SPEAKER_00" }],
-//!   "repliques": [{ "locuteur": "SPEAKER_00", "debut": 0.0, "fin": 2.0, "texte": "Bonjour Khalid." }],
-//!   "brute": [ …les répliques d'avant la relecture, absentes si elle n'est pas faite… ],
-//!   "relecture": { "corrections": [{ "replique": 1, "avant": "recète", "apres": "recette" }],
-//!                  "changements_de_locuteur": [{ "replique": 3, "locuteur": "SPEAKER_01" }],
-//!                  "passages_corriges": [{ "replique": 4, "extrait": "la prod", "apres": "la preprod",
-//!                                          "reecoute": "on bascule la preprod" }],
-//!                  "ajouts_au_lexique": [{ "entendu": "recète", "correct": "recette" }] },
-//!   "passages": [{ "replique": 2, "extrait": "le support", "hypothese": "l'équipe support",
-//!                  "reecoute": "…", "statut": "pending" }],
-//!   "corrections_a_la_main": [{ "replique": 0, "avant": "…", "apres": "…" }]
+//!   "speakers": ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"],
+//!   "names": { "SPEAKER_00": "Alexandre", "SPEAKER_01": "Khalid", "SPEAKER_02": "Alexandre" },
+//!   "merges": { "SPEAKER_02": "SPEAKER_00" },
+//!   "words": [{ "start": 0.0, "end": 0.25, "text": "Bonjour", "confidence": 0.9, "speaker": "SPEAKER_00" }],
+//!   "turns": [{ "start": 0.0, "end": 2.0, "speaker": "SPEAKER_00" }],
+//!   "utterances": [{ "speaker": "SPEAKER_00", "start": 0.0, "end": 2.0, "text": "Bonjour Khalid." }],
+//!   "raw": [ …the utterances from before the review, absent if it has not been done… ],
+//!   "review": { "corrections": [{ "utterance": 1, "before": "recète", "after": "recette" }],
+//!               "speaker_changes": [{ "utterance": 3, "speaker": "SPEAKER_01" }],
+//!               "corrected_passages": [{ "utterance": 4, "excerpt": "la prod", "after": "la preprod",
+//!                                        "relisten": "on bascule la preprod" }],
+//!               "lexicon_additions": [{ "heard": "recète", "correct": "recette" }] },
+//!   "passages": [{ "utterance": 2, "excerpt": "le support", "hypothesis": "l'équipe support",
+//!                  "relisten": "…", "status": "pending" }],
+//!   "manual_corrections": [{ "utterance": 0, "before": "…", "after": "…" }]
 //! }
 //! ```
 //!
-//! `statut` d'un passage : `en_attente`, `hypothese_acceptee`, `original_garde` ou
-//! `corrige_a_la_main` (avec `correction`). `relecture` absente : la relecture n'est pas faite
-//! (une transcription importée est réputée non relue).
+//! A passage's `status`: `pending`, `hypothesis_accepted`, `original_kept` or
+//! `corrected_manually` (with `correction`). `review` absent: the review has not been done
+//! (an imported transcription is treated as not reviewed).
 
 use std::collections::BTreeMap;
 
@@ -46,13 +45,13 @@ pub const VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructuredTranscription {
     pub version: u32,
-    /// Les étiquettes des locuteurs, dans l'ordre (leurs couleurs en dépendent).
+    /// The speakers' labels, in order (their colors depend on it).
     #[serde(default)]
     pub speakers: Vec<String>,
-    /// SPEAKER_xx → nom donné par l'utilisateur, fusions comprises.
+    /// SPEAKER_xx → name given by the user, merges included.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub names: BTreeMap<String, String>,
-    /// SPEAKER_xx → SPEAKER_yy : le premier est la même voix que le second, qui le remplace.
+    /// SPEAKER_xx → SPEAKER_yy: the first is the same voice as the second, which replaces it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub merges: BTreeMap<String, String>,
     #[serde(default)]
@@ -120,10 +119,10 @@ pub struct StoredReview {
     pub corrections: Vec<StoredCorrection>,
     #[serde(default)]
     pub speaker_changes: Vec<StoredSpeakerChange>,
-    /// Les passages douteux corrigés après la réécoute.
+    /// The doubtful passages corrected after the relisten.
     #[serde(default)]
     pub corrected_passages: Vec<StoredCorrectedPassage>,
-    /// Les erreurs écrites dans le lexique.
+    /// The errors written into the lexicon.
     #[serde(default)]
     pub lexicon_additions: Vec<StoredLexiconAddition>,
 }
@@ -175,8 +174,8 @@ impl StructuredTranscription {
     pub fn from_meeting(r: &Meeting) -> StructuredTranscription {
         let label = |i: usize| r.speakers.get(i).map(|l| l.label.clone()).unwrap_or_else(|| "SPEAKER_00".into());
         let write = |x: &Utterance| StoredUtterance { speaker: label(x.speaker), start: x.start, end: x.end, text: x.text.clone() };
-        // Le locuteur d'un mot : celui que l'attribution lui a donné, sinon (mots relus d'une
-        // transcription qui n'en avait pas) celui de la réplique où il commence.
+        // A word's speaker: the one attribution gave it, otherwise (words read back from a
+        // transcription that had none) that of the utterance where it starts.
         let word_speaker = |m: &Word| match m.speaker {
             Some(i) => Some(label(i)),
             None => r.utterances.iter().find(|x| m.start >= x.start - 1e-6 && m.start <= x.end + 1e-6).map(|x| label(x.speaker)),
@@ -214,8 +213,8 @@ impl StructuredTranscription {
         }
     }
 
-    /// Remplace la transcription de la réunion (locuteurs, mots, répliques, relecture,
-    /// passages). Sans locuteur nulle part, tout va à un seul locuteur, SPEAKER_00.
+    /// Replaces the meeting's transcription (speakers, words, utterances, review, passages).
+    /// With no speaker anywhere, everything goes to a single speaker, SPEAKER_00.
     pub fn apply(self, r: &mut Meeting) {
         let mut labels = self.speakers;
         let others = self.utterances.iter().chain(&self.raw).map(|x| &x.speaker).chain(self.turns.iter().map(|t| &t.speaker)).chain(self.words.iter().filter_map(|m| m.speaker.as_ref()));
@@ -270,8 +269,8 @@ impl StructuredTranscription {
     }
 }
 
-/// La transcription lisible : une ligne par réplique, `[h:mm:ss] Nom : texte`, avec le nom du
-/// locuteur quand il est connu (fusions suivies), et les passages à vérifier en citation dessous.
+/// The readable transcription: one line per utterance, `[h:mm:ss] Name : text`, with the
+/// speaker's name when known (merges followed), and the passages to check quoted below.
 pub fn readable_transcription(r: &Meeting) -> String {
     let mut s = format!("# {} — transcription\n\nRéunion du {:04}-{:02}-{:02} à {}, {}.\n", r.title, r.start.year, r.start.month, r.start.day, r.start.short_time(), playback_timestamp(r.duration.round()));
     for x in &r.utterances {

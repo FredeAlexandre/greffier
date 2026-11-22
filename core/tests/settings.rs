@@ -1,5 +1,5 @@
-//! Les réglages retenus d'un lancement à l'autre (`reglages.json` du dossier de l'app) et le
-//! lexique, lus et écrits par le cœur : l'interface ne touche pas à ces fichiers.
+//! The settings kept from one launch to the next (`settings.json` in the app folder) and the
+//! lexicon, read and written by the core: the UI does not touch these files.
 
 mod bench;
 
@@ -10,7 +10,7 @@ use greffier_core::adapters::Sources;
 use greffier_core::settings::{self, DEFAULT_SHORTCUT, PersistedSettings};
 use greffier_core::{Command, Settings, lexicon};
 
-/// Un dossier de l'app temporaire, effacé à la fin.
+/// A temporary app folder, deleted at the end.
 struct AppFolder(PathBuf);
 
 impl AppFolder {
@@ -32,19 +32,19 @@ impl Drop for AppFolder {
 
 #[test]
 fn without_file_the_settings_are_the_defaults() {
-    let app = AppFolder::new("defauts");
+    let app = AppFolder::new("defaults");
     let r = PersistedSettings::read(&app.0);
     assert_eq!(r, PersistedSettings::default());
     assert_eq!(r.meetings_folder, None);
     assert_eq!(r.shortcut, DEFAULT_SHORTCUT);
     assert!(r.process_on_stop);
     assert_eq!(r.sources, Sources::default());
-    assert!(!app.0.exists(), "lire n'écrit rien");
+    assert!(!app.0.exists(), "reading writes nothing");
 }
 
 #[test]
 fn saved_settings_persist_across_launches() {
-    let app = AppFolder::new("aller-retour");
+    let app = AppFolder::new("round-trip");
     let r = PersistedSettings {
         meetings_folder: Some(PathBuf::from("/Users/odile/Réunions")),
         shortcut: "cmd+alt+e".into(),
@@ -52,7 +52,7 @@ fn saved_settings_persist_across_launches() {
         sources: Sources { screen: false, mac_audio: true, micro: true },
         context_folders: vec![PathBuf::from("/Users/odile/Notes")],
     };
-    r.remember(&app.0).expect("écrit");
+    r.remember(&app.0).expect("written");
     assert_eq!(PersistedSettings::read(&app.0), r);
     let json = app.settings_json();
     assert_eq!(json["meetings_folder"], "/Users/odile/Réunions");
@@ -61,7 +61,7 @@ fn saved_settings_persist_across_launches() {
 
 #[test]
 fn unknown_file_keys_are_kept() {
-    let app = AppFolder::new("inconnues");
+    let app = AppFolder::new("unknown");
     std::fs::create_dir_all(&app.0).unwrap();
     std::fs::write(app.0.join("settings.json"), r#"{"future": {"a": 1}, "process_on_stop": false}"#).unwrap();
     let mut r = PersistedSettings::read(&app.0);
@@ -71,12 +71,12 @@ fn unknown_file_keys_are_kept() {
     let json = app.settings_json();
     assert_eq!(json["future"]["a"], 1);
     assert_eq!(json["shortcut"], "");
-    assert_eq!(PersistedSettings::read(&app.0).shortcut, "", "vide : aucun raccourci");
+    assert_eq!(PersistedSettings::read(&app.0).shortcut, "", "empty: no shortcut");
 }
 
 #[test]
 fn an_unreadable_file_gives_the_default_settings() {
-    let app = AppFolder::new("illisible");
+    let app = AppFolder::new("unreadable");
     std::fs::create_dir_all(&app.0).unwrap();
     std::fs::write(app.0.join("settings.json"), "pas du JSON").unwrap();
     assert_eq!(PersistedSettings::read(&app.0), PersistedSettings::default());
@@ -84,10 +84,10 @@ fn an_unreadable_file_gives_the_default_settings() {
 
 #[test]
 fn choosing_the_meetings_folder_creates_and_remembers_it() {
-    let app = AppFolder::new("choix");
-    let folder = app.0.with_extension("reunions");
+    let app = AppFolder::new("choice");
+    let folder = app.0.with_extension("meetings");
     let _ = std::fs::remove_dir_all(&folder);
-    settings::choose_meetings_folder(&app.0, &folder).expect("choisi");
+    settings::choose_meetings_folder(&app.0, &folder).expect("chosen");
     assert!(folder.is_dir());
     assert_eq!(PersistedSettings::read(&app.0).meetings_folder, Some(folder.clone()));
     let _ = std::fs::remove_dir_all(&folder);
@@ -104,7 +104,7 @@ fn saved_settings_apply_to_core_settings_without_touching_lexicon_or_cache() {
 #[test]
 fn core_reads_the_lexicon_and_its_people() {
     let mut bench = Bench::new();
-    // Sans lexique : le lexique livré.
+    // Without a lexicon: the shipped lexicon.
     assert_eq!(bench.greffier.lexicon(), lexicon::preview(lexicon::INITIAL_LEXICON));
     assert_eq!(bench.greffier.people(), lexicon::people(lexicon::INITIAL_LEXICON));
 

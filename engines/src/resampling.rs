@@ -1,13 +1,13 @@
-//! Le passage à 16 kHz, fait ici plutôt que par AVFoundation : son convertisseur de fréquence ne
-//! rend pas deux fois le même signal (et la transcription change alors d'un lancement à
-//! l'autre), alors que son décodage à la fréquence d'origine est stable.
+//! Conversion to 16 kHz, done here rather than by AVFoundation: its sample rate converter doesn't
+//! return the same signal twice (so the transcription would change from one run to the next),
+//! whereas its decoding at the original sample rate is stable.
 //!
-//! Filtre polyphasé à sinc fenêtré, réglé comme le rééchantillonneur par défaut de ffmpeg
-//! (swresample : 32 zéros de part et d'autre à la fréquence de coupure, coupure à 0,97 de la
-//! fréquence de Nyquist la plus basse, fenêtre de Kaiser β = 9), sans retard : l'échantillon de
-//! sortie k est centré sur l'instant k / fréquence de sortie.
+//! Windowed-sinc polyphase filter, tuned like ffmpeg's default resampler (swresample: 32 zero
+//! crossings on each side at the cutoff frequency, cutoff at 0.97 of the lower Nyquist frequency,
+//! Kaiser window β = 9), with no delay: output sample k is centred on time k / output sample
+//! rate.
 
-/// Longueur du filtre, relative à la fréquence de coupure (`filter_size` de swresample).
+/// Filter length, relative to the cutoff frequency (swresample's `filter_size`).
 const FILTER_SIZE: f64 = 32.0;
 const CUTOFF: f64 = 0.97;
 const BETA: f64 = 9.0;
@@ -16,7 +16,7 @@ fn gcd(a: u32, b: u32) -> u32 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
-/// Fonction de Bessel modifiée de première espèce, d'ordre 0.
+/// Modified Bessel function of the first kind, order 0.
 fn bessel_i0(x: f64) -> f64 {
     let (mut sum, mut term, mut k) = (1.0, 1.0, 1.0);
     loop {
@@ -29,21 +29,21 @@ fn bessel_i0(x: f64) -> f64 {
     }
 }
 
-/// `entree` (échantillonné à `de` Hz) rééchantillonné à `vers` Hz.
+/// `input` (sampled at `from` Hz) resampled to `to` Hz.
 pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to || input.is_empty() {
         return input.to_vec();
     }
     let g = gcd(from, to);
     let (phases, step) = ((to / g) as usize, (from / g) as usize);
-    // Coupure relative à la fréquence de Nyquist de l'entrée.
+    // Cutoff relative to the input's Nyquist frequency.
     let cutoff = CUTOFF * (to as f64 / from as f64).min(1.0);
     let half = (FILTER_SIZE / cutoff / 2.0).ceil() as i64;
     let width = (2 * half) as usize;
     let i0_beta = bessel_i0(BETA);
 
-    // Les coefficients de chaque phase : la sortie tombe à `p / phases` après l'échantillon
-    // d'entrée de base ; on prend les échantillons base - demi + 1 ..= base + demi.
+    // The coefficients of each phase: the output falls `p / phases` after the base input
+    // sample; take samples base - half + 1 ..= base + half.
     let mut table = vec![0f32; phases * width];
     for p in 0..phases {
         let f = p as f64 / phases as f64;
@@ -73,7 +73,7 @@ pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
             let window = &input[first as usize..first as usize + width];
             window.iter().zip(coeffs).map(|(a, b)| a * b).sum()
         } else {
-            // Bords : les échantillons hors du signal valent 0.
+            // Edges: samples outside the signal are 0.
             coeffs.iter().enumerate().map(|(j, c)| {
                 let i = first + j as i64;
                 if i >= 0 && (i as usize) < n { input[i as usize] * c } else { 0.0 }
@@ -84,8 +84,8 @@ pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     output
 }
 
-/// Flottants (−1 à 1) en entiers 16 bits, arrondis au plus proche (pair en cas d'égalité, comme
-/// `lrintf`) et écrêtés, sans tramage : comme swresample.
+/// Floats (−1 to 1) to 16-bit integers, rounded to nearest (ties to even, like `lrintf`) and
+/// clipped, without dithering: like swresample.
 pub fn to_16_bit(input: &[f32]) -> Vec<i16> {
     input.iter().map(|&x| (x * 32768.0).round_ties_even().clamp(-32768.0, 32767.0) as i16).collect()
 }
@@ -102,10 +102,10 @@ mod tests {
     fn an_in_band_sine_keeps_its_amplitude_and_phase() {
         for from in [48_000, 44_100, 22_050] {
             let s = resample(&sine(1000.0, from, 1.0), from, 16_000);
-            assert!((s.len() as i64 - 16_000).abs() <= 1, "{from} : {}", s.len());
+            assert!((s.len() as i64 - 16_000).abs() <= 1, "{from}: {}", s.len());
             let expected = sine(1000.0, 16_000, 1.0);
             let distance = s[500..15_500].iter().zip(&expected[500..15_500]).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
-            assert!(distance < 0.01, "{from} : {distance}");
+            assert!(distance < 0.01, "{from}: {distance}");
         }
     }
 

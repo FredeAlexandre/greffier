@@ -1,31 +1,31 @@
 #!/bin/sh
-# Publie les fichiers de pyannote speaker-diarization-community-1 (CC-BY-4.0) en release GitHub
-# du dépôt, avec la licence et l'attribution, pour que Greffier les télécharge sans compte
-# Hugging Face. À lancer une fois, depuis une copie locale du modèle (révision 3533c8c…) :
+# Publishes the pyannote speaker-diarization-community-1 files (CC-BY-4.0) as a GitHub release
+# of the repository, with the license and the attribution, so that Greffier downloads them without
+# a Hugging Face account. Run once, from a local copy of the model (revision 3533c8c…):
 #
-#     scripts/publier-pyannote <dossier pyannote-community-1>
+#     scripts/publish-pyannote <pyannote-community-1 folder>
 #
-# Les sha256 attendus sont ceux du catalogue (coeur/src/ressources.rs) ; le script refuse de
-# publier un fichier qui n'y correspond pas.
+# The expected sha256 values are those of the catalog (core/src/resources.rs); the script refuses
+# to publish a file that does not match.
 set -eu
 TAG=pyannote-community-1
-SOURCE=${1:?usage : scripts/publier-pyannote <dossier pyannote-community-1>}
-ICI=$(cd "$(dirname "$0")" && pwd)
-ETAPE=$(mktemp -d)
-trap 'rm -rf "$ETAPE"' EXIT
+SOURCE=${1:?usage: scripts/publish-pyannote <pyannote-community-1 folder>}
+HERE=$(cd "$(dirname "$0")" && pwd)
+STAGING=$(mktemp -d)
+trap 'rm -rf "$STAGING"' EXIT
 
-copier() { # <chemin dans le modèle> <nom dans la release> <sha256>
-    cp "$SOURCE/$1" "$ETAPE/$2"
-    echo "$3  $ETAPE/$2" | shasum -a 256 -c - >/dev/null || { echo "sha256 inattendu : $1" >&2; exit 1; }
+copy() { # <path in the model> <name in the release> <sha256>
+    cp "$SOURCE/$1" "$STAGING/$2"
+    echo "$3  $STAGING/$2" | shasum -a 256 -c - >/dev/null || { echo "unexpected sha256: $1" >&2; exit 1; }
 }
-copier config.yaml config.yaml 5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be
-copier segmentation/pytorch_model.bin segmentation-pytorch_model.bin 7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e
-copier embedding/pytorch_model.bin embedding-pytorch_model.bin 6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929
-copier plda/plda.npz plda-plda.npz 9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255
-copier plda/xvec_transform.npz plda-xvec_transform.npz 325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f
-cp "$ICI/pyannote/LICENSE" "$ICI/pyannote/ATTRIBUTION" "$ETAPE/"
+copy config.yaml config.yaml 5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be
+copy segmentation/pytorch_model.bin segmentation-pytorch_model.bin 7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e
+copy embedding/pytorch_model.bin embedding-pytorch_model.bin 6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929
+copy plda/plda.npz plda-plda.npz 9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255
+copy plda/xvec_transform.npz plda-xvec_transform.npz 325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f
+cp "$HERE/pyannote/LICENSE" "$HERE/pyannote/ATTRIBUTION" "$STAGING/"
 
 gh release create "$TAG" --repo FredeAlexandre/greffier --target main \
     --title "pyannote speaker-diarization-community-1 (CC-BY-4.0)" \
-    --notes-file "$ICI/pyannote/ATTRIBUTION" \
-    "$ETAPE"/*
+    --notes-file "$HERE/pyannote/ATTRIBUTION" \
+    "$STAGING"/*

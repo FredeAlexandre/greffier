@@ -1,9 +1,9 @@
-//! Les empreintes des fichiers d'une réunion : de quoi voir qu'un fichier a changé depuis le
-//! dernier passage du cœur sans le relire (date de modification, taille, inode).
+//! The fingerprints of a meeting's files: enough to see that a file changed since the core's
+//! last pass without reading it again (modification date, size, inode).
 //!
-//! Le cœur retient l'empreinte de chaque dossier de réunion. Quand il écrit lui-même un fichier,
-//! il en note aussitôt la nouvelle empreinte : ses propres écritures ne passent jamais pour des
-//! modifications faites hors de l'app.
+//! The core remembers the fingerprint of each meeting folder. When it writes a file itself, it
+//! records the new fingerprint right away: its own writes are never mistaken for changes made
+//! outside the app.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Seek, SeekFrom, Write};
@@ -11,8 +11,8 @@ use std::time::SystemTime;
 
 use super::{MeetingsFolder, Role};
 
-/// Ce qui change quand un fichier est réécrit : date de modification, taille, et inode (une
-/// écriture atomique remplace le fichier).
+/// What changes when a file is rewritten: modification date, size, and inode (an atomic write
+/// replaces the file).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Fingerprint {
     modified: Option<SystemTime>,
@@ -20,16 +20,16 @@ pub struct Fingerprint {
     inode: u64,
 }
 
-/// Les empreintes des fichiers présents dans le dossier d'une réunion.
+/// The fingerprints of the files present in a meeting's folder.
 pub type Fingerprints = BTreeMap<Role, Fingerprint>;
 
 impl MeetingsFolder {
-    /// Les empreintes des fichiers de la réunion `nom` qui existent.
+    /// The fingerprints of the existing files of meeting `name`.
     pub fn fingerprints(&self, name: &str) -> Fingerprints {
         Role::ALL
             .into_iter()
             .filter_map(|role| {
-                // L'enregistrement peut être un média importé qui garde son extension (`.m4a`…).
+                // The recording may be an imported media file that keeps its extension (`.m4a`…).
                 let path = if role == Role::Recording { self.recording(name)? } else { self.file(name, role) };
                 let m = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
                 Some((role, Fingerprint { modified: m.modified().ok(), size: m.len(), inode: inode(&m) }))
@@ -37,7 +37,7 @@ impl MeetingsFolder {
             .collect()
     }
 
-    /// Les empreintes de tous les dossiers de réunion, par nom.
+    /// The fingerprints of all meeting folders, by name.
     pub fn all_fingerprints(&self) -> HashMap<String, Fingerprints> {
         self.names()
             .into_iter()
@@ -48,9 +48,9 @@ impl MeetingsFolder {
             .collect()
     }
 
-    /// Coche ou décoche la `index`-ième case du bilan dans son fichier, en ne réécrivant que le
-    /// caractère entre crochets : le reste du fichier (fins de ligne, mise en forme) ne bouge pas.
-    /// Rend le bilan modifié, ou `None` si la réunion n'a pas de fichier de bilan.
+    /// Ticks or unticks the summary's `index`-th checkbox in its file, rewriting only the
+    /// character between the brackets: the rest of the file (line endings, formatting) does not
+    /// move. Returns the modified summary, or `None` if the meeting has no summary file.
     pub fn tick_in_summary(&self, name: &str, index: usize, done: bool) -> Result<Option<String>, String> {
         let path = self.file(name, Role::Summary);
         if !path.is_file() {

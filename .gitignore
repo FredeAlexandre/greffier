@@ -1,4 +1,4 @@
 /target
 __pycache__/
-# Sorties de la CLI écrites par erreur sous le nom d’une option (`--scene`…).
+# CLI output accidentally written under an option's name (`--scene`…).
 /--*

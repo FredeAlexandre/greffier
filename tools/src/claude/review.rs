@@ -1,15 +1,15 @@
-//! La relecture par la CLI `claude`, en deux passes dans une même session (ADR 0002) :
+//! The review by the `claude` CLI, in two passes within one session (ADR 0002):
 //!
-//! 1. l'agent reçoit les répliques numérotées (`#N [h:mm:ss → h:mm:ss] SPEAKER_xx : texte`, sur
-//!    l'entrée standard), le lexique et le contexte ; il rend les corrections sûres, les
-//!    changements de locuteur prouvés, les passages douteux (30 au plus) et les ajouts au lexique ;
-//! 2. **réécoute** : chaque passage douteux est extrait de l'enregistrement (±1,5 s autour de sa
-//!    réplique, 28 s au plus) et retranscrit avec le vocabulaire ;
-//! 3. dans la même session, l'agent tranche chaque passage : corrigé, ou à vérifier.
+//! 1. the agent receives the numbered utterances (`#N [h:mm:ss → h:mm:ss] SPEAKER_xx : text`, on
+//!    standard input), the lexicon and the context; it returns the confident corrections, the
+//!    proven speaker changes, the doubtful passages (30 at most) and the lexicon additions;
+//! 2. **relisten**: each doubtful passage is cut from the recording (±1.5 s around its
+//!    utterance, 28 s at most) and transcribed again with the vocabulary;
+//! 3. in the same session, the agent decides each passage: corrected, or to check.
 //!
-//! L'agent ne touche à aucun fichier (outils en lecture seule) : ce module traduit ses réponses en
-//! [`ResultatDeRelecture`], que le cœur applique lui-même. Le prompt est livré avec l'app
-//! (`ressources/prompt-review.md`) ; sa partie « Deuxième passe » est envoyée après la réécoute.
+//! The agent touches no file (read-only tools): this module turns its answers into a
+//! [`ReviewResult`], which the core applies itself. The prompt ships with the app
+//! (`resources/prompt-review.md`); its "Second pass" part is sent after the relisten.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,32 +21,32 @@ use super::{ClaudeCall, Claude, Session, new_session};
 use greffier_core::adapters::{LexiconAddition, SpeakerChange, ConfidentCorrection, ReviewRequest, CorrectedPassage, FlaggedPassage, AgentUtterance, ReviewResult};
 use greffier_core::playback_timestamp;
 
-/// Le prompt de la relecture livré avec l'app.
+/// The review prompt shipped with the app.
 pub const PROMPT: &str = include_str!("../../resources/prompt-review.md");
 
-/// Le titre qui ouvre la deuxième partie du prompt.
-const SECOND_PASS: &str = "## Deuxième passe";
+/// The heading that opens the second part of the prompt.
+const SECOND_PASS: &str = "## Second pass";
 
-/// Au plus autant de passages douteux réécoutés.
+/// At most this many doubtful passages are relistened.
 pub const MAX_PASSAGES: usize = 30;
 
-/// Les paliers d'avancement : première passe, réécoute, deuxième passe.
+/// The progress milestones: first pass, relisten, second pass.
 pub const MILESTONES: [f64; 3] = [0.0, 0.6, 0.75];
 
 const ALLOWED_TOOLS: [&str; 3] = ["Read", "Glob", "Grep"];
 const FORBIDDEN_TOOLS: [&str; 6] = ["Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task"];
 
-/// Retranscrit des extraits de l'enregistrement (début, fin en secondes) avec les réglages de la
-/// transcription ; un texte par extrait, vide s'il n'y a rien d'exploitable.
+/// Transcribes excerpts of the recording (start, end in seconds) again with the transcription
+/// settings; one text per excerpt, empty if there is nothing usable.
 pub trait Relisten {
     fn relisten(&self, recording: &Path, excerpts: &[(f64, f64)], vocabulary: &str, stop: &AtomicBool) -> Result<Vec<String>, String>;
 }
 
-// --- Les réponses de l'agent -----------------------------------------------------------------
+// --- The agent's answers --------------------------------------------------------------------
 
 #[derive(Deserialize)]
 struct Correction {
-    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    /// The utterance number (1 = the first one sent), `line` in the answer.
     #[serde(rename = "line")]
     utterance: usize,
     before: String,
@@ -55,7 +55,7 @@ struct Correction {
 
 #[derive(Deserialize)]
 struct Speaker {
-    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    /// The utterance number (1 = the first one sent), `line` in the answer.
     #[serde(rename = "line")]
     utterance: usize,
     speaker: String,
@@ -63,7 +63,7 @@ struct Speaker {
 
 #[derive(Clone, Deserialize)]
 struct PassageToRelisten {
-    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    /// The utterance number (1 = the first one sent), `line` in the answer.
     #[serde(rename = "line")]
     utterance: usize,
     excerpt: String,
@@ -91,7 +91,7 @@ struct FirstPass {
 
 #[derive(Deserialize)]
 struct Decision {
-    /// Le numéro de la réplique (1 = la première envoyée), « ligne » dans la réponse.
+    /// The utterance number (1 = the first one sent), `line` in the answer.
     #[serde(rename = "line")]
     utterance: usize,
     #[serde(default)]
@@ -124,7 +124,7 @@ fn first_pass_schema() -> String {
             "doubts": list(json!({ "line": integer, "excerpt": text, "hypothesis": text, "reason": text })),
             "lexicon": list(json!({ "heard": text, "correct": text })),
         },
-        "required": ["corrections", "locuteurs", "doutes", "lexique"],
+        "required": ["corrections", "speakers", "doubts", "lexicon"],
         "additionalProperties": false,
     })
     .to_string()
@@ -138,7 +138,7 @@ fn second_pass_schema() -> String {
             "decisions": list(json!({ "line": integer, "excerpt": text, "status": { "type": "string", "enum": ["corrected", "to_check"] }, "after": text, "reason": text })),
             "lexicon": list(json!({ "heard": text, "correct": text })),
         },
-        "required": ["decisions", "lexique"],
+        "required": ["decisions", "lexicon"],
         "additionalProperties": false,
     })
     .to_string()
@@ -148,9 +148,9 @@ fn read<T: for<'a> Deserialize<'a>>(v: Value) -> Result<T, String> {
     serde_json::from_value(v).map_err(|e| format!("Claude a rendu une réponse illisible : {e}"))
 }
 
-// --- Le prompt -----------------------------------------------------------------------------
+// --- The prompt ----------------------------------------------------------------------------
 
-/// Le lexique tel qu'on le donne à l'agent : sans frontmatter ni titre principal.
+/// The lexicon as given to the agent: without front matter or main heading.
 fn lexicon_for_agent(md: &str) -> String {
     let mut body = md;
     if let Some(rest) = body.strip_prefix("---\n")
@@ -164,52 +164,52 @@ fn lexicon_for_agent(md: &str) -> String {
         None => body,
     };
     let text = without_title.join("\n");
-    if text.trim().is_empty() { "(vide)".into() } else { text.trim().to_string() }
+    if text.trim().is_empty() { "(empty)".into() } else { text.trim().to_string() }
 }
 
-/// Les deux parties du prompt, `{{…}}` remplacés.
+/// The two parts of the prompt, with the `{{…}}` replaced.
 fn prompts(d: &ReviewRequest) -> (String, String) {
     let body = match PROMPT.strip_prefix("---\n").and_then(|r| r.find("\n---\n").map(|i| &r[i + 5..])) {
         Some(c) => c,
         None => PROMPT,
     };
     let (first, second) = body.split_at(body.find(SECOND_PASS).unwrap_or(body.len()));
-    let mut people = d.speaker_count.map(|n| format!("{n} personnes dans la réunion.")).unwrap_or_default();
+    let mut people = d.speaker_count.map(|n| format!("{n} people in the meeting.")).unwrap_or_default();
     let mut names: Vec<String> = d.utterances.iter().filter_map(|r| r.name.as_ref().map(|n| format!("{} = {n}", r.speaker))).collect();
     names.sort();
     names.dedup();
     if !names.is_empty() {
-        people = format!("{people} Noms déjà donnés : {}.", names.join(", ")).trim().to_string();
+        people = format!("{people} Names already given: {}.", names.join(", ")).trim().to_string();
     }
     let date = format!("{:04}-{:02}-{:02}", d.start.year, d.start.month, d.start.day);
     let fill = |t: &str| {
         t.replace("{{DATE}}", &date)
-            .replace("{{TITRE}}", &d.title)
-            .replace("{{DOSSIER}}", &d.folder_name)
-            .replace("{{PERSONNES}}", &people)
-            .replace("{{LEXIQUE}}", &lexicon_for_agent(&d.lexicon))
+            .replace("{{TITLE}}", &d.title)
+            .replace("{{FOLDER}}", &d.folder_name)
+            .replace("{{PEOPLE}}", &people)
+            .replace("{{LEXICON}}", &lexicon_for_agent(&d.lexicon))
             .trim()
             .to_string()
     };
     (fill(first), fill(second))
 }
 
-/// `#N [h:mm:ss → h:mm:ss] SPEAKER_xx : texte`, numérotées à partir de 1.
+/// `#N [h:mm:ss → h:mm:ss] SPEAKER_xx : text`, numbered from 1.
 fn numbered_utterances(utterances: &[AgentUtterance]) -> String {
     let lines: Vec<String> = utterances.iter().enumerate().map(|(i, r)| format!("#{} [{} → {}] {} : {}", i + 1, playback_timestamp(r.start), playback_timestamp(r.end), r.speaker, r.text)).collect();
     lines.join("\n")
 }
 
-/// Une hypothèse qui n'en est pas une (vide, « ? », « ? (peut-être…) ») ne compte pas.
+/// A hypothesis that is not one (empty, "?", "? (maybe…)") does not count.
 fn hypothesis(h: &str) -> Option<String> {
     let h = h.trim();
     (!h.is_empty() && !h.starts_with('?')).then(|| h.to_string())
 }
 
-// --- La relecture --------------------------------------------------------------------------
+// --- The review ----------------------------------------------------------------------------
 
-/// Les deux passes et la réécoute, sur le fil appelant. `progres` reçoit le palier atteint
-/// ([`PALIERS`]). Un échec de la réécoute n'arrête pas la relecture : l'agent tranche sans elle.
+/// The two passes and the relisten, on the calling thread. `progress` receives the milestone
+/// reached ([`MILESTONES`]). A failed relisten does not stop the review: the agent decides without it.
 pub fn review(claude: &dyn Claude, relisten: &dyn Relisten, d: &ReviewRequest, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<ReviewResult, String> {
     let stopped = || if stop.load(Ordering::Relaxed) { Err("arrêté".to_string()) } else { Ok(()) };
     let session = new_session();
@@ -229,7 +229,7 @@ pub fn review(claude: &dyn Claude, relisten: &dyn Relisten, d: &ReviewRequest, s
     let p1: FirstPass = read(claude.ask(&call(first, numbered_utterances(&d.utterances), first_pass_schema(), Session::New(session.clone())), stop)?)?;
     stopped()?;
 
-    // La réplique N de l'agent (sa « ligne ») est la N-ième réplique envoyée.
+    // The agent's utterance N (its `line`) is the N-th utterance sent.
     let sent = |number: usize| number.checked_sub(1).and_then(|i| d.utterances.get(i));
     let mut result = ReviewResult { session: Some(session.clone()), ..Default::default() };
     result.corrections = p1.corrections.into_iter().filter_map(|c| Some(ConfidentCorrection { utterance: sent(c.utterance)?.number, before: c.before, after: c.after })).collect();
@@ -250,16 +250,16 @@ pub fn review(claude: &dyn Claude, relisten: &dyn Relisten, d: &ReviewRequest, s
 
     progress(MILESTONES[1]);
     let excerpts: Vec<(f64, f64)> = passages.iter().map(|x| {
-        let r = sent(x.utterance).expect("réplique vérifiée");
+        let r = sent(x.utterance).expect("utterance checked above");
         greffier_core::excerpt_to_relisten(r.start, r.end, &r.text, &x.excerpt)
     }).collect();
     let (relistened, for_agent): (Vec<String>, Vec<String>) = match relisten.relisten(&d.recording, &excerpts, &d.vocabulary, stop) {
         Ok(texts) => {
             let texts: Vec<String> = (0..passages.len()).map(|i| texts.get(i).map(|t| greffier_core::attribution::text_without_noises(t)).unwrap_or_default()).collect();
-            let readable_texts = texts.iter().map(|t| if t.is_empty() { "(rien d'exploitable)".to_string() } else { t.clone() }).collect();
+            let readable_texts = texts.iter().map(|t| if t.is_empty() { "(nothing usable)".to_string() } else { t.clone() }).collect();
             (texts, readable_texts)
         }
-        Err(e) => (vec![String::new(); passages.len()], vec![format!("(réécoute impossible : {e})"); passages.len()]),
+        Err(e) => (vec![String::new(); passages.len()], vec![format!("(relisten failed: {e})"); passages.len()]),
     };
     stopped()?;
 
@@ -270,18 +270,18 @@ pub fn review(claude: &dyn Claude, relisten: &dyn Relisten, d: &ReviewRequest, s
         .map(|(x, heard)| {
             let h = if x.hypothesis.trim().is_empty() { "?" } else { x.hypothesis.trim() };
             let start = sent(x.utterance).map_or(0.0, |r| r.start);
-            format!("- ligne #{} [{}] · extrait : « {} » · ton hypothèse : « {h} »\n  réécoute : « {heard} »", x.utterance, playback_timestamp(start), x.excerpt)
+            format!("- line #{} [{}] · excerpt: \"{}\" · your hypothesis: \"{h}\"\n  relisten: \"{heard}\"", x.utterance, playback_timestamp(start), x.excerpt)
         })
         .collect();
     let prompt = format!("{second}\n\n{}", listing.join("\n"));
     let p2: SecondPass = read(claude.ask(&call(prompt, String::new(), second_pass_schema(), Session::Resume(session)), stop)?)?;
 
     for (x, relisten) in passages.into_iter().zip(relistened) {
-        let number = sent(x.utterance).expect("réplique vérifiée").number;
+        let number = sent(x.utterance).expect("utterance checked above").number;
         let decision = p2.decisions.iter().find(|y| y.utterance == x.utterance && y.excerpt == x.excerpt).or_else(|| p2.decisions.iter().find(|y| y.utterance == x.utterance));
         match decision {
             Some(y) if y.status == "corrected" && hypothesis(&y.after).is_some() => {
-                // Corrigé en lui-même : l'extrait était juste, rien à changer.
+                // Corrected to itself: the excerpt was right, nothing to change.
                 if y.after.trim() != x.excerpt.trim() {
                     result.corrected_passages.push(CorrectedPassage { utterance: number, excerpt: x.excerpt, after: y.after.trim().to_string(), relisten });
                 }

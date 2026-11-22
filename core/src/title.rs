@@ -1,18 +1,18 @@
-//! Le titre d'une réunion nomme son dossier et ses fichiers : quand il change (bilan de l'agent,
-//! ou à la main dans l'app), tout est renommé, liens internes compris.
+//! A meeting's title names its folder and its files: when it changes (the agent's summary, or
+//! by hand in the app), everything is renamed, internal links included.
 
 use crate::{Event, Greffier, MeetingId};
 
 impl Greffier {
-    /// Renomme le dossier de la réunion d'après son titre, puis réécrit ses fichiers. Un échec
-    /// laisse le dossier tel quel (et l'annonce) : le titre est quand même gardé dans la fiche.
+    /// Renames the meeting's folder after its title, then rewrites its files. A failure leaves
+    /// the folder as is (and reports it): the title is still kept in the sheet.
     pub(crate) fn rename_from_title(&mut self, id: MeetingId, ev: &mut Vec<Event>) {
         let Some(r) = self.meeting(id) else { return };
         let old = r.folder_name.clone();
         match self.folder.rename(&old, r.start, &r.title) {
             Ok(new) if new != old => {
-                // Les empreintes suivent le dossier : sinon il passerait pour disparu, et le
-                // nouveau pour une réunion apparue hors de l'app.
+                // The fingerprints follow the folder: otherwise it would look gone, and the new
+                // one like a meeting that appeared outside the app.
                 self.fingerprints.remove(&old);
                 let summary = self.folder.read_summary(&new).ok();
                 if let Ok(r) = self.meeting_mut(id) {

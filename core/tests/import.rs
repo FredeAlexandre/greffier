@@ -1,6 +1,6 @@
-//! L'import d'une réunion passée : un média seul, avec sa transcription (fichier de Greffier,
-//! WebVTT ou SRT), ou avec sa transcription et son bilan. Les fichiers sont copiés dans un
-//! nouveau dossier de réunion ; les originaux ne bougent pas.
+//! Importing a past meeting: a media file alone, with its transcription (Greffier file, WebVTT or
+//! SRT), or with its transcription and its summary. The files are copied into a new meeting
+//! folder; the originals do not move.
 
 mod bench;
 
@@ -10,19 +10,19 @@ use bench::Bench;
 use greffier_core::folder::Import;
 use greffier_core::{Command, DateTime, Stage, Event, MeetingId, Role, Status};
 
-/// La vidéo des fixtures (12 s).
+/// The fixtures' video (12 s).
 fn video() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings-folder/2026-11-19 15h30 - Réunion/2026-11-19 15h30 - Réunion - enregistrement.mp4")
 }
 
-/// Des fichiers hors du dossier de réunions, comme sur le bureau.
+/// Files outside the meetings folder, as on the desktop.
 struct Outside(PathBuf);
 
 impl Outside {
     fn new(bench: &Bench) -> Outside {
-        let d = bench.folder.with_extension("dehors");
+        let d = bench.folder.with_extension("outside");
         let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).expect("dossier des originaux");
+        std::fs::create_dir_all(&d).expect("originals folder");
         Outside(d)
     }
     fn write(&self, name: &str, content: &str) -> PathBuf {
@@ -50,7 +50,7 @@ fn run_import(bench: &mut Bench, import: Import) -> MeetingId {
             Event::MeetingImported(id) => Some(*id),
             _ => None,
         })
-        .expect("la réunion importée")
+        .expect("the imported meeting")
 }
 
 fn import(recording: PathBuf) -> Import {
@@ -74,9 +74,9 @@ fn a_media_alone_becomes_a_meeting_to_process_from_transcription() {
     assert_eq!(r.files, [Role::Sheet, Role::Recording]);
     let copy = bench.greffier.folder().file(&r.folder_name, Role::Recording);
     assert_eq!(std::fs::read(copy).unwrap(), std::fs::read(video()).unwrap());
-    assert!(original.is_file(), "l'original reste où il était");
+    assert!(original.is_file(), "the original stays where it was");
 
-    // Relue au lancement suivant, à l'identique.
+    // Read back identically at the next launch.
     let name = r.folder_name.clone();
     bench.reopen();
     let r = bench.named_meeting(&name);
@@ -98,10 +98,10 @@ fn an_mp4_family_media_becomes_the_mp4_recording_without_touching_the_original()
         let r = bench.meeting(id);
         let folder = bench.greffier.folder();
         let mp4 = folder.file(&r.folder_name, Role::Recording);
-        assert!(mp4.is_file(), "{name} : « … - enregistrement.mp4 »");
-        assert_eq!(folder.recording(&r.folder_name), Some(mp4), "{name} : un seul enregistrement");
+        assert!(mp4.is_file(), "{name}: « … - enregistrement.mp4 »");
+        assert_eq!(folder.recording(&r.folder_name), Some(mp4), "{name}: a single recording");
         assert_eq!(r.duration, 12.0);
-        assert_eq!(std::fs::read(&original).unwrap(), std::fs::read(video()).unwrap(), "{name} : l'original reste tel quel");
+        assert_eq!(std::fs::read(&original).unwrap(), std::fs::read(video()).unwrap(), "{name}: the original stays as is");
     }
 }
 
@@ -109,15 +109,15 @@ fn an_mp4_family_media_becomes_the_mp4_recording_without_touching_the_original()
 fn a_media_that_cannot_become_mp4_keeps_its_extension() {
     let mut bench = Bench::new();
     let outside = Outside::new(&bench);
-    // Un .mov qui n'en est pas un : la mise en MP4 échoue, il est copié tel quel.
+    // A .mov that is not one: conversion to MP4 fails, it is copied as is.
     let id = run_import(&mut bench, import(outside.write("point.mov", "pas vraiment une vidéo")));
     let name = bench.meeting(id).folder_name.clone();
-    let copy = bench.greffier.folder().recording(&name).expect("le média importé");
+    let copy = bench.greffier.folder().recording(&name).expect("the imported media");
     assert_eq!(copy.file_name().and_then(|n| n.to_str()), Some("2026-10-02 09h30 - Point client - enregistrement.mov"));
     assert_eq!(std::fs::read_to_string(copy).unwrap(), "pas vraiment une vidéo");
-    assert!(!bench.greffier.folder().file(&name, Role::Recording).exists(), "pas de MP4 à moitié écrit");
+    assert!(!bench.greffier.folder().file(&name, Role::Recording).exists(), "no half-written MP4");
 
-    // Hors de la famille MP4 (WAV, MP3…), rien à essayer.
+    // Outside the MP4 family (WAV, MP3…), nothing to try.
     let mut bench = Bench::new();
     let outside = Outside::new(&bench);
     let id = run_import(&mut bench, import(outside.write("point.wav", "RIFF")));
@@ -125,7 +125,7 @@ fn a_media_that_cannot_become_mp4_keeps_its_extension() {
     assert_eq!(bench.greffier.folder().recording(&name).and_then(|f| f.extension().map(|e| e.to_owned())), Some("wav".into()));
 }
 
-/// (locuteur affiché, début, fin, texte) de chaque réplique.
+/// (displayed speaker, start, end, text) of each utterance.
 fn utterances(bench: &Bench, id: MeetingId) -> Vec<(String, f64, f64, String)> {
     let r = bench.meeting(id);
     r.utterances.iter().map(|x| (r.speakers[r.displayed_speaker(x.speaker)].display_name(), x.start, x.end, x.text.clone())).collect()
@@ -151,14 +151,14 @@ fn a_media_and_its_webvtt_transcription_resume_at_review() {
     );
     let r = bench.meeting(id);
     let labels: Vec<&str> = r.speakers.iter().map(|l| l.label.as_str()).collect();
-    assert_eq!(labels, ["SPEAKER_00", "SPEAKER_01"], "les noms sont donnés aux locuteurs, dans l'ordre où ils parlent");
+    assert_eq!(labels, ["SPEAKER_00", "SPEAKER_01"], "names are given to speakers, in the order they speak");
     assert_eq!(r.status, Status::ToProcess);
     assert_eq!(r.completed_stage, Some(Stage::Transcription));
-    assert!(r.review.is_none(), "une transcription importée n'est pas relue");
+    assert!(r.review.is_none(), "an imported transcription is not reviewed");
     assert_eq!(r.files, [Role::Sheet, Role::ReadableTranscription, Role::StructuredTranscription, Role::Recording]);
     assert!(vtt.is_file());
 
-    // La fiche garde les noms, la transcription structurée les répliques : tout revient au lancement suivant.
+    // The sheet keeps the names, the structured transcription the utterances: everything comes back at the next launch.
     let before = r.clone();
     bench.reopen();
     let after = bench.named_meeting(&before.folder_name).clone();
@@ -169,7 +169,7 @@ fn a_media_and_its_webvtt_transcription_resume_at_review() {
     assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Review, Stage::Summary]);
 }
 
-/// Importe le média des fixtures avec cette transcription ; rend ses répliques.
+/// Imports the fixtures' media with this transcription; returns its utterances.
 fn import_transcription(name: &str, content: &str) -> Vec<(String, f64, f64, String)> {
     let mut bench = Bench::new();
     let outside = Outside::new(&bench);
@@ -244,42 +244,42 @@ fn a_media_its_transcription_and_its_summary_go_through_no_stage() {
     assert_eq!(r.files, Role::ALL);
     assert_eq!(r.summary, summary);
     assert!(!r.is_new);
-    assert_eq!(bench.read(&bench.greffier.folder().file(&r.folder_name, Role::Summary)), summary, "le bilan est copié tel quel");
-    // Le fichier de Greffier est repris, mais réputé non relu.
+    assert_eq!(bench.read(&bench.greffier.folder().file(&r.folder_name, Role::Summary)), summary, "the summary is copied as is");
+    // The Greffier file is taken over, but considered not reviewed.
     assert_eq!(r.utterances.len(), 3);
     assert_eq!(r.utterances[1].text, "Oui, si la recette passe vendredi.");
     assert!(r.review.is_none() && r.raw.is_empty());
     let json = bench.read(&bench.greffier.folder().file(&r.folder_name, Role::StructuredTranscription));
-    assert!(!json.contains("\"relecture\""));
+    assert!(!json.contains("\"review\""));
 
-    assert!(bench.greffier.execute(Command::Process(id)).is_err(), "rien ne reste à faire");
+    assert!(bench.greffier.execute(Command::Process(id)).is_err(), "nothing left to do");
     let before = bench.meeting(id).clone();
     bench.reopen();
     let after = bench.named_meeting(&before.folder_name).clone();
     assert_eq!(greffier_core::Meeting { id: before.id, ..after }, before);
 }
 
-/// Un vrai VTT (une ancienne transcription, gardée hors du dépôt) s'importe comme n'importe quel
-/// VTT. Facultatif : `GREFFIER_VTT_REEL=<fichier.vtt> cargo test` ; sans lui, le test ne vérifie
-/// rien. Ne vérifie que ce qui vaut pour tout VTT à étiquettes `[SPEAKER_xx]:`.
+/// A real VTT (an old transcription, kept outside the repository) imports like any VTT.
+/// Optional: `GREFFIER_REAL_VTT=<file.vtt> cargo test`; without it, the test checks nothing.
+/// Only checks what holds for any VTT with `[SPEAKER_xx]:` labels.
 #[test]
 fn a_real_vtt_imports_like_any_vtt() {
-    let Some(vtt) = std::env::var_os("GREFFIER_VTT_REEL").map(PathBuf::from) else { return };
-    let content = std::fs::read_to_string(&vtt).expect("GREFFIER_VTT_REEL lisible");
+    let Some(vtt) = std::env::var_os("GREFFIER_REAL_VTT").map(PathBuf::from) else { return };
+    let content = std::fs::read_to_string(&vtt).expect("GREFFIER_REAL_VTT readable");
     let entries = content.lines().filter(|l| l.contains("-->")).count();
     let mut bench = Bench::new();
     let outside = Outside::new(&bench);
-    let id = run_import(&mut bench, Import { transcription: Some(vtt.clone()), ..import(outside.copy_to(&video(), "reel.mp4")) });
+    let id = run_import(&mut bench, Import { transcription: Some(vtt.clone()), ..import(outside.copy_to(&video(), "real.mp4")) });
 
     let r = bench.meeting(id);
-    assert_eq!(r.utterances.len(), entries, "une réplique par entrée du VTT");
-    assert!(r.speakers.iter().all(|l| l.label.starts_with("SPEAKER_") && l.name.is_none()), "des étiquettes, pas des noms");
-    assert!(r.utterances.iter().all(|x| !x.text.starts_with("[SPEAKER_") && x.start <= x.end), "le « [SPEAKER_xx]: » est retiré du texte");
+    assert_eq!(r.utterances.len(), entries, "one utterance per VTT entry");
+    assert!(r.speakers.iter().all(|l| l.label.starts_with("SPEAKER_") && l.name.is_none()), "labels, not names");
+    assert!(r.utterances.iter().all(|x| !x.text.starts_with("[SPEAKER_") && x.start <= x.end), "the « [SPEAKER_xx]: » is removed from the text");
     assert!(r.utterances.windows(2).all(|w| w[0].start <= w[1].start));
     assert_eq!(r.completed_stage, Some(Stage::Transcription));
 }
 
-/// Un MP4 minimal dont la boîte `mvhd` dit sa date de création (secondes depuis 1904, UTC).
+/// A minimal MP4 whose `mvhd` box gives its creation date (seconds since 1904, UTC).
 fn mp4_created_at(seconds_since_1904: u32) -> Vec<u8> {
     let boxed = |name: &[u8; 4], content: &[u8]| [&(8 + content.len() as u32).to_be_bytes()[..], name, content].concat();
     let mut mvhd = vec![0u8; 100];
@@ -294,14 +294,14 @@ fn dropped_files_give_the_media_transcription_summary_date_and_title() {
     let bench = Bench::new();
     let outside = Outside::new(&bench);
     let media = outside.0.join("visio.mp4");
-    // 2026-10-02 07:30:00 UTC = 3 873 771 000 s depuis 1904.
+    // 2026-10-02 07:30:00 UTC = 3,873,771,000 s since 1904.
     std::fs::write(&media, mp4_created_at(3_873_771_000)).unwrap();
     let vtt = outside.write("visio.vtt", "WEBVTT\n\n00:01.000 --> 00:02.000\nBonjour.\n");
     let summary = outside.write("notes.md", "---\ntype: bilan\n---\n\n# Bilan — Point client Axe\n\n## En bref\n\nRien.\n");
 
     let import = bench.greffier.propose_import(&[vtt.clone(), summary.clone(), media.clone()]).unwrap();
     assert_eq!(import, Import { recording: media, transcription: Some(vtt), summary: Some(summary), start: DateTime::new(2026, 10, 2, 7, 30), title: "Point client Axe".into() });
-    assert_eq!(bench.greffier.folder().names(), Vec::<String>::new(), "proposer n'écrit rien");
+    assert_eq!(bench.greffier.folder().names(), Vec::<String>::new(), "proposing writes nothing");
 }
 
 #[test]
@@ -323,8 +323,8 @@ fn without_date_in_media_the_date_is_the_modification_date_and_the_title_the_fil
     let proposed = bench.greffier.propose_import(std::slice::from_ref(&audio)).unwrap();
     assert_eq!((proposed.start, proposed.title.as_str(), proposed.transcription.clone(), proposed.summary.clone()), (DateTime::new(2026, 11, 16, 8, 45), "Daily du lundi", None, None));
 
-    // La date et le titre se changent avant de valider ; un audio qui ne passe pas en MP4 (ce
-    // n'en est pas un) garde son extension.
+    // The date and title can be changed before confirming; an audio file that does not convert to
+    // MP4 (it is not one) keeps its extension.
     let id = run_import(&mut bench, Import { start: DateTime::new(2026, 11, 16, 9, 0), title: "Daily".into(), ..proposed });
     let name = bench.meeting(id).folder_name.clone();
     assert_eq!(name, "2026-11-16 09h00 - Daily");
@@ -333,7 +333,7 @@ fn without_date_in_media_the_date_is_the_modification_date_and_the_title_the_fil
     assert_eq!(bench.meeting(id).files, [Role::Sheet, Role::Recording]);
     bench.execute(Command::Process(id));
     bench.advance_until(id, |s| *s == Status::Done);
-    assert_eq!(requested_audio.borrow().as_ref(), Some(&copy), "le traitement lit l'audio importé");
+    assert_eq!(requested_audio.borrow().as_ref(), Some(&copy), "processing reads the imported audio");
 }
 
 #[test]
@@ -345,7 +345,7 @@ fn an_import_without_media_or_with_two_media_is_rejected() {
     let mp4 = outside.copy_to(&video(), "a.mp4");
     let mov = outside.copy_to(&video(), "b.mov");
     for files in [vec![vtt.clone()], vec![mp4.clone(), mov], vec![mp4, pdf], vec![]] {
-        assert!(bench.greffier.propose_import(&files).is_err(), "{files:?} accepté");
+        assert!(bench.greffier.propose_import(&files).is_err(), "{files:?} accepted");
     }
 }
 
@@ -367,13 +367,13 @@ fn an_imported_meeting_is_not_seen_as_modified_outside_the_app_and_its_audio_is_
     let audio = outside.write("Point.m4a", "pas vraiment de l'audio");
     let id = run_import(&mut bench, import(audio));
 
-    // Les fichiers copiés et écrits par Greffier ne passent pas pour des modifications.
+    // The files copied and written by Greffier do not count as modifications.
     assert_eq!(bench.greffier.rescan_folder(), []);
 
-    // L'enregistrement importé qui ne passe pas en MP4 garde son extension, et sa modification
-    // se voit quand même.
+    // The imported recording that does not convert to MP4 keeps its extension, and its
+    // modification is still seen.
     let name = bench.meeting(id).folder_name.clone();
-    let copy = bench.greffier.folder().recording(&name).expect("l'audio importé");
+    let copy = bench.greffier.folder().recording(&name).expect("the imported audio");
     assert_eq!(copy.extension().and_then(|e| e.to_str()), Some("m4a"));
     std::fs::write(&copy, "un autre audio, plus long que le premier").unwrap();
     assert_eq!(bench.greffier.rescan_folder(), [Event::MeetingReviewed(id)]);

@@ -1,10 +1,10 @@
-//! Les interfaces de tout ce qui sort du processus. Le cœur ne connaît qu'elles : les vrais
-//! moteurs (ScreenCaptureKit, whisper.cpp, pyannote, la CLI `claude`, les téléchargements) et les
-//! faux adaptateurs des tests et du prototype les implémentent.
+//! The interfaces of everything that leaves the process. The core only knows them: the real
+//! engines (ScreenCaptureKit, whisper.cpp, pyannote, the `claude` CLI, the downloads) and the
+//! fake adapters of the tests and the prototype implement them.
 //!
-//! Un travail long rend une [`Tache`] que le cœur sonde à chaque [`crate::Greffier::avancer`] :
-//! un vrai adaptateur fait tourner son travail sur un fil à lui et rapporte son avancement ; un
-//! faux avance avec le temps écoulé qu'on lui passe, ce qui rend les tests déterministes.
+//! A long job returns a [`Task`] that the core polls on each [`crate::Greffier::advance`]: a
+//! real adapter runs its job on its own thread and reports its progress; a fake one advances
+//! with the elapsed time it is given, which makes the tests deterministic.
 
 use std::path::PathBuf;
 
@@ -12,21 +12,21 @@ pub use crate::lexicon::LexiconAddition;
 use crate::meeting::{Stage, Word, Marker, SpeakerTurn};
 use crate::time::DateTime;
 
-/// Où en est une tâche.
+/// Where a task stands.
 #[derive(Debug, PartialEq)]
 pub enum TaskProgress<T> {
-    /// En cours, de 0 à 1.
+    /// In progress, from 0 to 1.
     Running(f64),
     Done(T),
     Failed(String),
 }
 
-/// Un travail qui tourne hors du cœur.
+/// A job running outside the core.
 pub trait Task<T> {
-    /// Appelée à chaque avancée du cœur ; `ecoule` est le temps passé depuis l'appel précédent,
-    /// en secondes. Après `Fini` ou `Echec`, la tâche n'est plus sondée.
+    /// Called on each advance of the core; `elapsed` is the time since the previous call, in
+    /// seconds. After `Done` or `Failed`, the task is no longer polled.
     fn poll(&mut self, elapsed: f64) -> TaskProgress<T>;
-    /// Abandonne le travail (arrêt du traitement, suppression de la réunion).
+    /// Abandons the job (processing stopped, meeting deleted).
     fn stop(&mut self) {}
 }
 
@@ -34,7 +34,7 @@ pub type BoxedTask<T> = Box<dyn Task<T>>;
 
 // --- Capture -------------------------------------------------------------------------------
 
-/// Les sources enregistrées.
+/// The recorded sources.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sources {
     pub screen: bool,
@@ -50,12 +50,12 @@ impl Default for Sources {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptureRequest {
-    /// Le fichier de l'enregistrement, à écrire au fil de l'eau.
+    /// The recording file, to be written as it goes.
     pub file: PathBuf,
     pub sources: Sources,
 }
 
-/// Niveaux en direct, de 0 à 1.
+/// Live levels, from 0 to 1.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Levels {
     pub micro: f32,
@@ -64,26 +64,26 @@ pub struct Levels {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CaptureState {
-    /// Durée enregistrée, en secondes.
+    /// Recorded duration, in seconds.
     pub duration: f64,
     pub levels: Levels,
-    /// La capture s'est arrêtée d'elle-même (macOS a coupé le flux, l'écran a disparu…). Le cœur
-    /// appelle alors [`Capture::arreter`] pour finir le fichier et garde la réunion
-    /// « enregistrement interrompu ».
+    /// The capture stopped on its own (macOS cut the stream, the display disappeared…). The core
+    /// then calls [`Capture::stop`] to finish the file and keeps the meeting as
+    /// "recording interrupted".
     pub error: Option<String>,
 }
 
-/// Où en est une autorisation de macOS.
+/// Where a macOS permission stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PermissionState {
     Granted,
-    /// Refusée : macOS ne la redemande plus, il faut passer par les Réglages Système.
+    /// Denied: macOS no longer asks again, System Settings must be used.
     Denied,
-    /// Jamais demandée : la demander affiche la question de macOS.
+    /// Never requested: requesting it shows the macOS prompt.
     ToRequest,
 }
 
-/// Les autorisations dont chaque source a besoin.
+/// The permissions each source needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permission {
     Screen,
@@ -94,7 +94,7 @@ pub enum Permission {
 impl Permission {
     pub const ALL: [Permission; 3] = [Permission::Screen, Permission::MacAudio, Permission::Micro];
 
-    /// Le nom de la source, comme dans l'interface.
+    /// The source's name, as in the UI.
     pub fn name(self) -> &'static str {
         match self {
             Permission::Screen => "Écran",
@@ -103,7 +103,7 @@ impl Permission {
         }
     }
 
-    /// La rubrique de Réglages Système › Confidentialité et sécurité qui la donne.
+    /// The System Settings › Privacy & Security section that grants it.
     pub fn section(self) -> &'static str {
         match self {
             Permission::Screen | Permission::MacAudio => "Enregistrement de l'écran et de l'audio du système",
@@ -140,7 +140,7 @@ impl Permissions {
 }
 
 impl Sources {
-    /// Les autorisations nécessaires aux sources activées.
+    /// The permissions needed by the enabled sources.
     pub fn permissions(&self) -> impl Iterator<Item = Permission> {
         [(self.screen, Permission::Screen), (self.mac_audio, Permission::MacAudio), (self.micro, Permission::Micro)].into_iter().filter(|(on, _)| *on).map(|(_, a)| a)
     }
@@ -150,34 +150,33 @@ impl Sources {
     }
 }
 
-/// Enregistre l'écran, le son du Mac et le micro dans un fichier.
+/// Records the screen, the Mac's audio and the microphone into a file.
 pub trait Capture {
-    /// L'état des autorisations de macOS (lecture rapide : appelée par l'interface).
+    /// The state of the macOS permissions (fast read: called by the UI).
     fn permissions(&self) -> Permissions {
         Permissions::GRANTED
     }
-    /// Affiche la demande de macOS pour cette autorisation, si elle n'a jamais été demandée.
+    /// Shows the macOS prompt for this permission, if it has never been requested.
     fn request_permission(&mut self, _permission: Permission) {}
     fn start(&mut self, request: CaptureRequest) -> Result<(), String>;
     fn poll(&mut self, elapsed: f64) -> CaptureState;
-    /// Arrête et finit d'écrire le fichier ; rend la durée enregistrée.
+    /// Stops and finishes writing the file; returns the recorded duration.
     fn stop(&mut self) -> Result<f64, String>;
 }
 
-// --- Transcripteur et séparateur -----------------------------------------------------------
+// --- Transcriber and diarizer --------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TranscriptionRequest {
-    /// L'enregistrement de la réunion (la conversion de sa piste de mixage est l'affaire de
-    /// l'adaptateur).
+    /// The meeting's recording (converting its mix track is the adapter's business).
     pub audio: PathBuf,
-    /// Durée de la réunion, pour estimer l'avancement.
+    /// The meeting's duration, to estimate progress.
     pub duration: f64,
-    /// La section Vocabulaire du lexique, donnée en prompt.
+    /// The lexicon's Vocabulaire section, given as the prompt.
     pub vocabulary: String,
 }
 
-/// Un audio et un vocabulaire en entrée ; des mots horodatés avec leur confiance en sortie.
+/// An audio file and a vocabulary in; timestamped words with their confidence out.
 pub trait Transcriber {
     fn transcribe(&mut self, request: TranscriptionRequest) -> BoxedTask<Vec<Word>>;
 }
@@ -186,17 +185,16 @@ pub trait Transcriber {
 pub struct DiarizationRequest {
     pub audio: PathBuf,
     pub duration: f64,
-    /// Le nombre de locuteurs indiqué, sinon détecté.
+    /// The given speaker count, otherwise detected.
     pub speaker_count: Option<u8>,
 }
 
-/// Un audio et un nombre de locuteurs éventuel en entrée ; des tours de parole exclusifs en sortie.
+/// An audio file and an optional speaker count in; exclusive speaker turns out.
 pub trait Diarizer {
     fn diarize(&mut self, request: DiarizationRequest) -> BoxedTask<Vec<SpeakerTurn>>;
 }
 
-/// Pas de séparation des locuteurs : aucun tour de parole, tous les mots vont à un seul locuteur
-/// (pour les tests).
+/// No diarization: no speaker turns, every word goes to a single speaker (for the tests).
 pub struct SingleSpeaker;
 
 impl Diarizer for SingleSpeaker {
@@ -213,14 +211,14 @@ impl Diarizer for SingleSpeaker {
 
 // --- Agent ---------------------------------------------------------------------------------
 
-/// Une réplique telle qu'on la donne à l'agent.
+/// An utterance as given to the agent.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentUtterance {
-    /// Index de la réplique dans la réunion ; les résultats y renvoient.
+    /// The utterance's index in the meeting; the results refer to it.
     pub number: usize,
     /// « SPEAKER_00 »
     pub speaker: String,
-    /// Le nom donné au locuteur, s'il y en a un.
+    /// The name given to the speaker, if any.
     pub name: Option<String>,
     pub start: f64,
     pub end: f64,
@@ -229,25 +227,25 @@ pub struct AgentUtterance {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReviewRequest {
-    /// Pour la réécoute des passages douteux.
+    /// For relistening to doubtful passages.
     pub recording: PathBuf,
-    /// Le répertoire de travail de l'agent : il peut y relire les réunions précédentes.
+    /// The agent's working directory: it can reread previous meetings there.
     pub meetings_folder: PathBuf,
-    /// Le dossier de la réunion dans le dossier de réunions.
+    /// The meeting's folder in the meetings folder.
     pub folder_name: String,
     pub title: String,
     pub start: DateTime,
-    /// Le nombre de locuteurs indiqué, s'il l'a été.
+    /// The given speaker count, if it was given.
     pub speaker_count: Option<u8>,
-    /// Les répliques à relire : la transcription brute, d'avant toute relecture.
+    /// The utterances to review: the raw transcription, from before any review.
     pub utterances: Vec<AgentUtterance>,
-    /// Le lexique (Markdown), vide s'il n'y en a pas.
+    /// The lexicon (Markdown), empty if there is none.
     pub lexicon: String,
-    /// La section Vocabulaire du lexique : le prompt de la réécoute, comme pour la transcription.
+    /// The lexicon's Vocabulaire section: the relisten prompt, as for the transcription.
     pub vocabulary: String,
 }
 
-/// Une correction sûre : `avant` devient `apres` dans la réplique `replique`.
+/// A confident correction: `before` becomes `after` in utterance `utterance`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConfidentCorrection {
     pub utterance: usize,
@@ -255,14 +253,14 @@ pub struct ConfidentCorrection {
     pub after: String,
 }
 
-/// La conversation prouve que la réplique est d'un autre locuteur.
+/// The conversation proves the utterance is from another speaker.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpeakerChange {
     pub utterance: usize,
     pub speaker: String,
 }
 
-/// Un passage douteux que la réécoute a permis de corriger : `extrait` devient `apres`.
+/// A doubtful passage that relistening made it possible to correct: `excerpt` becomes `after`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CorrectedPassage {
     pub utterance: usize,
@@ -271,7 +269,7 @@ pub struct CorrectedPassage {
     pub relisten: String,
 }
 
-/// Un passage que la relecture n'a pas su trancher, même après réécoute.
+/// A passage the review could not resolve, even after relistening.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlaggedPassage {
     pub utterance: usize,
@@ -280,7 +278,7 @@ pub struct FlaggedPassage {
     pub relisten: String,
 }
 
-/// Le résultat des deux passes de la relecture ; Greffier l'applique lui-même.
+/// The result of the review's two passes; Greffier applies it itself.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ReviewResult {
     pub session: Option<String>,
@@ -288,7 +286,7 @@ pub struct ReviewResult {
     pub speaker_changes: Vec<SpeakerChange>,
     pub corrected_passages: Vec<CorrectedPassage>,
     pub passages_to_check: Vec<FlaggedPassage>,
-    /// Les erreurs apprises ; Greffier n'écrit dans le lexique que celles qu'il ne connaît pas.
+    /// The errors learned; Greffier only writes to the lexicon those it does not know.
     pub lexicon_additions: Vec<LexiconAddition>,
 }
 
@@ -298,22 +296,22 @@ pub struct AgentSpeaker {
     pub name: Option<String>,
     pub proposal: Option<String>,
     pub justification: String,
-    /// La fusion déjà proposée (« SPEAKER_00 »), s'il y en a une.
+    /// The merge already suggested ("SPEAKER_00"), if any.
     pub proposed_same_voice: Option<String>,
-    /// Fusionné par l'utilisateur dans ce locuteur (« SPEAKER_00 ») : ses répliques sont sous
-    /// celui-ci dans la transcription lisible.
+    /// Merged by the user into this speaker ("SPEAKER_00"): its utterances are under that one
+    /// in the readable transcription.
     pub merged_into: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SummaryRequest {
-    /// Le répertoire de travail de l'agent.
+    /// The agent's working directory.
     pub meetings_folder: PathBuf,
-    /// Les dossiers de contexte des réglages, ouverts à l'agent en plus du dossier de réunions.
+    /// The settings' context folders, open to the agent besides the meetings folder.
     pub context_folders: Vec<PathBuf>,
-    /// Le fichier que l'agent doit écrire.
+    /// The file the agent must write.
     pub summary_file: PathBuf,
-    /// La fiche et la transcription lisible de la réunion, que l'agent lit.
+    /// The meeting's sheet and readable transcription, which the agent reads.
     pub sheet: PathBuf,
     pub transcription: PathBuf,
     pub title: String,
@@ -322,92 +320,92 @@ pub struct SummaryRequest {
     pub utterances: Vec<AgentUtterance>,
     pub speakers: Vec<AgentSpeaker>,
     pub markers: Vec<Marker>,
-    /// Le bilan précédent quand on refait le bilan.
+    /// The previous summary when the summary is redone.
     pub current_summary: Option<String>,
 }
 
-/// Ce que l'agent propose pour un locuteur (un élément de `participants` dans sa réponse JSON :
-/// la clé du prompt ne change pas).
+/// What the agent suggests for a speaker (an element of `participants` in its JSON answer: the
+/// prompt's key does not change).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SummarySpeaker {
     /// « SPEAKER_00 »
     pub speaker: String,
-    /// Vide quand l'agent ne sait pas qui c'est (la justification dit pourquoi).
+    /// Empty when the agent does not know who it is (the justification says why).
     pub proposed_name: String,
     pub justification: String,
-    /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).
+    /// Probably the same voice as another speaker ("SPEAKER_00").
     pub same_voice_as: Option<String>,
 }
 
-/// Ce que l'agent renvoie après avoir écrit le fichier du bilan.
+/// What the agent returns after writing the summary file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SummaryResult {
     pub session: Option<String>,
     pub title: String,
     pub brief: String,
-    /// Les 3 actions principales, au plus.
+    /// The 3 main actions, at most.
     pub actions: Vec<String>,
     pub speakers: Vec<SummarySpeaker>,
 }
 
-/// La relecture en deux passes (réécoute comprise) et le bilan, confiés à un agent.
+/// The two-pass review (relistening included) and the summary, handed to an agent.
 pub trait Agent {
     fn review(&mut self, request: ReviewRequest) -> BoxedTask<ReviewResult>;
-    /// Écrit `demande.fichier_du_bilan` et renvoie titre, résumé, actions et locuteurs.
+    /// Writes `request.summary_file` and returns title, brief, actions and speakers.
     fn summarize(&mut self, request: SummaryRequest) -> BoxedTask<SummaryResult>;
 }
 
-// --- Ressources ----------------------------------------------------------------------------
+// --- Resources -----------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ResourceState {
     Missing,
-    /// Un téléchargement interrompu (app quittée, connexion coupée) : il reprendra là où il s'est
-    /// arrêté. En octets.
+    /// An interrupted download (app quit, connection lost): it will resume where it stopped. In
+    /// bytes.
     Interrupted { received: u64, total: u64 },
-    /// En octets.
+    /// In bytes.
     Downloading { received: u64, total: u64 },
-    /// Le calcul du sha256, ou la vérification de la CLI `claude`.
+    /// Computing the sha256, or checking the `claude` CLI.
     Verifying,
-    /// L'installation de l'environnement Python, sans progression mesurable.
+    /// Installing the Python environment, with no measurable progress.
     Installing,
     Ready,
     Failed(String),
 }
 
-/// Un modèle, l'environnement Python, ou une vérification (la CLI `claude`).
+/// A model, the Python environment, or a check (the `claude` CLI).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Resource {
     pub name: String,
-    /// D'où elle vient, ou ce que la vérification a trouvé (« huggingface.co », « 2.1.3 · connectée »).
+    /// Where it comes from, or what the check found ("huggingface.co", "2.1.3 · connectée").
     pub detail: String,
     pub state: ResourceState,
-    /// Place prise sur le disque, en octets (téléchargements partiels compris).
+    /// Space taken on disk, in bytes (partial downloads included).
     pub size: u64,
-    /// Taille du téléchargement, en octets (0 : rien à télécharger, ou taille inconnue).
+    /// Download size, in bytes (0: nothing to download, or unknown size).
     pub total: u64,
-    /// Ce qu'il faut faire quand elle manque et que l'app ne peut pas l'installer elle-même.
+    /// What to do when it is missing and the app cannot install it itself.
     pub help: Option<String>,
-    /// Les étapes du traitement qui ne peuvent pas démarrer sans elle.
+    /// The processing stages that cannot start without it.
     pub stages: Vec<Stage>,
 }
 
-/// Télécharge et vérifie les modèles et l'environnement Python ; vérifie la CLI `claude`.
+/// Downloads and checks the models and the Python environment; checks the `claude` CLI.
 pub trait Resources {
     fn state(&mut self) -> Vec<Resource>;
-    /// Télécharge, installe et vérifie ce qui manque, et refait les vérifications.
+    /// Downloads, installs and checks what is missing, and reruns the checks.
     fn install(&mut self) -> BoxedTask<()>;
-    /// Refait les vérifications (la CLI `claude`) sans rien télécharger.
+    /// Reruns the checks (the `claude` CLI) without downloading anything.
     fn check(&mut self) -> BoxedTask<()>;
 }
 
-// --- Horloge -------------------------------------------------------------------------------
+// --- Clock ---------------------------------------------------------------------------------
 
-/// L'heure locale : le début des enregistrements et le jour d'aujourd'hui.
+/// Local time: the start of recordings and today's date.
 pub trait Clock {
     fn now(&self) -> DateTime;
-    /// Un instant (date de création d'un média, de modification d'un fichier) en heure locale.
-    /// Par défaut en temps universel : la vraie horloge y met le fuseau du Mac.
+    /// An instant (a media file's creation date, a file's modification date) in local time.
+    /// UTC by default: the real clock applies the Mac's time zone.
     fn to_local_time(&self, instant: std::time::SystemTime) -> DateTime {
         let seconds = match instant.duration_since(std::time::UNIX_EPOCH) {
             Ok(d) => d.as_secs() as i64,
@@ -417,26 +415,26 @@ pub trait Clock {
     }
 }
 
-// --- Corbeille ------------------------------------------------------------------------------
+// --- Trash ----------------------------------------------------------------------------------
 
-/// La corbeille du Mac : une réunion supprimée y envoie son dossier entier, pour qu'on puisse
-/// s'en rattraper.
+/// The Mac's trash: a deleted meeting sends its whole folder there, so the deletion can be
+/// undone.
 pub trait Trash {
-    /// Met ce dossier (ou fichier) à la corbeille. L'erreur est un message pour l'utilisateur.
+    /// Moves this folder (or file) to the trash. The error is a message for the user.
     fn trash(&self, path: &std::path::Path) -> Result<(), String>;
 }
 
-// --- Mise en MP4 ----------------------------------------------------------------------------
+// --- MP4 muxing -----------------------------------------------------------------------------
 
-/// Passer un média importé de la famille MP4 (QuickTime `.mov`, `.m4a`, `.m4v`) dans un fichier
-/// `.mp4`, sans le réencoder : l'enregistrement d'une réunion s'appelle `… - enregistrement.mp4`.
+/// Moves an imported media file of the MP4 family (QuickTime `.mov`, `.m4a`, `.m4v`) into an
+/// `.mp4` file, without re-encoding it: a meeting's recording is named `… - enregistrement.mp4`.
 pub trait Mp4Muxer {
-    /// Écrit `vers` (un `.mp4`) avec les pistes de `de`, sans toucher à `de`. L'erreur est un
-    /// message ; le cœur copie alors le média tel quel, avec son extension.
+    /// Writes `to` (an `.mp4`) with the tracks of `from`, without touching `from`. The error is
+    /// a message; the core then copies the media as is, with its extension.
     fn to_mp4(&self, from: &std::path::Path, to: &std::path::Path) -> Result<(), String>;
 }
 
-/// Tous les adaptateurs branchés sur le cœur.
+/// All the adapters plugged into the core.
 pub struct Adapters {
     pub capture: Box<dyn Capture>,
     pub transcriber: Box<dyn Transcriber>,

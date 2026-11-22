@@ -1,4 +1,4 @@
-//! La fiche (`… - réunion.md`) : le fichier d'entrée d'une réunion, écrit par Greffier seul.
+//! The sheet (`… - réunion.md`): a meeting's entry file, written by Greffier alone.
 //!
 //! ```markdown
 //! ---
@@ -7,16 +7,16 @@
 //! debut: "10:00"
 //! duree: "0:12:34"
 //! statut: echec                 # enregistrement_en_cours, enregistrement_interrompu, a_traiter,
-//! etape: relecture              #   en_attente, en_cours, echec, terminee ; `etape` pour les trois
-//! erreur: "La CLI claude …"     #   avant-derniers, `erreur` pour un échec
-//! etape_faite: transcription    # la dernière étape menée à bien
-//! nombre_de_locuteurs: 3        # absent : détecté
-//! locuteurs:                    # SPEAKER_xx → nom donné par l'utilisateur (fusions comprises)
+//! etape: relecture              #   en_attente, en_cours, echec, terminee; `etape` for the three
+//! erreur: "La CLI claude …"     #   before last, `erreur` for a failure
+//! etape_faite: transcription    # the last stage completed
+//! nombre_de_locuteurs: 3        # absent: detected
+//! locuteurs:                    # SPEAKER_xx → name given by the user (merges included)
 //!   SPEAKER_00: "Alexandre"
 //!   SPEAKER_02: "Alexandre"
-//! fusions:                      # SPEAKER_xx fusionné dans SPEAKER_yy
+//! fusions:                      # SPEAKER_xx merged into SPEAKER_yy
 //!   SPEAKER_02: SPEAKER_00
-//! propositions:                 # ce que l'agent du bilan propose
+//! propositions:                 # what the summary agent proposes
 //!   SPEAKER_01:
 //!     nom: "Khalid"
 //!     justification: "Alexandre l'appelle Khalid à 0:00:04."
@@ -24,10 +24,10 @@
 //! reperes:
 //!   - instant: "0:05:12"
 //!     libelle: "Repère 1"
-//! sessions:                     # identifiants des sessions de l'agent
+//! sessions:                     # the agent's session ids
 //!   relecture: "…"
 //!   bilan: "…"
-//! nouvelle: true                # le bilan n'a pas encore été ouvert
+//! nouvelle: true                # the summary has not been opened yet
 //! ---
 //!
 //! # Revue de release
@@ -43,22 +43,22 @@
 //! - [Bilan](<2026-11-20 10h00 - Revue de release - bilan.md>)
 //! ```
 //!
-//! Le frontmatter est un sous-ensemble de YAML (tables, listes, chaînes entre guillemets doubles
-//! échappées comme en JSON) : tout lecteur YAML le lit, et ce module relit ce qu'il écrit.
+//! The front matter is a subset of YAML (tables, lists, double-quoted strings escaped as in
+//! JSON): any YAML reader reads it, and this module reads back what it writes.
 
 use crate::folder::Role;
 use crate::meeting::{Stage, Marker, Meeting, Sessions, Status};
 use crate::time::{DateTime, playback_timestamp};
 
-/// Ce que l'agent du bilan propose pour un locuteur.
+/// What the summary agent proposes for a speaker.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Proposal {
     /// « SPEAKER_01 »
     pub speaker: String,
-    /// Vide : l'agent n'a pas su qui c'est (la justification dit pourquoi).
+    /// Empty: the agent could not tell who it is (the justification says why).
     pub name: String,
     pub justification: String,
-    /// Sans doute la même voix qu'un autre locuteur (« SPEAKER_00 »).
+    /// Probably the same voice as another speaker ("SPEAKER_00").
     pub same_voice_as: Option<String>,
 }
 
@@ -66,16 +66,16 @@ pub struct Proposal {
 pub struct Sheet {
     pub title: String,
     pub start: DateTime,
-    /// En secondes (écrite à la seconde près).
+    /// In seconds (written to the nearest second).
     pub duration: f64,
-    /// `EnCours` est écrit sans son avancement (relu à 0).
+    /// `Running` is written without its progress (read back as 0).
     pub status: Status,
     pub completed_stage: Option<Stage>,
     pub speaker_count: Option<u8>,
-    /// Les noms donnés : (« SPEAKER_00 », « Alexandre »), fusions comprises (un locuteur fusionné
-    /// porte le nom de celui qui le remplace).
+    /// The given names: ("SPEAKER_00", "Alexandre"), merges included (a merged speaker carries
+    /// the name of the one that replaces it).
     pub names: Vec<(String, String)>,
-    /// Les fusions : (« SPEAKER_02 », « SPEAKER_00 ») — le premier est la même voix que le second.
+    /// The merges: ("SPEAKER_02", "SPEAKER_00") — the first is the same voice as the second.
     pub merges: Vec<(String, String)>,
     pub proposals: Vec<Proposal>,
     pub markers: Vec<Marker>,
@@ -116,8 +116,8 @@ impl Sheet {
         }
     }
 
-    /// Reporte la fiche sur une réunion dont les locuteurs sont déjà connus (ceux de la
-    /// transcription) ; un locuteur nommé dans la fiche mais inconnu est ignoré.
+    /// Applies the sheet to a meeting whose speakers are already known (those of the
+    /// transcription); a speaker named in the sheet but unknown is ignored.
     pub fn apply(&self, r: &mut Meeting) {
         r.title = self.title.clone();
         r.start = self.start;
@@ -127,8 +127,8 @@ impl Sheet {
         r.status = self.status.clone();
         r.speaker_count = self.speaker_count;
         let index = |r: &Meeting, e: &str| r.speakers.iter().position(|l| l.label == e);
-        // La fiche fait foi pour les noms et les fusions (la transcription structurée en garde une
-        // copie).
+        // The sheet is authoritative for names and merges (the structured transcription keeps a
+        // copy).
         for l in &mut r.speakers {
             l.name = None;
             l.merged_into = None;
@@ -160,7 +160,7 @@ impl Sheet {
         r.key_actions = self.key_actions.clone();
     }
 
-    /// Le fichier de la fiche, pour le dossier `nom_du_dossier`.
+    /// The sheet's file, for the folder `folder_name`.
     pub fn markdown(&self, folder_name: &str) -> String {
         let mut y = String::from("---\n");
         let mut line = |key: &str, value: String| y.push_str(&format!("{key}: {value}\n"));
@@ -252,7 +252,7 @@ impl Sheet {
         y
     }
 
-    /// Relit une fiche. Les clés inconnues sont ignorées ; il faut au moins un frontmatter.
+    /// Reads a sheet back. Unknown keys are ignored; a front matter is required.
     pub fn read(md: &str) -> Result<Sheet, String> {
         let md = md.strip_prefix('\u{feff}').unwrap_or(md);
         let rest = md.strip_prefix("---\n").or_else(|| md.strip_prefix("---\r\n")).ok_or("la fiche n'a pas de frontmatter")?;
@@ -326,7 +326,7 @@ impl Sheet {
     }
 }
 
-/// Le résumé (entre le titre et la première section) et les actions principales.
+/// The brief (between the title and the first section) and the key actions.
 fn read_body(body: &str) -> (String, Vec<String>) {
     let mut brief = Vec::new();
     let mut actions = Vec::new();
@@ -359,7 +359,7 @@ fn read_stage(s: &str) -> Option<Stage> {
     Stage::ALL.into_iter().find(|e| stage_name(*e) == s)
 }
 
-/// Une chaîne YAML entre guillemets doubles (les échappements de JSON en sont un sous-ensemble).
+/// A double-quoted YAML string (JSON's escapes are a subset of YAML's).
 fn c_string(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
@@ -374,7 +374,7 @@ fn read_time(s: &str) -> Option<(u8, u8)> {
     Some((h.parse().ok()?, m.parse().ok()?))
 }
 
-/// « 0:12:34 », avec les centièmes s'il y en a (« 0:12:34.5 »).
+/// "0:12:34", with hundredths if any ("0:12:34.5").
 fn instant(t: f64) -> String {
     let cs = (t.max(0.0) * 100.0).round() as u64;
     let base = playback_timestamp((cs / 100) as f64);
@@ -385,12 +385,12 @@ fn instant(t: f64) -> String {
     }
 }
 
-/// « 0:12:34 » ou « 12:34 » en secondes.
+/// "0:12:34" or "12:34" in seconds.
 fn read_timestamp(s: &str) -> Option<f64> {
     s.trim().split(':').try_fold(0.0, |acc, x| Some(acc * 60.0 + x.parse::<f64>().ok()?))
 }
 
-/// Le sous-ensemble de YAML de la fiche.
+/// The sheet's subset of YAML.
 mod yaml {
     #[derive(Clone, Debug, PartialEq)]
     pub enum Value {
@@ -447,7 +447,7 @@ mod yaml {
         if l.get(*i).is_some_and(|(_, x)| is_dash(x)) { list(l, i, indent) } else { table(l, i, indent) }
     }
 
-    /// `cle: valeur` ou `cle:` ; renvoie la clé et le reste.
+    /// `key: value` or `key:`; returns the key and the rest.
     fn key(l: &str) -> Option<(&str, &str)> {
         if l.starts_with(['"', '\'']) {
             return None;
@@ -500,7 +500,7 @@ mod yaml {
                     _ => v.push(Value::Text(String::new())),
                 }
             } else if key(&element).is_some() {
-                // `- cle: valeur` ouvre une table alignée sur la clé.
+                // `- key: value` opens a table aligned on the key.
                 l[*i] = (indent + 2, element);
                 v.push(table(l, i, indent + 2));
             } else {
@@ -517,7 +517,7 @@ mod yaml {
             if let Ok(v) = serde_json::from_str::<String>(s) {
                 return v;
             }
-            // Un commentaire après la chaîne.
+            // A comment after the string.
             if let Some(end) = s[1..].find("\" #").or_else(|| s[1..].rfind('"')) {
                 return serde_json::from_str::<String>(&s[..end + 2]).unwrap_or_else(|_| s[1..end + 1].to_string());
             }

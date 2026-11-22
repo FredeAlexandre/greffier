@@ -1,6 +1,6 @@
-//! La relecture par l'agent : ce que Greffier lui envoie, et comment il applique lui-même son
-//! résultat (corrections sûres, changements de locuteur, passages corrigés après réécoute ou à
-//! vérifier, lexique enrichi).
+//! The review by the agent: what Greffier sends it, and how Greffier applies its result itself
+//! (confident corrections, speaker changes, passages corrected after relisten or left to check,
+//! lexicon enriched).
 
 mod bench;
 
@@ -16,7 +16,7 @@ use greffier_core::{Command, Stage, MeetingId, Settings, Status};
 
 const LEXICON: &str = "---\ntype: lexique\n---\n\n# Lexique\n\n## Personnes\n\n- Alice : cheffe de projet\n\n## Mots justes\n\nZorglub.\n\n## Erreurs connues\n\n| Entendu | Correct |\n|---|---|\n| Zorglube | Zorglub |\n\n## Vocabulaire\n\nRéunion sur Zorglub.\n";
 
-/// Trois répliques : Alice ouvre, Bob répond, Alice reprend (mais la séparation l'a donnée à Bob).
+/// Three utterances: Alice opens, Bob answers, Alice picks up again (but diarization gave it to Bob).
 fn adapters(review: impl FnMut(&ReviewRequest) -> Result<ReviewResult, String> + 'static) -> Adapters {
     let words = vec![
         word(0.0, 0.5, "Bonjour,"),
@@ -41,15 +41,15 @@ fn adapters(review: impl FnMut(&ReviewRequest) -> Result<ReviewResult, String> +
     a
 }
 
-/// Un lexique dans un fichier temporaire, branché dans les réglages.
+/// A lexicon in a temporary file, plugged into the settings.
 fn with_lexicon(bench: &mut Bench, md: &str) -> PathBuf {
     let path = bench.folder.with_extension("lexique.md");
-    std::fs::write(&path, md).expect("lexique");
+    std::fs::write(&path, md).expect("lexicon");
     bench.execute(Command::ChangeSettings(Settings { lexicon: Some(path.clone()), ..bench.greffier.settings().clone() }));
     path
 }
 
-/// Traite une réunion jusqu'à la fin de la relecture.
+/// Processes a meeting until the end of the review.
 fn reread(bench: &mut Bench) -> MeetingId {
     let id = bench.meeting_to_process();
     bench.execute(Command::SpeakerCount { meeting: id, number: Some(2) });
@@ -69,7 +69,7 @@ fn agent_receives_utterances_lexicon_and_context() {
     with_lexicon(&mut bench, LEXICON);
     let id = reread(&mut bench);
 
-    let d = received.borrow().clone().expect("relecture demandée");
+    let d = received.borrow().clone().expect("review requested");
     let texts: Vec<(&str, &str)> = d.utterances.iter().map(|x| (x.speaker.as_str(), x.text.as_str())).collect();
     assert_eq!(texts, [("SPEAKER_00", "Bonjour, on parle de Zorglube."), ("SPEAKER_01", "La recète est prête ?"), ("SPEAKER_01", "Pas encore, jeudi peut-être.")]);
     assert_eq!(d.lexicon, LEXICON);
@@ -104,9 +104,9 @@ fn sure_corrections_and_proven_speaker_changes_are_applied() {
 
     let texts: Vec<(&str, &str)> = r.utterances.iter().map(|x| (r.speakers[x.speaker].label.as_str(), x.text.as_str())).collect();
     assert_eq!(texts, [("SPEAKER_00", "Bonjour, on parle de Zorglub."), ("SPEAKER_01", "La recette est prête ?"), ("SPEAKER_00", "Pas encore, jeudi peut-être.")]);
-    assert_eq!(r.speakers.len(), 2, "un locuteur inconnu n'est pas créé");
-    let log = r.review.as_ref().expect("journal de la relecture");
-    assert_eq!(log.corrections, [correction(1, "recète", "recette"), correction(0, "Zorglube", "Zorglub")], "seules les corrections appliquées");
+    assert_eq!(r.speakers.len(), 2, "an unknown speaker is not created");
+    let log = r.review.as_ref().expect("review log");
+    assert_eq!(log.corrections, [correction(1, "recète", "recette"), correction(0, "Zorglube", "Zorglub")], "only the applied corrections");
     assert_eq!(log.speaker_changes, [change(2, "SPEAKER_00")]);
     assert_eq!(r.corrections, 2);
     let raw: Vec<(usize, &str)> = r.raw.iter().map(|x| (x.speaker, x.text.as_str())).collect();
@@ -118,16 +118,16 @@ fn addition(heard: &str, correct: &str) -> LexiconAddition {
     LexiconAddition { heard: heard.into(), correct: correct.into() }
 }
 
-/// Une relecture qui corrige un passage après réécoute et en laisse deux à vérifier.
+/// A review that corrects one passage after relisten and leaves two to check.
 fn review_with_passages(_: &ReviewRequest) -> Result<ReviewResult, String> {
     Ok(ReviewResult {
         session: Some("relecture-2".into()),
         corrections: vec![correction(1, "recète", "recette")],
         corrected_passages: vec![
             CorrectedPassage { utterance: 2, excerpt: "jeudi".into(), after: "mardi".into(), relisten: "pas encore mardi peut-être".into() },
-            // Confirmé tel quel : rien à changer.
+            // Confirmed as is: nothing to change.
             CorrectedPassage { utterance: 0, excerpt: "on parle".into(), after: "on parle".into(), relisten: "on parle".into() },
-            // L'extrait a disparu sous une correction sûre : il reste à vérifier.
+            // The excerpt disappeared under a confident correction: it is left to check.
             CorrectedPassage { utterance: 1, excerpt: "recète".into(), after: "requête".into(), relisten: "la requête est prête".into() },
         ],
         passages_to_check: vec![FlaggedPassage { utterance: 0, excerpt: "Zorglube".into(), hypothesis: Some("?".into()), relisten: "on parle de Zorglub".into() }],
@@ -144,9 +144,9 @@ fn doubtful_passages_are_corrected_after_relisten_or_left_to_check() {
 
     let texts: Vec<&str> = r.utterances.iter().map(|x| x.text.as_str()).collect();
     assert_eq!(texts, ["Bonjour, on parle de Zorglube.", "La recette est prête ?", "Pas encore, mardi peut-être."]);
-    let log = r.review.as_ref().expect("journal");
+    let log = r.review.as_ref().expect("log");
     assert_eq!(log.corrected_passages, [CorrectedPassage { utterance: 2, excerpt: "jeudi".into(), after: "mardi".into(), relisten: "pas encore mardi peut-être".into() }]);
-    assert_eq!(r.corrections, 2, "une correction sûre et un passage corrigé");
+    assert_eq!(r.corrections, 2, "one confident correction and one corrected passage");
 
     let passages: Vec<(usize, &str, Option<&str>, &str)> = r.passages.iter().map(|p| (p.utterance, p.excerpt.as_str(), p.hypothesis.as_deref(), p.relisten.as_str())).collect();
     assert_eq!(passages, [(0, "Zorglube", None, "on parle de Zorglub"), (1, "recète", Some("requête"), "la requête est prête")]);
@@ -161,7 +161,7 @@ fn several_doubtful_passages_in_one_utterance_are_all_kept() {
             passages_to_check: vec![
                 FlaggedPassage { utterance: 2, excerpt: "Pas encore".into(), hypothesis: None, relisten: String::new() },
                 FlaggedPassage { utterance: 2, excerpt: "jeudi".into(), hypothesis: Some("mardi".into()), relisten: String::new() },
-                // Le même passage signalé deux fois n'en fait qu'un.
+                // The same passage flagged twice makes only one.
                 FlaggedPassage { utterance: 2, excerpt: "jeudi".into(), hypothesis: Some("mardi".into()), relisten: String::new() },
             ],
             ..Default::default()
@@ -173,7 +173,7 @@ fn several_doubtful_passages_in_one_utterance_are_all_kept() {
     assert_eq!(passages, [(2, "Pas encore"), (2, "jeudi")]);
     assert_eq!(r.utterances[2].passages, [0, 1]);
 
-    // Chacun se tranche, et les deux se retrouvent au lancement suivant.
+    // Each one is decided, and both are found again at the next launch.
     bench.execute(Command::Resolve { meeting: id, passage: 1, resolution: greffier_core::Resolution::AcceptHypothesis });
     assert_eq!(bench.meeting(id).utterances[2].text, "Pas encore, mardi peut-être.");
     let name = bench.meeting(id).folder_name.clone();
@@ -206,7 +206,7 @@ fn review_writes_the_raw_transcript_log_passages_and_session() {
     let sheet = bench.read(&file(greffier_core::Role::Sheet));
     assert!(sheet.contains("relecture-2"), "{sheet}");
 
-    // Relue au lancement suivant, la réunion est la même.
+    // Read back at the next launch, the meeting is the same.
     let before = bench.meeting(id).clone();
     bench.reopen();
     let r = bench.named_meeting(&name);
@@ -222,7 +222,7 @@ fn lexicon_learns_the_errors_it_does_not_know_yet() {
 
     let md = bench.read(&lexicon);
     assert!(md.contains("| Entendu | Correct |\n|---|---|\n| Zorglube | Zorglub |\n| recète | recette |\n\n## Vocabulaire"), "{md}");
-    assert_eq!(bench.meeting(id).review.as_ref().expect("journal").lexicon_additions, [addition("recète", "recette")], "seul le nouvel ajout est au journal");
+    assert_eq!(bench.meeting(id).review.as_ref().expect("log").lexicon_additions, [addition("recète", "recette")], "only the new addition is in the log");
 }
 
 #[test]
@@ -231,7 +231,7 @@ fn redoing_the_review_restarts_from_the_raw_transcription() {
     let p = runs.clone();
     let mut bench = Bench::with(adapters(move |d| {
         *p.borrow_mut() += 1;
-        // La seconde relecture voit la transcription brute, pas la première relecture.
+        // The second review sees the raw transcription, not the first review.
         assert_eq!(d.utterances[1].text, "La recète est prête ?");
         let after = if *p.borrow() == 1 { "recette" } else { "requête" };
         Ok(ReviewResult { corrections: vec![correction(1, "recète", after)], ..Default::default() })
@@ -255,6 +255,6 @@ fn if_the_agent_fails_the_stage_fails_with_its_message() {
     let id = reread(&mut bench);
     let r = bench.meeting(id);
     assert_eq!(r.status, Status::Failed { stage: Stage::Review, message: "La CLI `claude` est introuvable : installer Claude Code.".into() });
-    assert_eq!(r.utterances[1].text, "La recète est prête ?", "la transcription reste celle de Whisper");
+    assert_eq!(r.utterances[1].text, "La recète est prête ?", "the transcription stays Whisper's");
     assert!(r.review.is_none());
 }

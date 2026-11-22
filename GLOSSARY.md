@@ -1,96 +1,98 @@
 # Greffier
 
-Greffier enregistre les réunions de travail sur le Mac, les transcrit, les relit et en fait le bilan, pour qu'on puisse les revoir et retrouver ce qui a été dit, décidé et à faire.
+Greffier records work meetings on the Mac, transcribes them, reviews them and writes their summary, so that they can be revisited and what was said, decided and to be done can be found again.
 
-## Réunion et fichiers
+The app's UI and the files it writes stay in French: each term gives its French UI label.
 
-**Réunion** :
-Une conversation enregistrée, avec tout ce qui en est tiré : enregistrement, transcription, relecture, bilan.
-_À éviter_ : meeting, session, call
+## Meeting and files
 
-**Dossier de réunions** :
-Le dossier choisi par l'utilisateur où Greffier range toutes les réunions, un sous-dossier par réunion, en fichiers lisibles hors de l'app.
-_À éviter_ : bibliothèque, vault, base
+**Meeting** (UI: *Réunion*):
+A recorded conversation, with everything derived from it: recording, transcription, review, summary.
+_Avoid_: session, call
 
-**Fiche** :
-Le fichier d'entrée d'une réunion : ses propriétés (date, durée, statut…), son résumé, ses actions principales et les liens vers les autres fichiers.
-_À éviter_ : note de réunion, page
+**Meetings folder** (UI: *Dossier de réunions*):
+The folder chosen by the user where Greffier keeps all the meetings, one subfolder per meeting, as files readable outside the app.
+_Avoid_: library, vault, database
 
-**Titre** :
-Le résumé en une ligne d'une réunion (« Revue de release »), proposé par le bilan et modifiable.
-_À éviter_ : sujet, nom
+**Sheet** (UI: *Fiche*):
+A meeting's entry file: its properties (date, duration, status…), its brief, its main actions and the links to the other files.
+_Avoid_: meeting note, page
 
-**Enregistrement** :
-La capture vidéo et audio d'une réunion (écran, son du Mac, micro).
-_À éviter_ : recording, vidéo (quand on parle du fichier complet)
+**Title** (UI: *Titre*):
+A meeting's one-line summary ("Revue de release"), proposed by the summary and editable.
+_Avoid_: subject, name
 
-**Repère** :
-Un instant marqué par l'utilisateur pendant l'enregistrement, pour le retrouver ensuite sur la timeline.
-_À éviter_ : marqueur, bookmark
+**Recording** (UI: *Enregistrement*):
+The video and audio capture of a meeting (screen, Mac audio, microphone).
+_Avoid_: video (when talking about the complete file)
 
-**Import** :
-L'ajout d'une réunion à partir de fichiers existants (vidéo ou audio seul, avec ou sans transcription, avec ou sans bilan) ; le traitement reprend à la première étape manquante.
-_À éviter_ : migration
+**Marker** (UI: *Repère*):
+An instant marked by the user during the recording, to find it again later on the timeline.
+_Avoid_: bookmark
 
-## Traitement
+**Import** (UI: *Importer*):
+Adding a meeting from existing files (video or audio only, with or without a transcription, with or without a summary); processing resumes at the first missing stage.
+_Avoid_: migration
 
-**Traitement** :
-La chaîne d'étapes qui transforme un enregistrement en transcription relue et en bilan.
-_À éviter_ : pipeline, job
+## Processing
 
-**Étape** :
-Un maillon du traitement : Transcription, Relecture ou Bilan.
+**Processing** (UI: *Traitement*):
+The chain of stages that turns a recording into a reviewed transcription and a summary.
+_Avoid_: pipeline, job
 
-**Transcription** :
-Le texte de la réunion découpé en répliques horodatées et attribuées à des locuteurs ; aussi l'étape qui la produit.
-_À éviter_ : sous-titres, verbatim
+**Stage** (UI: *Étape*):
+A link in the processing: Transcription, Review or Summary.
 
-**Réplique** :
-Un passage continu d'un même locuteur dans la transcription, avec son horodatage de début et de fin.
-_À éviter_ : segment, ligne
+**Transcription** (UI: *Transcription*):
+The meeting's text, split into timestamped utterances attributed to speakers; also the stage that produces it.
+_Avoid_: subtitles, verbatim
 
-**Locuteur** :
-Une voix distincte détectée dans une réunion (SPEAKER_00, SPEAKER_01…), à laquelle on peut donner un nom. Deux locuteurs peuvent se révéler être la même voix et être fusionnés.
-_À éviter_ : speaker, personne, participant
+**Utterance** (UI: *Réplique*):
+A continuous passage from a single speaker in the transcription, with its start and end timestamps.
+_Avoid_: segment, line
 
-**Nombre de locuteurs** :
-L'indication donnée avant le traitement du nombre de voix attendues, pour mieux séparer les locuteurs ; « détecté » si on ne la donne pas.
-_À éviter_ : personnes, participants
+**Speaker** (UI: *Locuteur*):
+A distinct voice detected in a meeting (SPEAKER_00, SPEAKER_01…), which can be given a name. Two speakers can turn out to be the same voice and be merged.
+_Avoid_: person, participant
 
-**Lexique** :
-La liste des noms propres, mots du métier et erreurs de transcription connues avec leur forme correcte, qui sert à la transcription et à la relecture et s'enrichit à chaque réunion.
-_À éviter_ : dictionnaire, glossaire
+**Speaker count** (UI: *Nombre de locuteurs*):
+The number of expected voices, given before processing to diarize the speakers better; "détecté" (detected) if it is not given.
+_Avoid_: people, participants
 
-## Relecture et correction
+**Lexicon** (UI: *Lexique*):
+The list of proper names, trade words and known transcription errors with their correct form, used by the transcription and the review and enriched at each meeting.
+_Avoid_: dictionary, glossary
 
-**Relecture** :
-L'étape automatique où une IA corrige les erreurs sûres de la transcription, change les locuteurs quand la conversation le prouve et signale les passages douteux.
-_À éviter_ : relecture IA (sauf dans l'interface), révision, proofreading
+## Review and correction
 
-**Réécoute** :
-La retranscription d'un passage douteux, isolé de l'enregistrement, pour que la relecture tranche.
+**Review** (UI: *Relecture*, *Relecture IA*):
+The automatic stage where an AI fixes the certain errors in the transcription, changes speakers when the conversation proves it and flags doubtful passages.
+_Avoid_: AI review (except in the UI), revision, proofreading
 
-**Passage à vérifier** :
-Un passage que la relecture n'a pas su trancher, même après réécoute, et que l'utilisateur doit écouter.
-_À éviter_ : doute, passage surligné
+**Relisten** (UI: *Réécoute*):
+The re-transcription of a doubtful passage, isolated from the recording, so that the review can settle it.
 
-**Correction** :
-Une modification faite à la main par l'utilisateur sur la transcription ou les locuteurs.
-_À éviter_ : relecture, édition
+**Passage to check** (UI: *À vérifier*):
+A passage the review could not settle, even after relistening, and that the user must listen to.
+_Avoid_: doubt, highlighted passage
 
-## Bilan
+**Correction** (UI: *Correction*):
+A change made by hand by the user to the transcription or the speakers.
+_Avoid_: review, edit
 
-**Bilan** :
-La synthèse rédigée d'une réunion : en bref, locuteurs nommés, sujets abordés, décisions, actions et questions ouvertes, avec horodatages.
-_À éviter_ : résumé, compte rendu, notes
+## Summary
 
-**Sujet** :
-Un point abordé pendant la réunion, horodaté à son début dans le bilan ; les sujets forment les chapitres de la timeline.
-_À éviter_ : thème, chapitre, titre
+**Summary** (UI: *Bilan*):
+The written synthesis of a meeting: brief, named speakers, topics covered, decisions, actions and open questions, with timestamps.
+_Avoid_: recap, minutes, notes
 
-**Décision** :
-Un choix acté pendant la réunion, consigné et horodaté dans le bilan.
+**Topic** (UI: *Sujet*):
+A point covered during the meeting, timestamped at its start in the summary; the topics form the timeline's chapters.
+_Avoid_: theme, chapter, title
 
-**Action** :
-Une chose à faire issue de la réunion, sous la forme « qui — quoi — échéance », cochable dans le bilan.
-_À éviter_ : tâche, todo
+**Decision** (UI: *Décision*):
+A choice agreed on during the meeting, recorded and timestamped in the summary.
+
+**Action** (UI: *Action*):
+A thing to do coming out of the meeting, in the form "who — what — deadline", which can be checked off in the summary.
+_Avoid_: task, todo

@@ -1,6 +1,6 @@
-//! [`CorbeilleDuMac`] : la vraie corbeille, par `NSFileManager.trashItemAtURL`. Le dossier jeté
-//! va dans la corbeille de son volume (`~/.Trash` pour le disque du Mac), d'où on peut le
-//! ressortir dans le Finder.
+//! [`MacTrash`]: the real Trash, through `NSFileManager.trashItemAtURL`. The trashed folder goes
+//! to its volume's Trash (`~/.Trash` for the Mac's disk), from where it can be put back in the
+//! Finder.
 
 use std::path::Path;
 

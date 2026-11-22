@@ -1,6 +1,6 @@
-//! L'import d'une réunion passée : fichiers déposés sur la fenêtre ou choisis par Fichier ›
-//! Importer…, fenêtre d'import (date et titre modifiables), puis la question « maintenant ou plus
-//! tard » pour le traitement.
+//! Importing a past meeting: files dropped on the window or chosen through Fichier › Importer…,
+//! the import window (editable date and title), then the now-or-later question for the
+//! processing.
 
 use std::path::PathBuf;
 
@@ -13,13 +13,13 @@ use greffier_core::{Command, DateTime, MeetingId, Status};
 use crate::ui::{self, glyph, muted};
 use crate::{App, Toast};
 
-/// La fenêtre d'import ouverte.
+/// The open import window.
 pub struct Draft {
     pub import: Import,
     pub date: rune::TextEdit,
     pub hour: rune::TextEdit,
     pub title: rune::TextEdit,
-    /// Le titre proposé, pour savoir si l'utilisateur a changé le sien.
+    /// The proposed title, to know whether the user changed theirs.
     pub proposed_title: String,
     pub error: Option<String>,
 }
@@ -27,7 +27,7 @@ pub struct Draft {
 const TRANSCRIPTIONS: [&str; 3] = ["vtt", "srt", "json"];
 
 impl App {
-    /// Ouvre la fenêtre d'import pour ces fichiers, ou y ajoute les fichiers si elle est ouverte.
+    /// Opens the import window for these files, or adds the files to it if it is open.
     pub fn propose_import(&mut self, files: &[PathBuf]) {
         if self.needs_folder || files.is_empty() {
             return;
@@ -54,7 +54,7 @@ impl App {
             }
         };
         match &mut self.import {
-            // Les fichiers changent ; la date et le titre déjà retouchés restent.
+            // The files change; a date and title already edited stay.
             Some(d) => {
                 if d.title.text.trim() == d.proposed_title {
                     d.title = rune::TextEdit::new(proposal.title.clone());
@@ -78,7 +78,7 @@ impl App {
         }
     }
 
-    /// Fichier › Importer… : le sélecteur de fichiers de macOS, pour le média.
+    /// Fichier › Importer…: the macOS file picker, for the media.
     pub fn pick_import(&mut self, tx: &mut Tx) {
         if self.needs_folder {
             return;
@@ -100,7 +100,7 @@ impl App {
         });
     }
 
-    /// Valide la fenêtre d'import : la réunion est créée, ouverte, et on demande quand la traiter.
+    /// Confirms the import window: the meeting is created and opened, and we ask when to process it.
     pub fn confirm_import(&mut self) {
         let Some(d) = &mut self.import else { return };
         let Some(start) = parse_date(&d.date.text, &d.hour.text) else {
@@ -121,8 +121,8 @@ impl App {
         }
     }
 
-    /// La réunion vient d'être importée : on l'ouvre et, s'il reste des étapes, on demande quand
-    /// lancer le traitement.
+    /// The meeting was just imported: open it and, if stages remain, ask when to start the
+    /// processing.
     pub fn imported(&mut self, id: MeetingId) {
         self.open(id);
         if self.core.meeting(id).is_some_and(|m| m.status == Status::ToProcess) {
@@ -130,14 +130,14 @@ impl App {
         }
     }
 
-    /// « Lancer le traitement maintenant ».
+    /// The « Lancer le traitement maintenant » button.
     pub fn process_imported_now(&mut self) {
         let Some(id) = self.process_imported.take() else { return };
         self.process(id);
     }
 }
 
-/// 0 média, 1 transcription, 2 bilan, 3 autre.
+/// 0 media, 1 transcription, 2 summary, 3 other.
 fn kind(p: &std::path::Path) -> u8 {
     let e = p.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
     if MEDIA_EXTENSIONS.contains(&e.as_str()) {
@@ -151,7 +151,7 @@ fn kind(p: &std::path::Path) -> u8 {
     }
 }
 
-/// « 2026-10-02 » et « 09:30 » (ou « 9h30 »).
+/// "2026-10-02" and "09:30" (or "9h30").
 fn parse_date(date: &str, hour: &str) -> Option<DateTime> {
     let n = |s: &str| s.trim().parse::<u32>().ok();
     let mut d = date.trim().split('-');
@@ -166,7 +166,7 @@ fn file_name(p: &std::path::Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Une ligne de fichier : rôle, nom (ou « Aucun »), bouton Ajouter / Retirer.
+/// A file row: role, name (or « Aucun »), Ajouter / Retirer button.
 fn file_row(k: &Kit, key: &str, label: &str, file: Option<&PathBuf>, action: Option<El>) -> El {
     let name = match file {
         Some(f) => text(file_name(f)).font(k.ty.ui).color(k.c.text_base),
@@ -211,7 +211,7 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
     );
     let summary = add_or_remove(
         i.summary.is_some(),
-        "import-bilan",
+        "import-summary",
         |s| {
             if let Some(d) = &mut s.import {
                 d.import.summary = None;
@@ -234,9 +234,9 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .gap(12.0)
         .child(file_row(k, "import-media", "Média", Some(&i.recording), None))
         .child(file_row(k, "import-transcription", "Transcription", i.transcription.as_ref(), Some(transcription)))
-        .child(file_row(k, "import-bilan", "Bilan", i.summary.as_ref(), Some(summary)))
-        .child(field(k, "Date", row().gap(8.0).child(input(&d.date, "import-date", Some(120.0), |s| &mut s.import.as_mut().expect("import ouvert").date)).child(input(&d.hour, "import-heure", Some(72.0), |s| &mut s.import.as_mut().expect("import ouvert").hour))))
-        .child(field(k, "Titre", input(&d.title, "import-titre", None, |s| &mut s.import.as_mut().expect("import ouvert").title).grow(1.0)))
+        .child(file_row(k, "import-summary", "Bilan", i.summary.as_ref(), Some(summary)))
+        .child(field(k, "Date", row().gap(8.0).child(input(&d.date, "import-date", Some(120.0), |s| &mut s.import.as_mut().expect("import open").date)).child(input(&d.hour, "import-time", Some(72.0), |s| &mut s.import.as_mut().expect("import open").hour))))
+        .child(field(k, "Titre", input(&d.title, "import-title", None, |s| &mut s.import.as_mut().expect("import open").title).grow(1.0)))
         .child(muted(k, format!("{what} Les fichiers sont copiés dans un nouveau dossier de réunion ; les originaux ne bougent pas.")));
     if let Some(e) = &d.error {
         body = body.child(text(e.clone()).wrap().font(k.ty.small).color(ui::red()));
@@ -249,7 +249,7 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
             .child(Button::new("Annuler").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.import = None).build(k).key("import-cancel"))
             .child(Button::new("Importer").variant(ButtonVariant::Submit).on_press(|s: &mut App| s.confirm_import()).build(k).key("import-ok")),
     );
-    // Un fichier déposé sur la fenêtre d'import s'y ajoute (ou remplace celui du même rôle).
+    // A file dropped on the import window is added to it (or replaces the one with the same role).
     let body = body.on_drop_files(|s: &mut App, files, _| s.propose_import(files));
     Dialog::new("import", "Importer une réunion")
         .open(true)

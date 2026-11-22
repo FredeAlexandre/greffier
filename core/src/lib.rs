@@ -1,16 +1,16 @@
-//! Le cœur de Greffier, sans interface.
+//! Greffier's core, without a UI.
 //!
-//! [`Greffier`] possède l'état des réunions, de l'enregistrement et de la file de traitement. On le
-//! pilote par [`Commande`]s ([`Greffier::executer`]) et on fait passer le temps avec
-//! [`Greffier::avancer`] ; les deux rendent des [`Evenement`]s. L'interface ne fait que lire l'état
-//! (`reunions`, `enregistrement`…) et appeler ces deux fonctions.
+//! [`Greffier`] owns the state of the meetings, the recording and the processing queue. It is
+//! driven by [`Command`]s ([`Greffier::execute`]) and time is moved forward with
+//! [`Greffier::advance`]; both return [`Event`]s. The UI only reads the state
+//! (`meetings`, `recording`…) and calls these two functions.
 //!
-//! Tout ce qui sort du processus passe par les [`adaptateurs`] : capture, transcripteur,
-//! séparateur de locuteurs, agent, ressources, corbeille, mise en MP4 (et l'horloge). Le cœur ne
-//! connaît que ces interfaces ; les vrais adaptateurs sont dans d'autres crates
-//! (`greffier-outils` : la CLI `claude`, curl, uv ; `greffier-moteurs` : whisper.cpp, pyannote ;
-//! `greffier-capture` : ScreenCaptureKit, corbeille, mise en MP4). Les ressources de l'app
-//! (modèles, Python privé, vérification de `claude`) sont décrites dans [`ressources`].
+//! Everything that leaves the process goes through the [`adapters`]: capture, transcriber,
+//! diarizer, agent, resources, trash, MP4 muxing (and the clock). The core only knows these
+//! interfaces; the real adapters live in other crates (`greffier-tools`: the `claude` CLI,
+//! curl, uv; `greffier-engines`: whisper.cpp, pyannote; `greffier-capture`: ScreenCaptureKit,
+//! trash, MP4 muxing). The app's resources (models, private Python, `claude` check) are
+//! described in [`resources`].
 
 #![forbid(unsafe_code)]
 
@@ -39,20 +39,20 @@ pub use folder::{MeetingsFolder, Role};
 pub use meeting::*;
 pub use time::*;
 
-/// Les réglages qui changent le comportement du cœur.
+/// The settings that change the core's behavior.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
-    /// Mettre la réunion dans la file de traitement dès l'arrêt de l'enregistrement.
+    /// Put the meeting in the processing queue as soon as the recording stops.
     pub process_on_stop: bool,
     pub sources: Sources,
-    /// Le lexique (`lexique.md` du dossier de l'app). Sa section Vocabulaire est donnée au
-    /// transcripteur ; il est relu au début de chaque transcription. Absent ou illisible : pas de
-    /// vocabulaire.
+    /// The lexicon (`lexique.md` in the app folder). Its Vocabulaire section is given to the
+    /// transcriber; it is reread at the start of each transcription. Missing or unreadable: no
+    /// vocabulary.
     pub lexicon: Option<PathBuf>,
-    /// Les dossiers ouverts à l'agent du bilan en plus du dossier de réunions (notes, projets…).
+    /// The folders open to the summary agent besides the meetings folder (notes, projects…).
     pub context_folders: Vec<PathBuf>,
-    /// Le dossier du cache de recherche (`recherche/` du dossier de l'app) : l'index y est
-    /// gardé d'un lancement à l'autre, et refait s'il manque. Sans lui, l'index reste en mémoire.
+    /// The search cache folder (`recherche/` in the app folder): the index is kept there from
+    /// one launch to the next, and rebuilt if missing. Without it, the index stays in memory.
     pub search_cache: Option<PathBuf>,
 }
 
@@ -62,77 +62,77 @@ impl Default for Settings {
     }
 }
 
-/// Comment l'utilisateur tranche un passage à vérifier.
+/// How the user resolves a passage to check.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Resolution {
     AcceptHypothesis,
     KeepOriginal,
     Correct(String),
-    /// Remet le passage en attente.
+    /// Puts the passage back to pending.
     Reopen,
 }
 
-/// Tout ce qu'on peut demander au cœur.
+/// Everything that can be asked of the core.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     StartRecording,
     StopRecording,
     AddMarker,
-    /// Le nombre de locuteurs indiqué pendant l'enregistrement (`None` : détecté).
+    /// The speaker count given during the recording (`None`: detected).
     RecordingSpeakerCount(Option<u8>),
-    /// Le nombre de locuteurs indiqué avant le traitement (`None` : détecté).
+    /// The speaker count given before processing (`None`: detected).
     SpeakerCount { meeting: MeetingId, number: Option<u8> },
-    /// Met la réunion dans la file, à partir de la première étape qui lui manque.
+    /// Puts the meeting in the queue, from the first stage it is missing.
     Process(MeetingId),
-    /// Remet la réunion dans la file à partir de cette étape ; les suivantes sont refaites aussi.
+    /// Puts the meeting back in the queue from this stage; the following ones are redone too.
     Redo { meeting: MeetingId, stage: Stage },
-    /// Arrête le traitement (ou sort la réunion de la file) : elle redevient à traiter.
+    /// Stops processing (or takes the meeting out of the queue): it goes back to to-process.
     StopProcessing(MeetingId),
-    /// Met le dossier de la réunion à la corbeille du Mac et l'oublie (refusé si la corbeille
-    /// refuse).
+    /// Moves the meeting's folder to the Mac's trash and forgets it (rejected if the trash
+    /// refuses).
     Delete(MeetingId),
-    /// Confirme ou corrige le nom d'un locuteur (celui qui le remplace s'il est fusionné).
+    /// Confirms or corrects a speaker's name (the one replacing it if it is merged).
     NameSpeaker { meeting: MeetingId, speaker: usize, name: String },
-    /// `locuteur` est la même voix que `dans`, qui le remplace partout (fusions suivies des deux
-    /// côtés) et prend son nom s'il n'en a pas.
+    /// `speaker` is the same voice as `into`, which replaces it everywhere (merges followed on
+    /// both sides) and takes its name if it has none.
     MergeSpeakers { meeting: MeetingId, speaker: usize, into: usize },
-    /// Défait la fusion de `locuteur` : il retrouve ses répliques, sans nom.
+    /// Undoes the merge of `speaker`: it gets its utterances back, without a name.
     SplitSpeaker { meeting: MeetingId, speaker: usize },
-    /// Tranche un passage à vérifier : le texte de sa réplique prend l'hypothèse ou la correction
-    /// (rouvrir remet l'extrait), et les deux transcriptions sont réécrites, sans le marquage.
+    /// Resolves a passage to check: its utterance's text takes the hypothesis or the correction
+    /// (reopening puts the excerpt back), and both transcriptions are rewritten, without the marking.
     Resolve { meeting: MeetingId, passage: usize, resolution: Resolution },
-    /// Corrige à la main un ou plusieurs mots d'une réplique, dont `texte` est le nouveau texte. Le
-    /// changement, élargi aux mots entiers, est gardé comme correction à la main (et repris si la
-    /// relecture est refaite). Un passage à vérifier se tranche par [`Commande::Trancher`].
+    /// Corrects by hand one or more words of an utterance, whose new text is `text`. The change,
+    /// widened to whole words, is kept as a manual correction (and reapplied if the review is
+    /// redone). A passage to check is resolved with [`Command::Resolve`].
     CorrectUtterance { meeting: MeetingId, utterance: usize, text: String },
-    /// Coche ou décoche la `action`-ième case du bilan.
+    /// Checks or unchecks the `action`-th checkbox of the summary.
     CheckAction { meeting: MeetingId, action: usize, done: bool },
-    /// La réunion a été ouverte : elle n'est plus nouvelle.
+    /// The meeting was opened: it is no longer new.
     MarkRead(MeetingId),
-    /// Change le titre : le dossier et ses fichiers sont renommés, liens compris. Refusé pendant
-    /// une étape (l'adaptateur écrit dans le dossier).
+    /// Changes the title: the folder and its files are renamed, links included. Rejected during
+    /// a stage (the adapter writes into the folder).
     ChangeTitle { meeting: MeetingId, title: String },
     ChangeSettings(Settings),
-    /// Télécharge, installe et vérifie les ressources qui manquent.
+    /// Downloads, installs and checks the missing resources.
     InstallResources,
-    /// Affiche la demande de macOS pour cette autorisation.
+    /// Shows the macOS prompt for this permission.
     RequestPermission(Permission),
-    /// Refait les vérifications des ressources (la CLI `claude`) sans rien télécharger.
+    /// Reruns the resource checks (the `claude` CLI) without downloading anything.
     CheckResources,
-    /// Ajoute une réunion à partir de fichiers existants, copiés dans un nouveau dossier de
-    /// réunion (voir [`Greffier::proposer_import`]).
+    /// Adds a meeting from existing files, copied into a new meeting folder (see
+    /// [`Greffier::propose_import`]).
     Import(folder::Import),
 }
 
-/// Ce qui s'est passé dans le cœur et que l'interface peut vouloir annoncer.
+/// What happened in the core that the UI may want to announce.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     MeetingRecorded(MeetingId),
-    /// La capture s'est arrêtée d'elle-même, ou son arrêt a échoué : la réunion est gardée
-    /// « enregistrement interrompu » avec ce qui a été capturé, et peut être traitée.
+    /// The capture stopped on its own, or stopping it failed: the meeting is kept as
+    /// "recording interrupted" with what was captured, and can be processed.
     RecordingInterrupted { meeting: MeetingId, message: String },
-    /// L'enregistrement a duré moins de [`DUREE_MINIMALE`] : sans doute un faux départ, que
-    /// l'interface propose de supprimer. Le traitement suit son cours tant qu'on la garde.
+    /// The recording lasted less than [`MIN_DURATION`]: probably a false start, which the UI
+    /// offers to delete. Processing goes on as long as it is kept.
     DeletionProposed(MeetingId),
     MeetingImported(MeetingId),
     StageDone { meeting: MeetingId, stage: Stage },
@@ -140,20 +140,20 @@ pub enum Event {
     SummaryReady { meeting: MeetingId, title: String },
     ResourcesInstalled,
     InstallationFailed(String),
-    /// Un fichier de la réunion n'a pas pu être écrit dans le dossier de réunions.
+    /// A meeting file could not be written to the meetings folder.
     WriteFailed { meeting: MeetingId, message: String },
-    /// Un fichier de la réunion a changé hors de l'app : elle a été relue.
+    /// A meeting file changed outside the app: the meeting was reread.
     MeetingReviewed(MeetingId),
-    /// Un dossier de réunion est apparu hors de l'app.
+    /// A meeting folder appeared outside the app.
     MeetingAppeared(MeetingId),
-    /// Le dossier de la réunion a disparu hors de l'app : elle n'est plus dans la liste.
+    /// The meeting's folder disappeared outside the app: it is no longer in the list.
     MeetingDisappeared(MeetingId),
 }
 
-/// En dessous de cette durée (en secondes), un enregistrement est proposé à la suppression.
+/// Below this duration (in seconds), a recording is offered for deletion.
 pub const MIN_DURATION: f64 = 60.0;
 
-/// Pourquoi une commande n'a pas été exécutée. L'état n'a pas changé.
+/// Why a command was not executed. The state has not changed.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Rejection {
     UnknownMeeting(MeetingId),
@@ -175,28 +175,28 @@ fn impossible<T>(message: impl Into<String>) -> Result<T, Rejection> {
     Err(Rejection::Impossible(message.into()))
 }
 
-/// Ce qui doit rester éveillé, et pourquoi (voir [`Greffier::garder_le_mac_eveille`]).
+/// What must stay awake, and why (see [`Greffier::keep_mac_awake`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Wake {
-    /// Le nom de l'assertion de non-veille (« Greffier enregistre une réunion »).
+    /// The name of the sleep-prevention assertion ("Greffier enregistre une réunion").
     pub reason: &'static str,
-    /// L'écran aussi : une fois l'écran éteint, ScreenCaptureKit ne capture plus rien. Sinon,
-    /// seul le Mac reste éveillé et l'écran peut s'éteindre.
+    /// The display too: once the display is off, ScreenCaptureKit captures nothing. Otherwise,
+    /// only the Mac stays awake and the display can turn off.
     pub screen: bool,
 }
 
-/// L'enregistrement en cours.
+/// The recording in progress.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Recording {
     pub start: DateTime,
-    /// Durée enregistrée, en secondes.
+    /// Recorded duration, in seconds.
     pub duration: f64,
     pub levels: Levels,
-    /// Instants des repères posés.
+    /// Times of the markers added.
     pub markers: Vec<f64>,
     pub speaker_count: Option<u8>,
     pub folder_name: String,
-    /// Les sources enregistrées (celles des réglages au démarrage).
+    /// The recorded sources (those of the settings at start).
     pub sources: Sources,
 }
 
@@ -237,7 +237,7 @@ impl<T> Part<T> {
 }
 
 enum Job {
-    /// La transcription et la séparation des locuteurs tournent en parallèle.
+    /// Transcription and diarization run in parallel.
     Transcription { words: Part<Vec<Word>>, turns: Part<Vec<SpeakerTurn>> },
     Review(Part<ReviewResult>),
     Summary { result: Part<SummaryResult> },
@@ -274,38 +274,38 @@ enum StageOutput {
     Summary(SummaryResult),
 }
 
-/// Le cœur de Greffier.
+/// Greffier's core.
 pub struct Greffier {
     folder: MeetingsFolder,
     adapters: Adapters,
     settings: Settings,
-    /// Les plus récentes d'abord.
+    /// Most recent first.
     meetings: Vec<Meeting>,
     next_id: MeetingId,
     recording: Option<Recording>,
-    /// Les réunions en attente, dans l'ordre où elles seront traitées.
+    /// The pending meetings, in the order they will be processed.
     file: VecDeque<MeetingId>,
     processing: Option<Processing>,
     installation: Option<BoxedTask<()>>,
     verification: Option<BoxedTask<()>>,
-    /// L'état des ressources, relu à chaque avancée.
+    /// The state of the resources, reread on each advance.
     resources: Vec<Resource>,
-    /// L'empreinte de chaque dossier de réunion au dernier passage du cœur (voir
-    /// [`Greffier::relire_le_dossier`]).
+    /// The fingerprint of each meeting folder at the core's last pass (see
+    /// [`Greffier::rescan_folder`]).
     fingerprints: HashMap<String, folder::watch::Fingerprints>,
-    /// L'index de la recherche ⌘K (voir [`Greffier::rechercher`]).
+    /// The ⌘K search index (see [`Greffier::search`]).
     index: search::Index,
 }
 
 impl Greffier {
-    /// Le cœur sur un dossier de réunions, avec les réunions qu'il contient déjà.
+    /// The core on a meetings folder, with the meetings it already contains.
     pub fn open(folder: impl Into<PathBuf>, adapters: Adapters) -> Greffier {
         let folder = MeetingsFolder::new(folder);
         let meetings = folder.read_all(1);
         Greffier::with_meetings(folder.root(), adapters, meetings)
     }
 
-    /// Le cœur avec des réunions déjà connues (les données fictives du prototype).
+    /// The core with already known meetings (the prototype's fake data).
     pub fn with_meetings(folder: impl Into<PathBuf>, adapters: Adapters, mut meetings: Vec<Meeting>) -> Greffier {
         let mut file = VecDeque::new();
         for r in &mut meetings {
@@ -340,7 +340,7 @@ impl Greffier {
         greffier
     }
 
-    // --- Lecture de l'état ---------------------------------------------------------------
+    // --- Reading the state ---------------------------------------------------------------
 
     pub fn meetings(&self) -> &[Meeting] {
         &self.meetings
@@ -358,28 +358,28 @@ impl Greffier {
         &self.settings
     }
 
-    /// Le dossier d'une réunion sur le disque.
+    /// A meeting's folder on disk.
     pub fn meeting_folder(&self, id: MeetingId) -> Option<PathBuf> {
         self.meeting(id).map(|r| self.folder.folder(&r.folder_name))
     }
 
-    /// Le fichier de l'enregistrement d'une réunion, s'il existe (un média importé qui n'a pas
-    /// pu passer en MP4 garde son extension).
+    /// A meeting's recording file, if it exists (an imported media file that could not be muxed
+    /// to MP4 keeps its extension).
     pub fn recording_file(&self, id: MeetingId) -> Option<PathBuf> {
         self.meeting(id).and_then(|r| self.folder.recording(&r.folder_name))
     }
 
-    /// Le lexique des réglages, lu maintenant ; sans lexique (ou illisible), le lexique livré.
+    /// The settings' lexicon, read now; without a lexicon (or unreadable), the bundled lexicon.
     fn lexicon_text(&self) -> String {
         self.settings.lexicon.as_ref().and_then(|c| std::fs::read_to_string(c).ok()).unwrap_or_else(|| lexicon::INITIAL_LEXICON.to_string())
     }
 
-    /// Ce que compte le lexique (personnes, mots justes, erreurs connues), pour les réglages.
+    /// What the lexicon counts (people, right words, known errors), for the settings.
     pub fn lexicon(&self) -> lexicon::Overview {
         lexicon::preview(&self.lexicon_text())
     }
 
-    /// Les personnes du lexique, proposées pour nommer les locuteurs.
+    /// The lexicon's people, suggested for naming speakers.
     pub fn people(&self) -> Vec<String> {
         lexicon::people(&self.lexicon_text())
     }
@@ -388,14 +388,14 @@ impl Greffier {
         &self.folder
     }
 
-    /// Le rang d'une réunion dans la file : 0 pour celle en cours de traitement.
+    /// A meeting's rank in the queue: 0 for the one being processed.
     pub fn rank(&self, id: MeetingId) -> Option<usize> {
         let running = self.processing.as_ref().map(|t| t.meeting);
         running.into_iter().chain(self.file.iter().copied()).position(|x| x == id)
     }
 
-    /// Le temps estimé avant la fin du traitement d'une réunion de la file, en secondes : le reste
-    /// de la sienne et celui des réunions qui passent avant elle.
+    /// The estimated time until a queued meeting's processing ends, in seconds: the rest of its
+    /// own and that of the meetings ahead of it.
     pub fn time_remaining(&self, id: MeetingId) -> Option<f64> {
         let rank = self.rank(id)?;
         let running = self.processing.as_ref().map(|t| t.meeting);
@@ -406,13 +406,13 @@ impl Greffier {
         self.adapters.clock.now()
     }
 
-    /// Les autorisations de macOS dont les sources ont besoin.
+    /// The macOS permissions the sources need.
     pub fn permissions(&self) -> Permissions {
         self.adapters.capture.permissions()
     }
 
-    /// Les modèles, l'environnement Python et la vérification de `claude`, avec leur état et la
-    /// place qu'ils prennent.
+    /// The models, the Python environment and the `claude` check, with their state and the
+    /// space they take.
     pub fn resources(&self) -> &[Resource] {
         &self.resources
     }
@@ -425,22 +425,22 @@ impl Greffier {
         self.verification.is_some()
     }
 
-    /// Ce que la fenêtre d'import propose pour des fichiers déposés ou choisis : le média, la
-    /// transcription et le bilan, la date et le titre, à modifier avant d'envoyer
-    /// [`Commande::Importer`]. N'écrit rien.
+    /// What the import window proposes for dropped or chosen files: the media, the transcription
+    /// and the summary, the date and the title, to edit before sending [`Command::Import`].
+    /// Writes nothing.
     pub fn propose_import(&self, files: &[PathBuf]) -> Result<folder::Import, Rejection> {
         folder::import::propose(files, |t| self.adapters.clock.to_local_time(t)).map_err(Rejection::Impossible)
     }
 
-    /// Vrai tant que le temps compte : enregistrement, traitement, file, installation ou
-    /// vérification des ressources.
+    /// True while time matters: recording, processing, queue, installation or resource
+    /// check.
     pub fn busy(&self) -> bool {
         self.recording.is_some() || self.processing.is_some() || !self.file.is_empty() || self.installation.is_some() || self.verification.is_some()
     }
 
-    /// Pourquoi le Mac ne doit pas se mettre en veille automatiquement, tant qu'il ne le doit
-    /// pas : pendant un enregistrement (l'écran aussi), et pendant un traitement (une réunion en
-    /// cours ou en attente dans la file). L'interface en fait une assertion de non-veille de macOS.
+    /// Why the Mac must not go to sleep automatically, while it must not: during a recording
+    /// (the display too), and during processing (a meeting running or pending in the queue). The
+    /// UI turns it into a macOS sleep-prevention assertion.
     pub fn keep_mac_awake(&self) -> Option<Wake> {
         if self.recording.is_some() {
             Some(Wake { reason: "Greffier enregistre une réunion", screen: true })
@@ -451,7 +451,7 @@ impl Greffier {
         }
     }
 
-    // --- Commandes -----------------------------------------------------------------------
+    // --- Commands ------------------------------------------------------------------------
 
     pub fn execute(&mut self, command: Command) -> Result<Vec<Event>, Rejection> {
         let mut ev = Vec::new();
@@ -520,7 +520,7 @@ impl Greffier {
                 }
                 let r = self.meeting_mut(meeting)?;
                 speaker_mut(r, speaker)?;
-                // Un locuteur fusionné porte le nom de celui qui le remplace.
+                // A merged speaker bears the name of the one replacing it.
                 let i = r.displayed_speaker(speaker);
                 let l = &mut r.speakers[i];
                 l.name = Some(name.to_string());
@@ -534,8 +534,8 @@ impl Greffier {
                 if !r.merge(i, j) {
                     return impossible("ces deux locuteurs sont déjà la même voix");
                 }
-                // Le nom suit la voix : celui qui reste prend le nom de l'autre s'il n'en a pas.
-                // Un locuteur fusionné n'a pas de nom à lui.
+                // The name follows the voice: the one that stays takes the other's name if it has
+                // none. A merged speaker has no name of its own.
                 let name = r.speakers[i].name.take();
                 if r.speakers[j].name.is_none() {
                     r.speakers[j].name = name;
@@ -564,7 +564,7 @@ impl Greffier {
                 if action >= summary::checkbox_count(&r.summary) {
                     return impossible("action inconnue");
                 }
-                // Le fichier du bilan est celui de l'agent : on n'y change que la case, et il fait foi.
+                // The summary file is the agent's: only the checkbox is changed there, and it is authoritative.
                 let name = r.folder_name.clone();
                 let file = self.folder.tick_in_summary(&name, action, done).map_err(Rejection::Impossible)?;
                 let r = self.meeting_mut(meeting)?;
@@ -597,7 +597,7 @@ impl Greffier {
             Command::RequestPermission(a) => self.adapters.capture.request_permission(a),
             Command::InstallResources => {
                 if self.installation.is_none() {
-                    // L'installation refait aussi les vérifications.
+                    // Installation also reruns the checks.
                     if let Some(mut v) = self.verification.take() {
                         v.stop();
                     }
@@ -614,10 +614,10 @@ impl Greffier {
             Command::Import(import) => {
                 let id = self.next_id;
                 let r = self.folder.import(&import, id, self.adapters.mp4_muxing.as_ref()).map_err(Rejection::Impossible)?;
-                // Les fichiers copiés par Greffier ne sont pas des modifications faites hors de l'app.
+                // Files copied by Greffier are not changes made outside the app.
                 self.note_end(&r.folder_name.clone(), &Role::ALL);
                 self.next_id += 1;
-                // Les plus récentes d'abord.
+                // Most recent first.
                 let storage = self.meetings.iter().position(|x| x.start <= r.start).unwrap_or(self.meetings.len());
                 self.meetings.insert(storage, r);
                 ev.push(Event::MeetingImported(id));
@@ -631,7 +631,7 @@ impl Greffier {
         Ok(ev)
     }
 
-    /// Écrit les fichiers de la réunion (fiche, transcriptions) et note ceux qui sont présents.
+    /// Writes the meeting's files (sheet, transcriptions) and notes those that are present.
     fn persist(&mut self, id: MeetingId, ev: &mut Vec<Event>) {
         let Some(r) = self.meeting(id) else { return };
         let name = r.folder_name.clone();
@@ -681,9 +681,9 @@ impl Greffier {
         Ok(())
     }
 
-    /// La fiche de l'enregistrement en cours, réécrite à chaque repère : si l'app ou le Mac
-    /// s'arrête net, la réunion est relue « enregistrement interrompu » avec ses repères et son
-    /// nombre de locuteurs (la durée vient alors des fragments déjà écrits de l'enregistrement).
+    /// The sheet of the recording in progress, rewritten at each marker: if the app or the Mac
+    /// stops dead, the meeting is reread as "recording interrupted" with its markers and its
+    /// speaker count (the duration then comes from the recording's fragments already written).
     fn write_recording_sheet(&self) {
         let Some(e) = &self.recording else { return };
         let mut r = recorded_meeting(0, e, 0.0);
@@ -714,10 +714,10 @@ impl Greffier {
         Ok(())
     }
 
-    /// Garde la réunion d'un enregistrement qui ne s'est pas fini normalement, « enregistrement
-    /// interrompu », avec ce qui a été capturé. La durée est celle que la capture a rendue,
-    /// sinon celle des fragments déjà écrits, sinon la dernière connue. Elle n'est pas mise en
-    /// file : on la traite quand on veut.
+    /// Keeps the meeting of a recording that did not end normally, as "recording interrupted",
+    /// with what was captured. The duration is the one the capture returned, otherwise that of
+    /// the fragments already written, otherwise the last known one. It is not queued: it is
+    /// processed whenever the user wants.
     fn keep_interrupted_recording(&mut self, e: &Recording, duration: Option<f64>, message: String, ev: &mut Vec<Event>) {
         let file = self.folder.file(&e.folder_name, Role::Recording);
         let duration = duration.or_else(|| folder::mp4_duration(&file)).unwrap_or(e.duration);
@@ -737,7 +737,7 @@ impl Greffier {
         }
     }
 
-    /// Arrête le traitement de la réunion s'il tourne, et la retire de la file.
+    /// Stops the meeting's processing if it is running, and removes it from the queue.
     fn remove_from_queue(&mut self, id: MeetingId) {
         if let Some(mut t) = self.processing.take_if(|t| t.meeting == id) {
             t.job.stop();
@@ -745,11 +745,11 @@ impl Greffier {
         self.file.retain(|x| *x != id);
     }
 
-    // --- Le temps ------------------------------------------------------------------------
+    // --- Time ----------------------------------------------------------------------------
 
-    /// Fait passer `ecoule` secondes : la capture, l'installation des ressources et la file de
-    /// traitement avancent. Une seule réunion est traitée à la fois ; pendant un enregistrement,
-    /// aucune étape ne démarre (celle qui tourne va jusqu'au bout).
+    /// Moves `elapsed` seconds forward: the capture, the resource installation and the
+    /// processing queue advance. Only one meeting is processed at a time; during a recording, no
+    /// stage starts (the one running goes to the end).
     pub fn advance(&mut self, elapsed: f64) -> Vec<Event> {
         let mut ev = Vec::new();
         if let Some(e) = &mut self.recording {
@@ -759,7 +759,7 @@ impl Greffier {
             if let Some(message) = state.error
                 && let Some(e) = self.recording.take()
             {
-                // Finir le fichier avec ce qui a été capturé.
+                // Finish the file with what was captured.
                 let duration = self.adapters.capture.stop().ok();
                 self.keep_interrupted_recording(&e, duration, message, &mut ev);
             }
@@ -791,7 +791,7 @@ impl Greffier {
             self.start_stage(id, stage, &mut ev);
         }
         self.advance_processing(elapsed, &mut ev);
-        // Une étape finie, un enregistrement arrêté : des réunions ont changé.
+        // A stage done, a recording stopped: meetings have changed.
         if !ev.is_empty() {
             self.indexer();
         }
@@ -836,7 +836,7 @@ impl Greffier {
                     title: r.title.clone(),
                     start: r.start,
                     speaker_count: r.speaker_count,
-                    // Une relecture refaite repart de la transcription brute.
+                    // A redone review starts again from the raw transcription.
                     utterances: for_agent(&r, if r.raw.is_empty() { &r.utterances } else { &r.raw }),
                     vocabulary: lexicon::vocabulary(&lexicon),
                     lexicon,
@@ -884,7 +884,7 @@ impl Greffier {
             Ok(x) => TaskProgress::Running(x),
         };
         let issue = match &mut t.job {
-            // Les deux moitiés tournent en même temps : l'étape avance comme la plus lente.
+            // Both halves run at the same time: the stage advances as fast as the slower one.
             Job::Transcription { words, turns } => match (words.poll(elapsed), turns.poll(elapsed)) {
                 (Ok(a), Ok(b)) => issue(Ok(a.min(b)), words.on_done() && turns.on_done()),
                 (Err(e), _) | (_, Err(e)) => TaskProgress::Failed(e),
@@ -925,10 +925,10 @@ impl Greffier {
         }
     }
 
-    /// Applique le produit d'une étape finie, puis lance la suivante (ou la met en attente
-    /// pendant un enregistrement).
+    /// Applies the output of a finished stage, then starts the next one (or makes it pending
+    /// during a recording).
     fn apply(&mut self, id: MeetingId, stage: Stage, produced: StageOutput, ev: &mut Vec<Event>) {
-        // La session de l'agent est gardée même si son bilan est refusé : on peut la reprendre.
+        // The agent's session is kept even if its summary is rejected: it can be resumed.
         if let StageOutput::Summary(result) = &produced
             && let Ok(r) = self.meeting_mut(id)
         {
@@ -945,8 +945,8 @@ impl Greffier {
         if let Some(missing) = contents.as_deref().and_then(summary::missing_parts) {
             return self.failure(id, stage, missing, ev);
         }
-        // Le bilan vient d'être écrit par l'agent pour Greffier : ce n'est pas une modification
-        // faite hors de l'app.
+        // The summary was just written by the agent for Greffier: it is not a change made
+        // outside the app.
         if contents.is_some()
             && let Some(name) = self.meeting(id).map(|r| r.folder_name.clone())
         {
@@ -982,7 +982,7 @@ impl Greffier {
                     let Some(i) = index(&p.speaker) else { continue };
                     let same = p.same_voice_as.as_deref().and_then(index).filter(|j| r.displayed_speaker(*j) != r.displayed_speaker(i));
                     let l = &mut r.speakers[i];
-                    // Un nom vide : l'agent n'a pas su qui c'est, sa justification dit pourquoi.
+                    // An empty name: the agent could not tell who it is, its justification says why.
                     l.proposal = Some(p.proposed_name).filter(|n| !n.trim().is_empty());
                     l.justification = p.justification;
                     l.suggested_merge = same;
@@ -1007,8 +1007,8 @@ impl Greffier {
         }
     }
 
-    /// Écrit dans le lexique les erreurs apprises par la relecture qu'il ne connaît pas encore ;
-    /// rend celles qui ont été écrites. Sans lexique, rien n'est écrit.
+    /// Writes to the lexicon the errors learned by the review that it does not know yet;
+    /// returns those that were written. Without a lexicon, nothing is written.
     fn enrich_lexicon(&mut self, id: MeetingId, additions: &[LexiconAddition], ev: &mut Vec<Event>) -> Vec<LexiconAddition> {
         let Some(path) = self.settings.lexicon.clone() else { return Vec::new() };
         if additions.is_empty() {
@@ -1037,8 +1037,8 @@ impl Greffier {
     }
 }
 
-/// La réunion d'un enregistrement : son dossier, son début, ses repères et son nombre de
-/// locuteurs. Durée et repères au centième de seconde, comme dans la fiche.
+/// The meeting of a recording: its folder, its start, its markers and its speaker count.
+/// Duration and markers to the hundredth of a second, as in the sheet.
 fn recorded_meeting(id: MeetingId, e: &Recording, duration: f64) -> Meeting {
     let hundredth = |t: f64| (t * 100.0).round() / 100.0;
     let mut r = Meeting::new(id, e.folder_name.clone(), e.start, hundredth(duration));
@@ -1051,8 +1051,8 @@ fn speaker_mut(r: &mut Meeting, i: usize) -> Result<&mut Speaker, Rejection> {
     r.speakers.get_mut(i).ok_or(Rejection::Impossible("locuteur inconnu".into()))
 }
 
-/// La transcription ne se corrige pas pendant qu'une étape va la refaire : la transcription
-/// repart de zéro, la relecture rouvre tous les passages à vérifier.
+/// The transcription cannot be corrected while a stage is about to redo it: the transcription
+/// starts from scratch, the review reopens every passage to check.
 fn transcription_editable(r: &Meeting) -> Result<(), Rejection> {
     match r.status {
         Status::Running { stage, .. } | Status::Pending(stage) if stage <= Stage::Review => {
@@ -1062,7 +1062,7 @@ fn transcription_editable(r: &Meeting) -> Result<(), Rejection> {
     }
 }
 
-/// Garde le changement du texte d'une réplique comme correction à la main.
+/// Keeps the change to an utterance's text as a manual correction.
 fn correct_utterance(r: &mut Meeting, utterance: usize, text: String) -> Result<(), Rejection> {
     let text = text.trim();
     if text.is_empty() {
@@ -1070,7 +1070,7 @@ fn correct_utterance(r: &mut Meeting, utterance: usize, text: String) -> Result<
     }
     let Some(x) = r.utterances.get(utterance) else { return impossible("réplique inconnue") };
     let Some((start, end, after)) = word_difference(&x.text, text) else { return Ok(()) };
-    // Les passages à vérifier de la réplique se tranchent dans leur onglet.
+    // The utterance's passages to check are resolved in their tab.
     for p in x.passages.iter().filter_map(|&i| r.passages.get(i)) {
         let shown = p.text(&p.status);
         if let Some(a) = x.text.find(shown)
@@ -1086,13 +1086,13 @@ fn correct_utterance(r: &mut Meeting, utterance: usize, text: String) -> Result<
     Ok(())
 }
 
-/// Ce qui change de `avant` à `apres`, élargi aux mots entiers : la plage d'octets de `avant` et
-/// le texte qui la remplace. `None` s'ils sont identiques.
+/// What changes from `before` to `after`, widened to whole words: the byte range of `before`
+/// and the text replacing it. `None` if they are identical.
 fn word_difference(before: &str, after: &str) -> Option<(usize, usize, String)> {
     if before == after {
         return None;
     }
-    // Le début commun, puis la fin commune sans chevaucher le début.
+    // The common start, then the common end without overlapping the start.
     let mut start = before.char_indices().zip(after.chars()).find(|((_, a), b)| a != b).map_or(before.len().min(after.len()), |((i, _), _)| i);
     while !before.is_char_boundary(start) || !after.is_char_boundary(start) {
         start -= 1;
@@ -1105,7 +1105,7 @@ fn word_difference(before: &str, after: &str) -> Option<(usize, usize, String)> 
         common += a.len_utf8();
     }
     let (mut end_before, mut end_after) = (before.len() - common, after.len() - common);
-    // Aux mots entiers : le début recule et la fin avance (dans la partie commune) jusqu'à un blanc.
+    // To whole words: the start moves back and the end forward (within the common part) up to a blank.
     while let Some(c) = before[..start].chars().next_back().filter(|c| !c.is_whitespace()) {
         start -= c.len_utf8();
     }
@@ -1116,8 +1116,8 @@ fn word_difference(before: &str, after: &str) -> Option<(usize, usize, String)> 
     Some((start, end_before, after[start..end_after].to_string()))
 }
 
-/// Tranche un passage à vérifier : le texte de la réplique passe de ce que le passage y montre
-/// (l'extrait, l'hypothèse ou la correction) à ce que la tranche y met.
+/// Resolves a passage to check: the utterance's text goes from what the passage shows in it
+/// (the excerpt, the hypothesis or the correction) to what the resolution puts there.
 fn resolve(r: &mut Meeting, passage: usize, resolution: Resolution) -> Result<(), Rejection> {
     let Some(p) = r.passages.get(passage) else { return impossible("passage inconnu") };
     let status = match resolution {
@@ -1138,8 +1138,8 @@ fn resolve(r: &mut Meeting, passage: usize, resolution: Resolution) -> Result<()
     Ok(())
 }
 
-/// Remplace la première occurrence de `avant` par `apres` ; rend `false` si `avant` est vide ou
-/// absent.
+/// Replaces the first occurrence of `before` with `after`; returns `false` if `before` is empty
+/// or absent.
 fn replace(text: &mut String, before: &str, after: &str) -> bool {
     match text.find(before).filter(|_| !before.is_empty()) {
         Some(i) => {
@@ -1150,15 +1150,15 @@ fn replace(text: &mut String, before: &str, after: &str) -> bool {
     }
 }
 
-/// Une hypothèse qui n'en est pas une (vide, « ? », « ? (peut-être…) ») n'est pas gardée.
+/// A hypothesis that is not one (empty, "?", "? (peut-être…)") is not kept.
 fn hypothesis(h: Option<String>) -> Option<String> {
     h.map(|h| h.trim().to_string()).filter(|h| !h.is_empty() && !h.starts_with('?'))
 }
 
-/// Applique le résultat de la relecture, toujours à partir de la transcription brute (une
-/// relecture refaite ne s'empile pas sur la précédente). Ce qui ne s'applique pas (réplique ou
-/// locuteur inconnus, texte absent) est écarté et n'entre pas au journal. `ajoutes` : les erreurs
-/// vraiment écrites dans le lexique.
+/// Applies the review result, always from the raw transcription (a redone review does not
+/// stack on the previous one). What does not apply (unknown utterance or speaker, missing
+/// text) is discarded and does not go into the log. `added`: the errors actually written to
+/// the lexicon.
 fn apply_review(r: &mut Meeting, result: ReviewResult, added: Vec<LexiconAddition>) {
     if r.raw.is_empty() {
         r.raw = r.utterances.iter().map(|x| Utterance { passages: vec![], ..x.clone() }).collect();
@@ -1190,7 +1190,7 @@ fn apply_review(r: &mut Meeting, result: ReviewResult, added: Vec<LexiconAdditio
         if replace(&mut x.text, &p.excerpt, after) {
             log.corrected_passages.push(CorrectedPassage { after: after.to_string(), ..p });
         } else {
-            // L'extrait n'est plus dans la réplique (une correction sûre l'a touché) : à vérifier.
+            // The excerpt is no longer in the utterance (a sure correction touched it): to check.
             to_check.push(FlaggedPassage { utterance: p.utterance, excerpt: p.excerpt, hypothesis: Some(after.to_string()), relisten: p.relisten });
         }
     }
@@ -1198,16 +1198,16 @@ fn apply_review(r: &mut Meeting, result: ReviewResult, added: Vec<LexiconAdditio
     r.passages.clear();
     for p in result.passages_to_check.into_iter().chain(to_check) {
         let Some(x) = r.utterances.get_mut(p.utterance) else { continue };
-        // Chaque passage signalé compte, même à plusieurs dans une réplique ; le même deux fois
-        // n'en fait qu'un.
+        // Each flagged passage counts, even several in one utterance; the same one twice
+        // counts as one.
         if p.excerpt.trim().is_empty() || x.passages.iter().any(|&i| r.passages[i].excerpt == p.excerpt) {
             continue;
         }
         x.passages.push(r.passages.len());
         r.passages.push(PassageToCheck { utterance: p.utterance, excerpt: p.excerpt, hypothesis: hypothesis(p.hypothesis), relisten: p.relisten, status: PassageStatus::Pending });
     }
-    // Les corrections faites à la main sur la relecture précédente sont reprises si leur texte est
-    // toujours là.
+    // Manual corrections made on the previous review are reapplied if their text is still
+    // there.
     let manual = std::mem::take(&mut r.manual_corrections);
     for c in manual {
         if let Some(x) = r.utterances.get_mut(c.utterance)

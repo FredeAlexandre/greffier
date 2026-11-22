@@ -1,5 +1,5 @@
-//! Le lexique livré avec l'app : ses quatre sections, la phrase donnée à Whisper, et son
-//! installation dans le dossier de l'app sans écraser celui de l'utilisateur.
+//! The lexicon shipped with the app: its four sections, the sentence given to Whisper, and its
+//! installation in the app folder without overwriting the user's.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -7,7 +7,7 @@ use greffier_core::lexicon::{self, INITIAL_LEXICON};
 
 fn folder() -> std::path::PathBuf {
     static N: AtomicU32 = AtomicU32::new(0);
-    let d = std::env::temp_dir().join(format!("greffier-lexique-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let d = std::env::temp_dir().join(format!("greffier-lexicon-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&d);
     d
 }
@@ -41,7 +41,7 @@ fn shipped_lexicon_is_an_empty_template() {
 #[test]
 fn install_writes_shipped_lexicon_without_overwriting_the_users() {
     let d = folder();
-    let path = lexicon::install(&d).expect("lexique installé");
+    let path = lexicon::install(&d).expect("lexicon installed");
     assert_eq!(path, d.join("lexique.md"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), INITIAL_LEXICON);
 
@@ -59,7 +59,7 @@ fn addition(heard: &str, correct: &str) -> lexicon::LexiconAddition {
 fn review_adds_its_errors_to_the_known_errors_table() {
     let md = "## Erreurs connues\n\n_Une indication._\n\n| Entendu | Correct |\n|---|---|\n| Alisse, Halice | Alice |\n\n## Vocabulaire\n\nRéunion.\n";
     let (md, added) = lexicon::add_errors(md, &[addition("Zorglube", "Zorglub"), addition("halice", "Alice"), addition("Acme", "acme"), addition(" ", "Bob"), addition("Zorglube", "Zorglub"), addition("a|b", "c")]);
-    assert_eq!(added, [addition("Zorglube", "Zorglub"), addition("a|b", "c")], "déjà connue, simple casse, vide et doublon sont écartés");
+    assert_eq!(added, [addition("Zorglube", "Zorglub"), addition("a|b", "c")], "already known, case-only, empty and duplicate are skipped");
     assert_eq!(md, "## Erreurs connues\n\n_Une indication._\n\n| Entendu | Correct |\n|---|---|\n| Alisse, Halice | Alice |\n| Zorglube | Zorglub |\n| a\\|b | c |\n\n## Vocabulaire\n\nRéunion.\n");
     assert_eq!(lexicon::preview(&md).known_errors, 3);
 }

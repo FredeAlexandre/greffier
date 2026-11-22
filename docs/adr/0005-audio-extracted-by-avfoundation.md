@@ -1,15 +1,15 @@
-# L'audio des moteurs est extrait par AVFoundation, pas par ffmpeg
+# The engines' audio is extracted by AVFoundation, not by ffmpeg
 
-Greffier décode la piste de mixage par AVFoundation et la rééchantillonne lui-même à 16 kHz (`moteurs/src/audio.rs`), au lieu d'embarquer ffmpeg comme le vault. La spec posait une condition : ne rien perdre sur le banc de parité (`scripts/banc-parite`). Le banc du 21/11/2026 compare AVFoundation et ffmpeg sur le même média, avec les mêmes moteurs, sur les trois extraits de 5 minutes (2 479 mots de référence, encore en brouillon).
+Greffier decodes the mixing track with AVFoundation and resamples it itself to 16 kHz (`engines/src/audio.rs`), instead of bundling ffmpeg like the vault. The spec set one condition: lose nothing on the parity bench (`scripts/parity-bench`). The bench of 2026-11-21 compares AVFoundation and ffmpeg on the same media, with the same engines, on the three 5-minute excerpts (2,479 reference words, still in draft).
 
-| Même média, mêmes moteurs | Erreurs de mots | Termes justes | Locuteurs faux |
+| Same media, same engines | Word errors | Correct terms | Wrong speakers |
 |---|---:|---:|---:|
-| Enregistrement d'origine (AAC d'Apple), AVFoundation | 6,2 % | 61/67 | 2,5 % |
-| Enregistrement d'origine, ffmpeg (le WAV du vault) | 6,9 % | 59/67 | 2,6 % |
-| m4a ré-encodé par ffmpeg, AVFoundation | 6,3 % | 62/67 | 2,9 % |
-| m4a ré-encodé par ffmpeg, ffmpeg | 6,8 % | 62/67 | 2,4 % |
-| Vault (whisper-cli, pyannote, assign.ts) | 7,3 % | 59/67 | 2,6 % |
+| Original recording (Apple AAC), AVFoundation | 6.2% | 61/67 | 2.5% |
+| Original recording, ffmpeg (the vault's WAV) | 6.9% | 59/67 | 2.6% |
+| m4a re-encoded by ffmpeg, AVFoundation | 6.3% | 62/67 | 2.9% |
+| m4a re-encoded by ffmpeg, ffmpeg | 6.8% | 62/67 | 2.4% |
+| Vault (whisper-cli, pyannote, assign.ts) | 7.3% | 59/67 | 2.6% |
 
-Cumulé sur les deux médias, AVFoundation fait 6,3 % d'erreurs de mots, 123/134 termes et 2,7 % d'erreurs de locuteur, contre 6,8 %, 121/134 et 2,5 % avec ffmpeg. C'est dans les tolérances fixées avant le banc (0,5 point d'erreurs de mots, 1 terme, 0,5 point d'erreurs de locuteur). On garde donc AVFoundation. Sur l'AAC d'Apple, celui des enregistrements de Greffier, les deux décodages sont presque identiques (RMS 0,06 à 0,09 sur 32 768). Ils s'écartent davantage sur l'AAC de ffmpeg (RMS 13 à 22), sans perte mesurable. Sur le WAV du vault, le whisper.cpp intégré rend les mêmes mots, au centième près, que whisper-cli : les extraits B et C sont identiques, et A l'est jusqu'au mot 509, où un écart d'arrondi entre les deux compilations fait diverger la suite.
+Combined over both media, AVFoundation gets 6.3% word errors, 123/134 terms and 2.7% speaker errors, against 6.8%, 121/134 and 2.5% with ffmpeg. That is within the tolerances set before the bench (0.5 points of word errors, 1 term, 0.5 points of speaker errors). So we keep AVFoundation. On Apple AAC, the one in Greffier's recordings, the two decodings are almost identical (RMS 0.06 to 0.09 out of 32,768). They diverge more on ffmpeg's AAC (RMS 13 to 22), with no measurable loss. On the vault's WAV, the integrated whisper.cpp returns the same words, to the hundredth of a second, as whisper-cli: excerpts B and C are identical, and A is until word 509, where a rounding difference between the two builds makes the rest diverge.
 
-Ce qu'on accepte : le décodage AAC d'Apple n'est pas déterministe. Deux décodages du même fichier diffèrent d'un bit sur quelques dizaines d'échantillons, et il manque parfois les 3 dernières millisecondes. Whisper étant chaotique, deux transcriptions du même enregistrement peuvent donc différer de quelques mots (de 62 à 64 termes justes d'un passage à l'autre sur le m4a). Si les références validées à l'écoute renversent ces chiffres, on relance le banc et on embarque ffmpeg en binaire statique.
+What we accept: Apple's AAC decoding is not deterministic. Two decodings of the same file differ by one bit on a few dozen samples, and the last 3 milliseconds are sometimes missing. Since Whisper is chaotic, two transcriptions of the same recording can therefore differ by a few words (from 62 to 64 correct terms from one run to the next on the m4a). If references validated by listening overturn these figures, we rerun the bench and bundle ffmpeg as a static binary.

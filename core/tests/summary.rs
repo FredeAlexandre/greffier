@@ -1,5 +1,5 @@
-//! Le bilan par l'agent : la fiche reçoit titre, résumé, actions et session ; le titre renomme
-//! le dossier et tous ses fichiers, liens compris ; changer le titre dans l'app fait de même.
+//! The summary by the agent: the sheet receives title, brief, actions and session; the title
+//! renames the folder and all its files, links included; changing the title in the app does the same.
 
 mod bench;
 
@@ -8,7 +8,7 @@ use greffier_core::adapters::{ReviewResult, SummaryResult};
 use greffier_core::fake::FakeAgent;
 use greffier_core::{Command, Stage, MeetingId, Role, Status};
 
-/// Un agent dont le bilan porte ce titre.
+/// An agent whose summary carries this title.
 fn agent_with_title(title: &'static str) -> FakeAgent {
     FakeAgent::new(
         bench::STAGE_DURATION,
@@ -31,9 +31,9 @@ fn done_meeting(bench: &mut Bench) -> MeetingId {
     id
 }
 
-/// Les noms des fichiers d'un dossier, triés.
+/// The names of a folder's files, sorted.
 fn files(bench: &Bench, name: &str) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(bench.folder.join(name)).expect("dossier de la réunion").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let mut v: Vec<String> = std::fs::read_dir(bench.folder.join(name)).expect("meeting folder").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
     v.sort();
     v
 }
@@ -62,7 +62,7 @@ fn summary_title_renames_the_folder_and_its_files() {
 
 #[test]
 fn after_renaming_links_point_to_the_new_files() {
-    // Le bilan de l'agent renvoie vers la fiche par son nom (lien Obsidian).
+    // The agent's summary links to the sheet by its name (Obsidian link).
     let summary: &'static str = "---\nréunion: \"[[2026-11-21 14h02 - Réunion - réunion]]\"\n---\n\nVoir [la transcription](<2026-11-21 14h02 - Réunion - transcription.md>).\n\n## Sujets abordés\n\n### Budget (0:00:00)\n\n## Décisions\n\n- (0:00:03) On garde le budget.\n\n## Actions\n\n- [ ] Odile — envoyer le devis\n";
     let mut a = bench::adapters();
     a.agent = Box::new(FakeAgent::new(
@@ -79,7 +79,7 @@ fn after_renaming_links_point_to_the_new_files() {
     let sheet = bench.read(&folder.file(name, Role::Sheet));
     for role in [Role::Summary, Role::ReadableTranscription, Role::StructuredTranscription, Role::Recording] {
         let link = format!("(<{name} - {}>)", role.suffix());
-        assert!(sheet.contains(&link), "{link} absent de la fiche :\n{sheet}");
+        assert!(sheet.contains(&link), "{link} missing from the sheet:\n{sheet}");
         assert!(folder.file(name, role).is_file(), "{role:?}");
     }
     let md = bench.read(&folder.file(name, Role::Summary));
@@ -87,7 +87,7 @@ fn after_renaming_links_point_to_the_new_files() {
     assert!(md.contains("(<2026-11-21 14h02 - Budget - transcription.md>)"), "{md}");
     assert_eq!(bench.meeting(id).summary, md);
 
-    // Greffier a renommé lui-même : rien à relire, la réunion garde son identité.
+    // Greffier renamed it itself: nothing to rescan, the meeting keeps its identity.
     assert_eq!(bench.greffier.rescan_folder(), []);
     bench.reopen();
     assert_eq!(bench.named_meeting(name).title, "Budget");
@@ -123,10 +123,10 @@ fn a_title_already_taken_the_same_day_gets_a_number() {
     assert_eq!(bench.meeting(a).folder_name, "2026-11-21 14h02 - Daily");
     assert_eq!(bench.meeting(b).folder_name, "2026-11-21 14h02 - Daily (2)");
 
-    // Remettre le même titre ne change rien, même avec son numéro.
+    // Setting the same title again changes nothing, even with its number.
     bench.execute(Command::ChangeTitle { meeting: b, title: "Daily".into() });
     assert_eq!(bench.meeting(b).folder_name, "2026-11-21 14h02 - Daily (2)");
-    // Une réunion à traiter sans transcription a quand même sa fiche et son enregistrement.
+    // A meeting to process without a transcription still has its sheet and its recording.
     assert!(bench.greffier.folder().file("2026-11-21 14h02 - Daily (2)", Role::Recording).is_file());
 }
 
@@ -153,7 +153,7 @@ fn agent_receives_context_folders_and_meeting_files() {
         |_| Ok(ReviewResult::default()),
         bench::STAGE_DURATION,
         move |d| {
-            // Les fichiers de la réunion existent quand l'agent démarre.
+            // The meeting's files exist when the agent starts.
             assert!(d.transcription.is_file() && d.sheet.is_file(), "{d:?}");
             seen.borrow_mut().push(d.clone());
             Ok((bench::SUMMARY.to_string(), bench::summary_result()))

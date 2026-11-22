@@ -1,6 +1,6 @@
-//! Nommer et fusionner les locuteurs : les propositions du bilan, confirmer ou corriger un nom,
-//! fusionner deux locuteurs qui sont la même voix (et défaire la fusion), et les fichiers qui en
-//! résultent (fiche, transcription lisible, transcription structurée).
+//! Naming and merging speakers: the summary's proposals, confirming or correcting a name, merging
+//! two speakers that are the same voice (and undoing the merge), and the resulting files (sheet,
+//! readable transcription, structured transcription).
 
 mod bench;
 
@@ -9,9 +9,9 @@ use greffier_core::adapters::{Adapters, SummarySpeaker, ReviewResult, SummaryRes
 use greffier_core::fake::{FakeAgent, FakeDiarizer, FakeTranscriber};
 use greffier_core::{Command, MeetingId, Role, Status};
 
-/// Trois répliques : SPEAKER_00 salue, SPEAKER_01 répond, SPEAKER_02 (en fait la voix de
-/// SPEAKER_00) relance. L'agent du bilan reconnaît Alexandre et Khalid, voit que SPEAKER_02 est
-/// sans doute Alexandre, et ne sait pas qui est SPEAKER_03, qui ne dit qu'un mot.
+/// Three utterances: SPEAKER_00 greets, SPEAKER_01 answers, SPEAKER_02 (actually SPEAKER_00's
+/// voice) follows up. The summary agent recognizes Alexandre and Khalid, sees that SPEAKER_02 is
+/// probably Alexandre, and does not know who SPEAKER_03 is, who says only one word.
 fn adapters() -> Adapters {
     let words = vec![
         word(0.0, 0.5, "Bonjour"),
@@ -55,10 +55,10 @@ fn file(bench: &Bench, id: MeetingId, role: Role) -> String {
     bench.read(&bench.greffier.folder().file(&name, role))
 }
 
-/// Une table du frontmatter de la fiche : la ligne `cle:` et ses lignes en retrait.
+/// A table of the sheet's front matter: the `key:` line and its indented lines.
 fn block(sheet: &str, key: &str) -> String {
     let mut lines = sheet.lines().skip_while(|l| *l != format!("{key}:"));
-    let first = lines.next().unwrap_or_else(|| panic!("pas de {key} dans la fiche :\n{sheet}"));
+    let first = lines.next().unwrap_or_else(|| panic!("no {key} in the sheet:\n{sheet}"));
     std::iter::once(first).chain(lines.take_while(|l| l.starts_with("  "))).map(|l| format!("{l}\n")).collect()
 }
 
@@ -77,7 +77,7 @@ fn summary_proposes_a_name_and_a_rationale_for_each_speaker() {
         ]
     );
     assert_eq!(r.speakers[2].suggested_merge, Some(0));
-    assert!(r.speakers.iter().all(|l| l.name.is_none()), "une proposition n'est pas un nom confirmé");
+    assert!(r.speakers.iter().all(|l| l.name.is_none()), "a proposal is not a confirmed name");
 
     let sheet = file(&bench, id, Role::Sheet);
     assert_eq!(
@@ -86,13 +86,13 @@ fn summary_proposes_a_name_and_a_rationale_for_each_speaker() {
     );
 }
 
-/// Les lignes de répliques de la transcription lisible.
+/// The utterance lines of the readable transcription.
 fn readable_utterances(md: &str) -> Vec<String> {
     md.lines().filter(|l| l.starts_with('[')).map(String::from).collect()
 }
 
 fn json(bench: &Bench, id: MeetingId) -> serde_json::Value {
-    serde_json::from_str(&file(bench, id, Role::StructuredTranscription)).expect("transcription structurée")
+    serde_json::from_str(&file(bench, id, Role::StructuredTranscription)).expect("structured transcription")
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn confirming_then_correcting_a_name_writes_it_to_the_sheet_and_the_readable_tra
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "Khalid".into() });
     assert_eq!(block(&file(&bench, id, Role::Sheet), "locuteurs"), "locuteurs:\n  SPEAKER_00: \"Alexandre\"\n  SPEAKER_01: \"Khalid\"\n");
 
-    // Corriger : un autre nom que celui proposé, espaces autour retirés.
+    // Correcting: a name other than the proposed one, surrounding spaces removed.
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "  Jérôme ".into() });
     let r = bench.meeting(id);
     assert_eq!(r.speakers[1].name.as_deref(), Some("Jérôme"));
@@ -114,15 +114,15 @@ fn confirming_then_correcting_a_name_writes_it_to_the_sheet_and_the_readable_tra
         ["[0:00:00] Alexandre : Bonjour à tous.", "[0:00:03] Jérôme : Salut Alexandre.", "[0:00:06] SPEAKER_02 : On commence ?", "[0:00:09] SPEAKER_03 : Oui."]
     );
 
-    // La transcription structurée garde les étiquettes, et donne la correspondance.
+    // The structured transcription keeps the labels, and gives the mapping.
     let j = json(&bench, id);
     assert_eq!(j["utterances"][1]["speaker"], "SPEAKER_01");
     assert_eq!(j["words"][3]["speaker"], "SPEAKER_01");
     assert_eq!(j["names"], serde_json::json!({ "SPEAKER_00": "Alexandre", "SPEAKER_01": "Jérôme" }));
 
     let rejection = bench.greffier.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "  ".into() });
-    assert!(rejection.is_err(), "un nom vide");
-    assert!(bench.greffier.execute(Command::NameSpeaker { meeting: id, speaker: 9, name: "Odile".into() }).is_err(), "locuteur inconnu");
+    assert!(rejection.is_err(), "an empty name");
+    assert!(bench.greffier.execute(Command::NameSpeaker { meeting: id, speaker: 9, name: "Odile".into() }).is_err(), "unknown speaker");
 }
 
 #[test]
@@ -134,25 +134,25 @@ fn merging_two_speakers_joins_them_everywhere() {
 
     bench.execute(Command::MergeSpeakers { meeting: id, speaker: 2, into: 0 });
     let r = bench.meeting(id);
-    // Timeline et liste des locuteurs : une piste de moins, la réplique de SPEAKER_02 va à Alexandre.
+    // Timeline and speaker list: one track fewer, SPEAKER_02's utterance goes to Alexandre.
     assert_eq!(r.active_speakers().collect::<Vec<_>>(), [0, 1, 3]);
     let displayed: Vec<usize> = r.utterances.iter().map(|x| r.displayed_speaker(x.speaker)).collect();
     assert_eq!(displayed, [0, 1, 0, 3]);
-    // Temps de parole : celui de SPEAKER_02 s'ajoute à celui d'Alexandre.
-    assert!((r.speaking_time(0) - (alexandre + speaker_02)).abs() < 1e-9, "le temps de parole de SPEAKER_02 va à Alexandre");
+    // Speaking time: SPEAKER_02's is added to Alexandre's.
+    assert!((r.speaking_time(0) - (alexandre + speaker_02)).abs() < 1e-9, "SPEAKER_02's speaking time goes to Alexandre");
     let total: f64 = r.active_speakers().map(|i| r.speaking_time(i)).sum();
-    assert!((total - 1.0).abs() < 1e-9, "les parts des locuteurs restants font 100 % ({total})");
-    assert_eq!(r.speakers[2].suggested_merge, None, "la fusion proposée est faite");
+    assert!((total - 1.0).abs() < 1e-9, "the remaining speakers' shares add up to 100% ({total})");
+    assert_eq!(r.speakers[2].suggested_merge, None, "the suggested merge is done");
 
     assert_eq!(
         readable_utterances(&file(&bench, id, Role::ReadableTranscription)),
         ["[0:00:00] Alexandre : Bonjour à tous.", "[0:00:03] SPEAKER_01 : Salut Alexandre.", "[0:00:06] Alexandre : On commence ?", "[0:00:09] SPEAKER_03 : Oui."]
     );
     let sheet = file(&bench, id, Role::Sheet);
-    assert_eq!(block(&sheet, "locuteurs"), "locuteurs:\n  SPEAKER_00: \"Alexandre\"\n  SPEAKER_02: \"Alexandre\"\n", "les noms, fusions comprises");
+    assert_eq!(block(&sheet, "locuteurs"), "locuteurs:\n  SPEAKER_00: \"Alexandre\"\n  SPEAKER_02: \"Alexandre\"\n", "the names, merges included");
     assert_eq!(block(&sheet, "fusions"), "fusions:\n  SPEAKER_02: SPEAKER_00\n");
     let j = json(&bench, id);
-    assert_eq!(j["utterances"][2]["speaker"], "SPEAKER_02", "la transcription structurée garde l'étiquette d'origine");
+    assert_eq!(j["utterances"][2]["speaker"], "SPEAKER_02", "the structured transcription keeps the original label");
     assert_eq!(j["speakers"], serde_json::json!(["SPEAKER_00", "SPEAKER_01", "SPEAKER_02", "SPEAKER_03"]));
     assert_eq!(j["merges"], serde_json::json!({ "SPEAKER_02": "SPEAKER_00" }));
     assert_eq!(j["names"], serde_json::json!({ "SPEAKER_00": "Alexandre", "SPEAKER_02": "Alexandre" }));
@@ -166,10 +166,10 @@ fn a_named_speaker_merged_into_an_unnamed_speaker_gives_it_its_name() {
     let r = bench.meeting(id);
     assert_eq!(r.active_speakers().collect::<Vec<_>>(), [1, 2, 3]);
     assert_eq!(r.speakers[2].name.as_deref(), Some("Alexandre"));
-    assert_eq!(r.speakers[0].name, None, "le nom va à la voix qui reste");
+    assert_eq!(r.speakers[0].name, None, "the name goes to the remaining voice");
     assert_eq!(readable_utterances(&file(&bench, id, Role::ReadableTranscription))[0], "[0:00:00] Alexandre : Bonjour à tous.");
 
-    // Nommer un locuteur fusionné nomme celui qui le remplace.
+    // Naming a merged speaker names the one that replaces it.
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alex".into() });
     assert_eq!(bench.meeting(id).speakers[2].name.as_deref(), Some("Alex"));
     assert_eq!(block(&file(&bench, id, Role::Sheet), "locuteurs"), "locuteurs:\n  SPEAKER_00: \"Alex\"\n  SPEAKER_02: \"Alex\"\n");
@@ -182,17 +182,17 @@ fn a_merge_never_makes_a_loop() {
     bench.execute(Command::MergeSpeakers { meeting: id, speaker: 3, into: 1 });
     let r = bench.meeting(id);
     assert_eq!(r.active_speakers().collect::<Vec<_>>(), [0, 2]);
-    assert_eq!(r.displayed_speaker(3), 2, "fusionné dans un locuteur déjà fusionné : va au bout");
+    assert_eq!(r.displayed_speaker(3), 2, "merged into an already merged speaker: goes to the end of the chain");
 
     for (speaker, into) in [(1, 3), (2, 3), (3, 3), (1, 9)] {
         let rejection = bench.greffier.execute(Command::MergeSpeakers { meeting: id, speaker, into });
-        assert!(rejection.is_err(), "{speaker} dans {into} : déjà la même voix ou inconnu");
+        assert!(rejection.is_err(), "{speaker} into {into}: already the same voice or unknown");
     }
     let r = bench.meeting(id);
     assert_eq!(r.utterances.iter().map(|x| r.displayed_speaker(x.speaker)).collect::<Vec<_>>(), [0, 2, 2, 2]);
 }
 
-/// Nomme Alexandre et Khalid, fusionne SPEAKER_02 dans Alexandre.
+/// Names Alexandre and Khalid, merges SPEAKER_02 into Alexandre.
 fn named_and_merged_meeting() -> (Bench, MeetingId) {
     let (mut bench, id) = done_meeting();
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alexandre".into() });
@@ -232,22 +232,22 @@ fn undoing_a_merge_gives_the_speaker_back_their_utterances() {
     let r = bench.meeting(id);
     assert_eq!(r.active_speakers().collect::<Vec<_>>(), [0, 1, 2, 3]);
     assert_eq!(r.speakers[2].name, None);
-    assert_eq!(r.speakers[2].proposal.as_deref(), Some("Alexandre"), "la proposition de l'agent reste");
+    assert_eq!(r.speakers[2].proposal.as_deref(), Some("Alexandre"), "the agent's proposal stays");
     assert_eq!(readable_utterances(&file(&bench, id, Role::ReadableTranscription))[2], "[0:00:06] SPEAKER_02 : On commence ?");
     assert!(!file(&bench, id, Role::Sheet).contains("fusions:"));
 
-    assert!(bench.greffier.execute(Command::SplitSpeaker { meeting: id, speaker: 2 }).is_err(), "il n'est plus fusionné");
+    assert!(bench.greffier.execute(Command::SplitSpeaker { meeting: id, speaker: 2 }).is_err(), "it is no longer merged");
 }
 
 #[test]
 fn search_follows_names_and_merges() {
     let speaker = |bench: &Bench| bench.greffier.search("commence")[0].speaker.clone();
     let (mut bench, id) = done_meeting();
-    assert_eq!(speaker(&bench).as_deref(), Some("Alexandre ?"), "la proposition de l'agent, à confirmer");
+    assert_eq!(speaker(&bench).as_deref(), Some("Alexandre ?"), "the agent's proposal, to be confirmed");
 
     bench.execute(Command::MergeSpeakers { meeting: id, speaker: 2, into: 1 });
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 2, name: "Odile".into() });
-    assert_eq!(speaker(&bench).as_deref(), Some("Odile"), "la voix qui le remplace, avec le nom donné");
+    assert_eq!(speaker(&bench).as_deref(), Some("Odile"), "the voice that replaces it, with the given name");
 
     bench.execute(Command::SplitSpeaker { meeting: id, speaker: 2 });
     assert_eq!(speaker(&bench).as_deref(), Some("Alexandre ?"));

@@ -1,12 +1,12 @@
-//! [`CaptureDuMac`] : la capture par ScreenCaptureKit, un seul flux pour l'écran principal, le son
-//! du Mac (tout l'audio du système, sauf celui de Greffier) et le micro par défaut (macOS 15 et
-//! plus). Les échantillons arrivent sur une file de répartition série ; l'écrivain et le mixeur
-//! vivent derrière un Mutex que seule cette file touche pendant l'enregistrement.
+//! [`MacCapture`]: capture through ScreenCaptureKit, a single stream for the main screen, the Mac
+//! audio (all system audio except Greffier's own) and the default microphone (macOS 15 and later).
+//! Samples arrive on a serial dispatch queue; the writer and the mixer live behind a Mutex that
+//! only this queue touches during the recording.
 //!
-//! Autorisations : l'écran et le son du Mac dépendent de la même autorisation de macOS
-//! (« Enregistrement de l'écran et de l'audio du système ») ; le micro de la sienne. Elles ne
-//! s'obtiennent que dans `Greffier.app` installée et signée (scripts/installer-app), pas par
-//! `cargo run` (c'est alors le terminal qui les demande).
+//! Permissions: the screen and the Mac audio depend on the same macOS permission ("Screen & System
+//! Audio Recording"); the microphone on its own. They can only be granted to an installed, signed
+//! `Greffier.app` (scripts/install-app), not through `cargo run` (the terminal asks for them
+//! then).
 
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -33,37 +33,37 @@ use greffier_core::adapters::{Permission, Permissions, Capture, CaptureRequest, 
 use crate::writer::{Writer, FRAMES_PER_SECOND};
 use crate::mixing::{self, Mixer, Source, SAMPLE_RATE};
 
-/// Taille maximale des images : 1080p (spec #1).
+/// Maximum frame size: 1080p (spec #1).
 pub const MAX_WIDTH: usize = 1920;
 pub const MAX_HEIGHT: usize = 1080;
 
-/// La taille des images : celle de l'écran en pixels, réduite pour tenir dans
-/// [`LARGEUR_MAX`] × [`HAUTEUR_MAX`] en gardant ses proportions, en dimensions paires.
+/// The frame size: the screen's size in pixels, scaled down to fit in [`MAX_WIDTH`] ×
+/// [`MAX_HEIGHT`] keeping its aspect ratio, with even dimensions.
 pub fn image_size(width: usize, height: usize) -> (usize, usize) {
     let timescale = (MAX_WIDTH as f64 / width as f64).min(MAX_HEIGHT as f64 / height as f64).min(1.0);
     let (l, h) = ((width as f64 * timescale).round() as usize, (height as f64 * timescale).round() as usize);
     (l.min(MAX_WIDTH) & !1, h.min(MAX_HEIGHT) & !1)
 }
 
-/// Ce que la file de capture partage avec le fil de l'app.
+/// What the capture queue shares with the app thread.
 struct Shared {
     state: Mutex<State>,
-    /// Secondes écrites (f64 en bits), niveaux (f32 en bits).
+    /// Seconds written (f64 as bits), levels (f32 as bits).
     duration: AtomicU64,
     micro: AtomicU32,
     mac_audio: AtomicU32,
     screen: bool,
-    /// Au moins une source audio.
+    /// At least one audio source.
     audio: bool,
     stopped: AtomicBool,
-    /// Le flux s'est arrêté de lui-même : l'erreur est dans `Etat::erreur`.
+    /// The stream stopped on its own: the error is in `State::error`.
     broken: AtomicBool,
 }
 
 struct State {
     writer: Option<Writer>,
     mixer: Mixer,
-    /// La dernière erreur du flux (arrêt imprévu).
+    /// The stream's last error (unexpected stop).
     error: Option<String>,
 }
 
@@ -81,7 +81,7 @@ impl Shared {
         if trace() {
             let n = unsafe { buffer.num_samples() };
             let image = kind == SCStreamOutputType::Screen && unsafe { buffer.image_buffer() }.is_some();
-            eprintln!("capture {:?} t={:.4} echelle={} n={n} image={image}", kind.0, unsafe { t.seconds() }, t.timescale);
+            eprintln!("capture {:?} t={:.4} timescale={} n={n} image={image}", kind.0, unsafe { t.seconds() }, t.timescale);
         }
         let Ok(mut state) = self.state.lock() else { return };
         let state = &mut *state;
@@ -90,11 +90,11 @@ impl Shared {
             if !self.screen {
                 return;
             }
-            // Les images « au repos » (l'écran n'a pas changé) n'ont pas de pixels.
+            // "Idle" frames (the screen hasn't changed) have no pixels.
             if let Some(image) = unsafe { buffer.image_buffer() } {
                 writer.image(&image, t);
             }
-            // Sans source audio, les pistes audio sont du silence, au rythme des images.
+            // With no audio source, the audio tracks are silence, at the pace of the frames.
             if !self.audio {
                 let origin = writer.origin(t);
                 let end = unsafe { t.subtract(origin).seconds() } * f64::from(SAMPLE_RATE);
@@ -107,7 +107,7 @@ impl Shared {
             let Some(frames) = pcm_stereo_48k(buffer) else { return };
             let level = mixing::level(&frames);
             let gauge = if source == Source::Micro { &self.micro } else { &self.mac_audio };
-            // Montée immédiate, descente douce.
+            // Rise immediately, fall gently.
             let before = f32::from_bits(gauge.load(Ordering::Relaxed));
             gauge.store(level.max(before * 0.8).to_bits(), Ordering::Relaxed);
             let origin = writer.origin(t);
@@ -121,13 +121,13 @@ impl Shared {
     }
 }
 
-/// `GREFFIER_CAPTURE_TRACE=1` : chaque tampon reçu et chaque bloc écrit, sur stderr.
+/// `GREFFIER_CAPTURE_TRACE=1`: every buffer received and every block written, on stderr.
 pub(crate) fn trace() -> bool {
     static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *TRACE.get_or_init(|| std::env::var_os("GREFFIER_CAPTURE_TRACE").is_some())
 }
 
-/// Les échantillons d'un tampon audio, en stéréo entrelacée à 48 kHz.
+/// The samples of an audio buffer, as interleaved stereo at 48 kHz.
 fn pcm_stereo_48k(buffer: &CMSampleBuffer) -> Option<Vec<f32>> {
     unsafe {
         let format = buffer.format_description()?;
@@ -147,7 +147,7 @@ fn pcm_stereo_48k(buffer: &CMSampleBuffer) -> Option<Vec<f32>> {
         if size == 0 {
             return None;
         }
-        // Un AudioBufferList de longueur variable, aligné.
+        // A variable-length, aligned AudioBufferList.
         let mut storage = vec![0u64; size.div_ceil(8)];
         let list = storage.as_mut_ptr() as *mut AudioBufferList;
         let mut block: *mut CMBlockBuffer = ptr::null_mut();
@@ -185,9 +185,9 @@ fn pcm_stereo_48k(buffer: &CMSampleBuffer) -> Option<Vec<f32>> {
 }
 
 define_class!(
-    // SAFETY : NSObject n'a pas d'exigence de sous-classe ; la classe ne surcharge pas dealloc.
+    // SAFETY: NSObject has no subclassing requirements; the class doesn't override dealloc.
     #[unsafe(super(NSObject))]
-    #[name = "GreffierSortieDeCapture"]
+    #[name = "GreffierCaptureOutput"]
     #[ivars = Arc<Shared>]
     struct Output;
 
@@ -225,12 +225,12 @@ struct Running {
     queue: DispatchRetained<DispatchQueue>,
 }
 
-/// La vraie capture.
+/// The real capture.
 #[derive(Default)]
 pub struct MacCapture {
     running: Option<Running>,
-    /// L'autorisation de l'écran a été demandée pendant ce lancement : si elle manque encore,
-    /// c'est un refus (macOS ne pose la question qu'une fois).
+    /// The screen permission was requested during this launch: if it is still missing, it was
+    /// denied (macOS asks only once).
     screen_requested: bool,
 }
 
@@ -244,7 +244,7 @@ fn wait<T>(rx: mpsc::Receiver<T>, seconds: u64, what: &str) -> Result<T, String>
     rx.recv_timeout(Duration::from_secs(seconds)).map_err(|_| format!("ScreenCaptureKit ne répond pas ({what})"))
 }
 
-/// Le contenu partageable (les écrans) ; échoue si l'enregistrement de l'écran n'est pas autorisé.
+/// The shareable content (the screens); fails if screen recording is not allowed.
 fn shareable_content() -> Result<Retained<SCShareableContent>, String> {
     let (tx, rx) = mpsc::channel();
     let on_done = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
@@ -259,7 +259,7 @@ fn shareable_content() -> Result<Retained<SCShareableContent>, String> {
     wait(rx, 10, "écrans")?.map(|c| c.0)
 }
 
-/// Fait passer un objet d'un fil à l'autre (le bloc de complétion → le fil de l'app).
+/// Moves an object from one thread to another (the completion block → the app thread).
 struct SendRetained<T>(Retained<T>);
 unsafe impl<T> Send for SendRetained<T> {}
 
@@ -343,7 +343,7 @@ impl Capture for MacCapture {
                 config.setHeight(height);
                 config.setMinimumFrameInterval(CMTime::new(1, FRAMES_PER_SECOND));
             } else {
-                // ScreenCaptureKit veut un écran : une image minuscule par seconde, ignorée.
+                // ScreenCaptureKit wants a screen: one tiny frame per second, ignored.
                 config.setWidth(2);
                 config.setHeight(2);
                 config.setMinimumFrameInterval(CMTime::new(1, 1));
@@ -381,7 +381,7 @@ impl Capture for MacCapture {
     fn poll(&mut self, _elapsed: f64) -> CaptureState {
         let Some(c) = &self.running else { return CaptureState::default() };
         let p = &c.shared;
-        // macOS a coupé le flux (écran débranché, autorisation retirée…) : le cœur finit le fichier.
+        // macOS cut the stream (screen unplugged, permission revoked…): the core finishes the file.
         let error = if p.broken.load(Ordering::Relaxed) {
             let detail = p.state.lock().ok().and_then(|e| e.error.clone()).unwrap_or_default();
             Some(format!("La capture s'est arrêtée : {detail}"))
@@ -398,12 +398,12 @@ impl Capture for MacCapture {
     fn stop(&mut self) -> Result<f64, String> {
         let c = self.running.take().ok_or("aucune capture en cours")?;
         let stop = completion(|b| unsafe { c.stream.stopCaptureWithCompletionHandler(Some(b)) }, "arrêt");
-        // Les derniers échantillons déjà dans la file passent, puis plus rien.
+        // The last samples already in the queue go through, then nothing more.
         let shared = c.shared.clone();
         let (tx, rx) = mpsc::channel();
         c.queue.exec_sync(move || {
             shared.stopped.store(true, Ordering::Relaxed);
-            let mut state = shared.state.lock().expect("état de la capture");
+            let mut state = shared.state.lock().expect("capture state");
             let state = &mut *state;
             let mut writer = state.writer.take();
             if let (Some(e), Some(block)) = (writer.as_mut(), state.mixer.drain()) {
@@ -415,10 +415,10 @@ impl Capture for MacCapture {
         let writer = writer.ok_or("capture déjà arrêtée")?;
         let duration = writer.finish();
         if let Err(e) = &stop {
-            eprintln!("greffier-capture : arrêt du flux : {e}");
+            eprintln!("greffier-capture: stopping the stream: {e}");
         }
         if let Some(e) = error {
-            eprintln!("greffier-capture : le flux s'était arrêté : {e}");
+            eprintln!("greffier-capture: the stream had stopped: {e}");
         }
         duration
     }
@@ -430,12 +430,12 @@ mod tests {
 
     #[test]
     fn frames_fit_in_1920_x_1080_keeping_aspect_ratio_and_even_dimensions() {
-        // 1080p : l'écran tient dans 1920 × 1080, proportions gardées.
+        // 1080p: the screen fits in 1920 × 1080, aspect ratio kept.
         assert_eq!(image_size(2880, 1800), (1728, 1080), "16:10");
         assert_eq!(image_size(3024, 1964), (1662, 1080));
         assert_eq!(image_size(5120, 2880), (1920, 1080), "16:9");
-        assert_eq!(image_size(3440, 1440), (1920, 804), "très large : la largeur limite");
-        // Un écran plus petit garde sa taille, rendue paire.
+        assert_eq!(image_size(3440, 1440), (1920, 804), "very wide: the width is the limit");
+        // A smaller screen keeps its size, made even.
         assert_eq!(image_size(1920, 1080), (1920, 1080));
         assert_eq!(image_size(1512, 983), (1512, 982));
     }

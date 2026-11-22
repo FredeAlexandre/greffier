@@ -1,15 +1,15 @@
-//! Compile whisper.cpp (version figée, sources vendues dans `whisper.cpp/` par
-//! `scripts/vendre-whisper`) sans cmake : ggml, son moteur CPU (Accelerate), son moteur Metal
-//! (bibliothèque Metal embarquée dans l'exécutable) et le BLAS d'Accelerate, avec les options par
-//! défaut que cmake prendrait sur un Mac Apple Silicon (GGML_NATIVE, GGML_METAL,
-//! GGML_METAL_EMBED_LIBRARY, GGML_BLAS, GGML_ACCELERATE, GGML_CPU_REPACK).
+//! Builds whisper.cpp (pinned version, sources vendored into `whisper.cpp/` by
+//! `scripts/vendor-whisper`) without cmake: ggml, its CPU backend (Accelerate), its Metal backend
+//! (Metal library embedded in the executable) and Accelerate's BLAS, with the default options
+//! cmake would pick on an Apple Silicon Mac (GGML_NATIVE, GGML_METAL, GGML_METAL_EMBED_LIBRARY,
+//! GGML_BLAS, GGML_ACCELERATE, GGML_CPU_REPACK).
 
 use std::path::{Path, PathBuf};
 
 const WHISPER_VERSION: &str = "1.9.5";
 const GGML_VERSION: &str = "0.26.0";
 
-/// Les bibliothèques Metal, une par noyau (ordre de `GGML_METAL_LIBS`, ggml-metal-device.m).
+/// The Metal libraries, one per kernel (order of `GGML_METAL_LIBS`, ggml-metal-device.m).
 const METAL_KERNELS: &[&str] = &[
     "fa_aux", "fa_f16", "fa_f32", "fa_q4_0", "fa_q4_1", "fa_q5_0", "fa_q5_1", "fa_q8_0", "fa_vec_f16", "fa_vec_f32", "fa_vec_q4_0", "fa_vec_q4_1", "fa_vec_q5_0",
     "fa_vec_q5_1", "fa_vec_q8_0", "mul_mv", "mul_mv_mma", "mul_mm", "quantize", "softmax", "norm", "unary", "binbcast", "reduce", "tri", "ssm", "wkv", "gated_delta_net",
@@ -23,14 +23,14 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/transcribe.cpp");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
-        panic!("greffier-moteurs ne se construit que sur macOS");
+        panic!("greffier-engines only builds on macOS");
     }
 
     let g = w.join("ggml");
     let src = g.join("src");
     std::fs::write(out.join("ggml-version.h"), format!("#pragma once\n#define GGML_VERSION \"{GGML_VERSION}\"\n#define GGML_COMMIT \"v{WHISPER_VERSION}\"\n")).unwrap();
 
-    // Commun à tout : conformité POSIX de ggml/src/CMakeLists.txt.
+    // Common to everything: POSIX conformance from ggml/src/CMakeLists.txt.
     let base = |cpp: bool| {
         let mut b = cc::Build::new();
         b.cpp(cpp)
@@ -56,7 +56,7 @@ fn main() {
         b.define("GGML_USE_CPU", None).define("GGML_USE_METAL", None).define("GGML_USE_BLAS", None);
     };
 
-    // ggml-base et ggml.
+    // ggml-base and ggml.
     let mut c = base(false);
     c.files(["ggml.c", "ggml-alloc.c", "ggml-quants.c"].map(|f| src.join(f)));
     c.compile("ggml-base-c");
@@ -68,7 +68,7 @@ fn main() {
     reg.files(["ggml-backend-reg.cpp", "ggml-backend-dl.cpp"].map(|f| src.join(f)));
     reg.compile("ggml-reg");
 
-    // Moteur CPU.
+    // CPU backend.
     let cpu = src.join("ggml-cpu");
     let cpu_options = |b: &mut cc::Build| {
         b.include(&cpu)
@@ -103,12 +103,12 @@ fn main() {
     );
     cpp.compile("ggml-cpu-cpp");
 
-    // BLAS d'Accelerate.
+    // Accelerate's BLAS.
     let mut blas = base(true);
     blas.define("GGML_BLAS_USE_ACCELERATE", None).define("ACCELERATE_NEW_LAPACK", None).define("ACCELERATE_LAPACK_ILP64", None).file(src.join("ggml-blas/ggml-blas.cpp"));
     blas.compile("ggml-blas");
 
-    // Moteur Metal, avec ses noyaux embarqués.
+    // Metal backend, with its embedded kernels.
     let metal = src.join("ggml-metal");
     let mut m = base(false);
     m.define("GGML_METAL_EMBED_LIBRARY", None).flag("-fno-objc-arc").files(["ggml-metal-device.m", "ggml-metal-context.m"].map(|f| metal.join(f)));
@@ -124,7 +124,7 @@ fn main() {
         let s = embedded_kernel(&metal, &src, &out, kernel);
         asm.file(s);
     }
-    asm.compile("ggml-metal-noyaux");
+    asm.compile("ggml-metal-kernels");
 
     // whisper.
     let mut wh = base(true);
@@ -140,10 +140,10 @@ fn main() {
     println!("cargo:rustc-link-lib=c++");
 }
 
-/// Le source Metal d'un noyau, en-têtes inclus, et l'assembleur qui l'embarque entre les
-/// symboles `ggml_metallib_<noyau>_{start,end}` (les étapes de ggml-metal/CMakeLists.txt).
+/// A kernel's Metal source, headers included, and the assembly that embeds it between the
+/// `ggml_metallib_<kernel>_{start,end}` symbols (the steps of ggml-metal/CMakeLists.txt).
 fn embedded_kernel(metal: &Path, src: &Path, out: &Path, kernel: &str) -> PathBuf {
-    let read = |p: PathBuf| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} : {e}", p.display()));
+    let read = |p: PathBuf| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     let k = metal.join("kernels");
     let source = read(k.join(format!("{kernel}.metal")));
     let mut text = read(k.join("common.h"));

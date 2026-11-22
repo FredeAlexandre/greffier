@@ -1,7 +1,7 @@
-//! Essai à la main de la relecture par la vraie CLI `claude`, sur une petite transcription
-//! inventée, sans réécoute (les extraits rendent « rien d'exploitable »).
+//! Manual trial of the review by the real `claude` CLI, on a small made-up transcription, without
+//! relisten (the excerpts return "nothing usable").
 //!
-//! `cargo run -p greffier-outils --example relire [-- <répertoire de travail>]`
+//! `cargo run -p greffier-tools --example review [-- <working directory>]`
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -15,7 +15,7 @@ struct NoRelisten;
 
 impl Relisten for NoRelisten {
     fn relisten(&self, _: &Path, excerpts: &[(f64, f64)], _: &str, _: &AtomicBool) -> Result<Vec<String>, String> {
-        eprintln!("réécoute demandée : {excerpts:?}");
+        eprintln!("relisten requested: {excerpts:?}");
         Ok(vec![String::new(); excerpts.len()])
     }
 }
@@ -24,7 +24,7 @@ fn main() {
     let directory = std::env::args().nth(1).map(Into::into).unwrap_or_else(std::env::temp_dir);
     let r = |number, speaker: &str, start, end, text: &str| AgentUtterance { number, speaker: speaker.into(), name: None, start, end, text: text.into() };
     let request = ReviewRequest {
-        recording: "/nulle/part.mp4".into(),
+        recording: "/nowhere.mp4".into(),
         meetings_folder: directory,
         folder_name: "2026-11-21 14h02 - Point d'équipe".into(),
         title: "Point d'équipe".into(),
@@ -39,11 +39,11 @@ fn main() {
         lexicon: greffier_core::lexicon::INITIAL_LEXICON.into(),
         vocabulary: String::new(),
     };
-    let mut progress = |p: f64| eprintln!("palier {p}");
+    let mut progress = |p: f64| eprintln!("milestone {p}");
     match review::review(&MacClaude::default(), &NoRelisten, &request, &AtomicBool::new(false), &mut progress) {
         Ok(result) => println!("{result:#?}"),
         Err(e) => {
-            eprintln!("échec : {e}");
+            eprintln!("failed: {e}");
             std::process::exit(1);
         }
     }

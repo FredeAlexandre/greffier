@@ -1,3 +1,3 @@
-# La séparation des locuteurs tourne dans un Python privé, géré par l'app
+# Diarization runs in a private Python, managed by the app
 
-Pour que les résultats soient identiques à ceux du vault, Greffier reprend le même pipeline (whisper.cpp large-v3 et pyannote `speaker-diarization-community-1`) au lieu d'un portage natif (ONNX / sherpa-onnx). pyannote n'existe qu'en Python : l'app installe elle-même un Python et ses dépendances figées (`uv.lock`) dans `~/Library/Application Support/Greffier/`, à côté des modèles téléchargés, sans rien toucher à l'environnement de l'utilisateur. Un portage natif reste possible plus tard, une fois comparé sur de vraies réunions.
+So that the results are identical to the vault's, Greffier reuses the same pipeline (whisper.cpp large-v3 and pyannote `speaker-diarization-community-1`) instead of a native port (ONNX / sherpa-onnx). pyannote only exists in Python: the app installs a Python and its pinned dependencies (`uv.lock`) itself in `~/Library/Application Support/Greffier/`, next to the downloaded models, without touching the user's environment. A native port remains possible later, once compared on real meetings.

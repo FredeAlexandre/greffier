@@ -1,46 +1,46 @@
-//! Des mots de Whisper aux répliques : bruits retirés, attribution de chaque mot à un locuteur,
-//! découpage en répliques. Les règles sont celles du vault :
+//! From Whisper's words to utterances: noises removed, each word attributed to a speaker, split
+//! into utterances. The rules are the vault's:
 //!
-//! 1. **Locuteur de chaque mot** : le mot est décalé de +0,2 s (Whisper horodate un peu tôt) ;
-//!    il va au locuteur qui parle le plus pendant ce temps, sinon au tour le plus proche à moins
-//!    d'une seconde, sinon au locuteur du mot précédent. Un mot étiré sur plus de 2 s (whisper.cpp
-//!    finit parfois un mot à la reprise de la parole) ne compte que pour ses premiers instants.
-//! 2. **Interruptions** : 2 mots ou moins (la ponctuation seule ne compte pas) au milieu des mots
-//!    d'un autre locuteur, sans fin de phrase, lui sont rendus : c'est un flottement de la
-//!    séparation, pas une réponse.
-//! 3. **Recalage** : un changement de locuteur à 3 mots ou moins d'une fin de phrase y est
-//!    déplacé, en arrière d'abord (la séparation est le plus souvent en retard).
-//! 4. **Étiquettes** : SPEAKER_00, SPEAKER_01… dans l'ordre du premier mot de chacun ; les
-//!    locuteurs détectés sans aucun mot suivent, dans l'ordre de leur premier tour. Les tours de
-//!    parole prennent ces étiquettes.
-//! 5. **Répliques** : une nouvelle à chaque changement de locuteur (une ponctuation seule reste
-//!    avec la précédente), après une pause de 2 s, ou à une fin de phrase passé 220 caractères.
+//! 1. **Speaker of each word**: the word is shifted by +0.2 s (Whisper timestamps a bit early);
+//!    it goes to the speaker who talks the most during that time, otherwise to the nearest turn
+//!    within one second, otherwise to the previous word's speaker. A word stretched over more
+//!    than 2 s (whisper.cpp sometimes ends a word when speech resumes) only counts for its first
+//!    moments.
+//! 2. **Interruptions**: 2 words or fewer (punctuation alone does not count) in the middle of
+//!    another speaker's words, with no sentence end, are given back to that speaker: it is a
+//!    wobble of the diarization, not an answer.
+//! 3. **Realignment**: a speaker change 3 words or fewer from a sentence end is moved there,
+//!    backward first (the diarization is most often late).
+//! 4. **Labels**: SPEAKER_00, SPEAKER_01… in the order of each one's first word; speakers
+//!    detected without any word follow, in the order of their first turn. The speaker turns take
+//!    these labels.
+//! 5. **Utterances**: a new one at each speaker change (punctuation alone stays with the
+//!    previous one), after a 2 s pause, or at a sentence end past 220 characters.
 
 use crate::meeting::{Speaker, Word, Utterance, HUES, SpeakerTurn};
 
-/// Le décalage ajouté aux horodatages de Whisper avant de chercher le locuteur, en secondes (le
-/// meilleur recouvrement avec pyannote sur le banc du vault).
+/// The offset added to Whisper's timestamps before looking for the speaker, in seconds (the
+/// best overlap with pyannote on the vault's benchmark).
 const OFFSET: f64 = 0.2;
-/// Au-delà, un mot est étiré sur un silence.
+/// Beyond this, a word is stretched over a silence.
 const STRETCHED_WORD: f64 = 2.0;
-/// Distance maximale au tour le plus proche, quand aucun ne chevauche le mot, en secondes.
+/// Maximum distance to the nearest turn, when none overlaps the word, in seconds.
 const NEAR: f64 = 1.0;
-/// Une interruption rendue compte au plus ce nombre de mots.
+/// A given-back interruption has at most this many words.
 const INTERRUPTION_WORDS: usize = 2;
-/// Un changement de locuteur est recalé sur une fin de phrase à ce nombre de mots près.
+/// A speaker change is realigned on a sentence end within this many words.
 const REALIGNMENT_WORDS: usize = 3;
 
-/// Une pause qui commence une nouvelle réplique, en secondes.
+/// A pause that starts a new utterance, in seconds.
 const PAUSE: f64 = 2.0;
-/// Passé cette longueur (en unités UTF-16, comme le vault), une réplique s'arrête à la première
-/// fin de phrase.
+/// Past this length (in UTF-16 units, like the vault), an utterance stops at the first sentence
+/// end.
 const UTTERANCE_LENGTH: usize = 220;
-/// Au-delà de ce nombre de mots, une parenthèse ou un crochet qui ne se ferme pas n'est pas un
-/// bruit.
+/// Beyond this many words, a parenthesis or bracket that does not close is not a noise.
 const NOISE_WORDS: usize = 6;
 
-/// Les mots sans les bruits notés entre crochets ou parenthèses (« [Musique] », « (rires) »,
-/// « [bruit de fond] ») ni les mots vides.
+/// The words without the noises noted between brackets or parentheses (`[Musique]`, `(rires)`,
+/// `[bruit de fond]`) nor the empty words.
 pub fn without_noises(words: Vec<Word>) -> Vec<Word> {
     let opens = |t: &str| t.starts_with('[') || t.starts_with('(');
     let closes = |t: &str| t.ends_with(']') || t.ends_with(')');
@@ -70,42 +70,42 @@ pub fn without_noises(words: Vec<Word>) -> Vec<Word> {
     kept
 }
 
-/// Un texte (la réécoute d'un extrait) sans ses bruits, mêmes règles que `sans_les_bruits`, ses
-/// espaces ramenés à un seul.
+/// A text (the relisten of an excerpt) without its noises, same rules as `without_noises`, its
+/// spaces collapsed to one.
 pub fn text_without_noises(text: &str) -> String {
     let words = text.split_whitespace().map(|t| Word { start: 0.0, end: 0.0, text: t.to_string(), confidence: 1.0, speaker: None }).collect();
     without_noises(words).into_iter().map(|m| m.text).collect::<Vec<_>>().join(" ")
 }
 
-/// `.`, `?`, `!` ou `…`, suivi ou non d'un guillemet fermant.
+/// `.`, `?`, `!` or `…`, optionally followed by a closing quote.
 fn ends_sentence(text: &str) -> bool {
     let t = text.trim();
     let t = t.strip_suffix('»').or_else(|| t.strip_suffix('"')).unwrap_or(t);
     t.ends_with(['.', '?', '!', '…'])
 }
 
-/// Un vrai mot (une lettre ou un chiffre), pas une ponctuation seule.
+/// A real word (a letter or a digit), not punctuation alone.
 fn has_letter(text: &str) -> bool {
     text.chars().any(|c| c.is_alphabetic() || c.is_ascii_digit())
 }
 
-/// Le résultat de l'attribution : la transcription d'une réunion avant relecture.
+/// The result of the attribution: a meeting's transcription before review.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribution {
     pub speakers: Vec<Speaker>,
-    /// Les mots, chacun avec son locuteur.
+    /// The words, each with its speaker.
     pub words: Vec<Word>,
-    /// Les tours de parole, avec les étiquettes des locuteurs.
+    /// The speaker turns, with the speakers' labels.
     pub turns: Vec<SpeakerTurn>,
     pub utterances: Vec<Utterance>,
 }
 
-/// Attribue chaque mot à un locuteur et découpe les répliques. Sans tours de parole, tout va à
-/// un seul locuteur, SPEAKER_00.
+/// Attributes each word to a speaker and splits the utterances. Without speaker turns,
+/// everything goes to a single speaker, SPEAKER_00.
 pub fn attribute(words: Vec<Word>, turns: Vec<SpeakerTurn>) -> Attribution {
     let mut turns = turns;
     turns.sort_by(|a, b| a.start.total_cmp(&b.start));
-    // Les locuteurs du séparateur, dans l'ordre de leur premier tour.
+    // The diarizer's speakers, in the order of their first turn.
     let mut from_diarizer: Vec<String> = Vec::new();
     for t in &turns {
         if !from_diarizer.contains(&t.speaker) {
@@ -118,7 +118,7 @@ pub fn attribute(words: Vec<Word>, turns: Vec<SpeakerTurn>) -> Attribution {
     return_interruptions(&words, &mut ids);
     snap_to_sentence_ends(&words, &mut ids);
 
-    // Étiquettes : dans l'ordre du premier mot, puis du premier tour.
+    // Labels: in the order of the first word, then of the first turn.
     let mut order: Vec<usize> = Vec::new();
     for &i in ids.iter().chain(&numbers) {
         if !order.contains(&i) {
@@ -133,7 +133,7 @@ pub fn attribute(words: Vec<Word>, turns: Vec<SpeakerTurn>) -> Attribution {
     Attribution { speakers, words, turns, utterances }
 }
 
-/// Règle 1 : le locuteur (numéro du séparateur) de chaque mot.
+/// Rule 1: the speaker (diarizer number) of each word.
 fn word_speakers(words: &[Word], turns: &[SpeakerTurn], numbers: &[usize]) -> Vec<usize> {
     let mut ids = Vec::with_capacity(words.len());
     let mut previous: Option<usize> = None;
@@ -145,7 +145,7 @@ fn word_speakers(words: &[Word], turns: &[SpeakerTurn], numbers: &[usize]) -> Ve
         while first < turns.len() && turns[first].end < start - 30.0 {
             first += 1;
         }
-        // Temps de parole de chaque locuteur pendant le mot, dans l'ordre des tours rencontrés.
+        // Each speaker's speaking time during the word, in the order of the turns met.
         let mut speech: Vec<(usize, f64)> = Vec::new();
         let (mut closest, mut distance) = (None, NEAR);
         for (t, &n) in turns[first..].iter().zip(&numbers[first..]) {
@@ -175,13 +175,13 @@ fn word_speakers(words: &[Word], turns: &[SpeakerTurn], numbers: &[usize]) -> Ve
     ids
 }
 
-/// Règle 2 : les interruptions de 2 mots ou moins, sans fin de phrase, rendues au locuteur en
-/// cours. Une seule passe, de gauche à droite.
+/// Rule 2: interruptions of 2 words or fewer, with no sentence end, given back to the current
+/// speaker. A single pass, left to right.
 ///
-/// « Au milieu de la phrase de quelqu'un d'autre » se lit comme dans le vault (`assign()`,
-/// repris à l'identique, spec #1) : le même locuteur de part et d'autre et aucune fin de phrase
-/// dans l'interruption. Le vault ne regarde pas si le mot d'avant finit une phrase ; on ne le
-/// regarde pas non plus, pour garder les mêmes répliques que lui.
+/// "In the middle of someone else's sentence" reads as in the vault (`assign()`, carried over
+/// as is, spec #1): the same speaker on both sides and no sentence end in the interruption.
+/// The vault does not check whether the word before ends a sentence; neither do we, to keep the
+/// same utterances as it does.
 fn return_interruptions(words: &[Word], ids: &mut [usize]) {
     let mut i = 0;
     while i < ids.len() {
@@ -201,13 +201,13 @@ fn return_interruptions(words: &[Word], ids: &mut [usize]) {
     }
 }
 
-/// Règle 3 : chaque changement de locuteur qui ne suit pas une fin de phrase est déplacé sur la
-/// fin de phrase la plus proche à 3 mots près, en arrière d'abord. Les changements déjà faits
-/// comptent pour les suivants.
+/// Rule 3: each speaker change that does not follow a sentence end is moved to the nearest
+/// sentence end within 3 words, backward first. Changes already made count for the following
+/// ones.
 ///
-/// « La plus proche » suit le vault (`assign()`, repris à l'identique, spec #1) : la plus proche
-/// en arrière (le retard habituel de la séparation) si elle existe, sinon la plus proche en
-/// avant, même quand celle d'avant est plus près.
+/// "The nearest" follows the vault (`assign()`, carried over as is, spec #1): the nearest one
+/// backward (the diarization's usual lag) if it exists, otherwise the nearest one forward, even
+/// when the forward one is closer.
 fn snap_to_sentence_ends(words: &[Word], ids: &mut [usize]) {
     let ends = |k: usize| ends_sentence(&words[k].text);
     for i in 1..ids.len() {
@@ -227,7 +227,7 @@ fn snap_to_sentence_ends(words: &[Word], ids: &mut [usize]) {
     }
 }
 
-/// Règle 5 : les répliques, des mots déjà attribués.
+/// Rule 5: the utterances, from the already attributed words.
 fn utterances(words: &[Word]) -> Vec<Utterance> {
     let mut utterances: Vec<Utterance> = Vec::new();
     for word in words {
@@ -241,7 +241,7 @@ fn utterances(words: &[Word]) -> Vec<Utterance> {
             }
         };
         if sequence {
-            let r = utterances.last_mut().expect("réplique en cours");
+            let r = utterances.last_mut().expect("utterance in progress");
             r.text.push(' ');
             r.text.push_str(text);
             r.end = r.end.max(word.end);

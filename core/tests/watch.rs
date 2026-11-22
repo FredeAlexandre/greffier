@@ -1,6 +1,6 @@
-//! Les fichiers font foi : ce qui change dans le dossier de réunions hors de l'app (un bilan
-//! retouché dans un éditeur, une transcription corrigée par un agent, un dossier supprimé dans le
-//! Finder) se voit dans l'app dès que le cœur relit le dossier, sans relancer.
+//! The files are the source of truth: what changes in the meetings folder outside the app (a
+//! summary touched up in an editor, a transcription corrected by an agent, a folder deleted in the
+//! Finder) shows in the app as soon as the core rescans the folder, without relaunching.
 
 mod bench;
 
@@ -101,9 +101,9 @@ fn a_folder_added_in_finder_makes_the_meeting_appear_in_its_place() {
     assert_eq!(events, [Event::MeetingAppeared(r.id)]);
     assert_eq!(r.title, "Rétro");
     assert_eq!(r.status, Status::Done);
-    assert!(bench.greffier.meetings().iter().filter(|x| x.id == r.id).count() == 1, "un identifiant neuf");
+    assert!(bench.greffier.meetings().iter().filter(|x| x.id == r.id).count() == 1, "a fresh identifier");
     assert_eq!(names(&bench), [RELEASE, name, "2026-11-19 15h30 - Réunion", "2026-11-18 09h15 - Réunion"]);
-    assert_eq!(bench.greffier.rescan_folder(), [], "une seule fois");
+    assert_eq!(bench.greffier.rescan_folder(), [], "only once");
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn running_recording_folder_does_not_appear_as_a_meeting() {
     assert_eq!(bench.greffier.rescan_folder(), []);
     assert!(bench.greffier.meetings().is_empty());
     bench.finish_recording();
-    assert_eq!(bench.greffier.rescan_folder(), [], "l'enregistrement arrêté est déjà connu");
+    assert_eq!(bench.greffier.rescan_folder(), [], "the stopped recording is already known");
     assert_eq!(bench.greffier.meetings().len(), 1);
 }
 
@@ -138,10 +138,10 @@ fn running_recording_folder_does_not_appear_as_a_meeting() {
 fn greffier_writes_reload_nothing() {
     let mut bench = Bench::new();
     let id = bench.record(3.0);
-    // Pendant tout le traitement (l'agent écrit le bilan), puis après.
+    // During the whole processing (the agent writes the summary), then after.
     for _ in 0..60 {
         bench.advance(0.1);
-        assert_eq!(bench.greffier.rescan_folder(), [], "pendant {:?}", bench.meeting(id).status);
+        assert_eq!(bench.greffier.rescan_folder(), [], "during {:?}", bench.meeting(id).status);
     }
     assert_eq!(bench.meeting(id).status, Status::Done);
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 1, name: "Khalid".into() });
@@ -160,9 +160,9 @@ fn a_change_during_processing_is_reread_afterwards() {
     bench.advance(0.2);
     let path = file(&bench, RELEASE, Role::ReadableTranscription);
     std::fs::write(&path, "retouchée").unwrap();
-    assert_eq!(bench.greffier.rescan_folder(), [], "la réunion en cours de traitement attend");
+    assert_eq!(bench.greffier.rescan_folder(), [], "the meeting being processed waits");
     bench.advance_until(id, |s| *s == Status::Done);
-    // Greffier a réécrit la transcription lisible à la fin de l'étape : plus rien à relire.
+    // Greffier rewrote the readable transcription at the end of the stage: nothing left to rescan.
     assert_eq!(bench.greffier.rescan_folder(), []);
 }
 
@@ -171,7 +171,7 @@ fn ticking_an_action_changes_only_its_checkbox_in_the_summary() {
     let mut bench = Bench::on_fixtures();
     let id = bench.named_meeting(RELEASE).id;
     let path = file(&bench, RELEASE, Role::Summary);
-    // Fins de ligne Windows, pas de saut de ligne final, une case hors des actions, un [X].
+    // Windows line endings, no final newline, a checkbox outside the actions, an [X].
     let before = bench.read(&path).trim_end().replace("- Aucune.", "- [X] Déjà tranchée").replace('\n', "\r\n");
     std::fs::write(&path, &before).unwrap();
     bench.greffier.rescan_folder();
@@ -182,13 +182,13 @@ fn ticking_an_action_changes_only_its_checkbox_in_the_summary() {
     assert_eq!(after.len(), before.len());
     assert_eq!(differences.len(), 1);
     assert!(after.contains("- [x] **Alexandre** — publier la release — lundi\r\n"));
-    assert_eq!(bench.meeting(id).summary, after, "le bilan de l'app est celui du fichier");
+    assert_eq!(bench.meeting(id).summary, after, "the app's summary is the file's");
 
     bench.execute(Command::CheckAction { meeting: id, action: 1, done: false });
     bench.execute(Command::CheckAction { meeting: id, action: 2, done: true });
     let after = bench.read(&path);
     assert!(after.contains("- [ ] **Khalid** — lancer la recette — vendredi\r\n"));
-    assert!(after.ends_with("- [X] Déjà tranchée"), "une case déjà cochée reste telle quelle");
+    assert!(after.ends_with("- [X] Déjà tranchée"), "an already ticked checkbox stays as is");
     assert_eq!(bench.greffier.rescan_folder(), []);
 }
 

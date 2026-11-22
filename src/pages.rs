@@ -1,5 +1,5 @@
-//! Les autres pages : premier lancement (dossier de réunions, ressources), vue d'ensemble,
-//! enregistrement, réglages, et le bandeau de notification.
+//! The other pages: first launch (meetings folder, resources), overview, recording, settings,
+//! and the notification toast.
 
 use rune::{El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Progress, ShortcutRecorder, Spinner, Switch};
@@ -70,7 +70,7 @@ fn stat(k: &Kit, value: String, label: &str) -> El {
         .child(text(label.to_owned()).font(k.ty.small).color(k.c.text_muted))
 }
 
-/// Premier lancement : où ranger les réunions.
+/// First launch: where to keep the meetings.
 pub fn welcome(s: &App, k: &Kit) -> El {
     let proposed = settings::suggested_folder();
     let mut body = card(k)
@@ -108,7 +108,7 @@ pub fn overview(s: &App, k: &Kit) -> El {
         .child(stat(k, format!("{without_summary}"), "en attente de bilan"))
         .child(stat(k, format!("{doubts}"), "passages à vérifier"));
 
-    // Temps en réunion par jour, les 12 derniers jours qui en ont.
+    // Time in meetings per day, over the last 12 days that have some.
     let mut days: Vec<(greffier_core::DateTime, f64)> = Vec::new();
     for m in meetings {
         let day = greffier_core::DateTime { hour: 0, minute: 0, ..m.start };
@@ -152,8 +152,8 @@ pub fn overview(s: &App, k: &Kit) -> El {
     page("overview", "Réunions", "Tout ce qui a été dit et décidé, enregistré sur ce Mac.", k, col().w_full().gap(16.0).child(stats).child(row().w_full().gap(16.0).items_start().flex_wrap().child(col().grow(3.0).min_w(420.0).child(recent)).child(col().grow(2.0).min_w(320.0).child(chart))))
 }
 
-/// Les barres d'un niveau : leur hauteur suit le niveau (0 à 1, `None` : source coupée), leur
-/// ondulation l'animation.
+/// A level's bars: their height follows the level (0 to 1, `None`: source off), their ripple
+/// the animation.
 fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64, seed: f64, level: Option<f32>) -> El {
     let on = level.is_some();
     let level = level.unwrap_or(0.0);
@@ -175,7 +175,7 @@ fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64,
         .child(bars)
 }
 
-/// Les autorisations de macOS dont les sources ont besoin, avec de quoi les demander.
+/// The macOS permissions the sources need, with a way to request them.
 pub fn permissions(s: &App, k: &Kit) -> El {
     let states = s.core.permissions();
     let mut c = card(k).key("permissions").child(heading(k, "Autorisations de macOS"));
@@ -199,7 +199,7 @@ pub fn permissions(s: &App, k: &Kit) -> El {
     c
 }
 
-/// Les autorisations en une ligne, pour les vérifications.
+/// The permissions on one line, for the checks.
 fn permissions_summary(s: &App, k: &Kit) -> El {
     let states = s.core.permissions();
     let missing: Vec<&str> = Permission::ALL.into_iter().filter(|a| states.state(*a) != PermissionState::Granted).map(Permission::name).collect();
@@ -207,7 +207,7 @@ fn permissions_summary(s: &App, k: &Kit) -> El {
     check_row(k, missing.is_empty(), "Autorisations macOS", &detail)
 }
 
-/// Les touches du raccourci global d'enregistrement (« ⇧⌘R »).
+/// The keys of the global recording shortcut ("⇧⌘R").
 pub fn shortcut_caps(s: &App) -> Vec<String> {
     s.shortcut.shortcut().map(|sc| sc.keycaps()).unwrap_or_default()
 }
@@ -382,7 +382,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
     page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(context).child(health))
 }
 
-/// L'état d'une ressource en quelques mots.
+/// A resource's state in a few words.
 fn resource_state(r: &Resource, state: &ResourceState) -> String {
     let percent = |received: u64, total: u64| (received as f64 / total.max(1) as f64 * 100.0).floor() as u64;
     match state {
@@ -433,8 +433,7 @@ fn resource_row(k: &Kit, i: usize, r: &Resource) -> El {
     row().key(format!("res{i}")).w_full().gap(12.0).items_start().py(6.0).child(el().w(18.0).pt(2.0).child(badge)).child(body)
 }
 
-/// Le premier lancement : l'état de chaque ressource, la progression des téléchargements et le
-/// résultat des vérifications.
+/// First launch: each resource's state, the downloads' progress and the checks' results.
 pub fn installation(s: &App, k: &Kit) -> El {
     let resources = s.core.resources();
     let running = s.core.installing();

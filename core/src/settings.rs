@@ -1,10 +1,10 @@
-//! Les réglages de l'app qui survivent à un redémarrage, dans son dossier
-//! (`~/Library/Application Support/Greffier/reglages.json`) : le dossier de réunions, le raccourci
-//! global, les sources, le démarrage automatique du traitement et les dossiers de contexte de
-//! l'agent. Rien n'est écrit dans le dossier de réunions lui-même. Les clés inconnues du fichier
-//! sont gardées (un réglage d'une version plus récente survit à un passage par celle-ci).
+//! The app's settings that survive a restart, in its folder
+//! (`~/Library/Application Support/Greffier/settings.json`): the meetings folder, the global
+//! shortcut, the sources, automatic start of processing and the agent's context folders.
+//! Nothing is written into the meetings folder itself. Unknown keys in the file are kept (a
+//! setting from a newer version survives a round trip through this one).
 //!
-//! C'est aussi le seul endroit qui sait où sont le dossier personnel et le dossier de l'app.
+//! It is also the only place that knows where the home folder and the app's folder are.
 
 use std::path::{Path, PathBuf};
 
@@ -13,36 +13,36 @@ use serde_json::{Value, json};
 use crate::Settings;
 use crate::adapters::Sources;
 
-/// Le dossier personnel de l'utilisateur (`$HOME`).
+/// The user's home folder (`$HOME`).
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Le dossier de l'app : `~/Library/Application Support/Greffier` (modèles, Python privé,
-/// lexique, cache de recherche, réglages).
+/// The app's folder: `~/Library/Application Support/Greffier` (models, private Python,
+/// lexicon, search cache, settings).
 pub fn app_folder() -> PathBuf {
     home().join("Library/Application Support/Greffier")
 }
 
-/// Le dossier de réunions proposé au premier lancement.
+/// The meetings folder suggested on first launch.
 pub fn suggested_folder() -> PathBuf {
     home().join("Documents/Réunions")
 }
 
-/// Le cache de recherche, dans le dossier de l'app.
+/// The search cache, in the app's folder.
 pub fn search_cache(app_folder: &Path) -> PathBuf {
     app_folder.join("search")
 }
 
-/// Le raccourci global d'enregistrement par défaut (au format de Rune).
+/// The default global recording shortcut (in Rune's format).
 pub const DEFAULT_SHORTCUT: &str = "cmd+shift+r";
 
-/// Les réglages retenus d'un lancement à l'autre.
+/// The settings kept from one launch to the next.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PersistedSettings {
-    /// Le dossier de réunions choisi, s'il l'a été.
+    /// The chosen meetings folder, if one was chosen.
     pub meetings_folder: Option<PathBuf>,
-    /// Le raccourci global d'enregistrement (« cmd+shift+r ») ; vide : aucun.
+    /// The global recording shortcut ("cmd+shift+r"); empty: none.
     pub shortcut: String,
     pub process_on_stop: bool,
     pub sources: Sources,
@@ -60,14 +60,14 @@ fn file(app_folder: &Path) -> PathBuf {
     app_folder.join("settings.json")
 }
 
-/// Le fichier des réglages tel quel ; absent ou illisible : un objet vide.
+/// The settings file as is; missing or unreadable: an empty object.
 fn read_file(app_folder: &Path) -> Value {
     std::fs::read_to_string(file(app_folder)).ok().and_then(|j| serde_json::from_str::<Value>(&j).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}))
 }
 
 impl PersistedSettings {
-    /// Les réglages retenus dans ce dossier de l'app ; ce qui manque (ou tout, si le fichier
-    /// manque ou est illisible) prend sa valeur par défaut. N'écrit rien.
+    /// The settings kept in this app folder; whatever is missing (or everything, if the file is
+    /// missing or unreadable) takes its default value. Writes nothing.
     pub fn read(app_folder: &Path) -> PersistedSettings {
         let v = read_file(app_folder);
         let d = PersistedSettings::default();
@@ -81,8 +81,8 @@ impl PersistedSettings {
         }
     }
 
-    /// Écrit ces réglages dans le dossier de l'app (créé s'il manque), en gardant les clés que
-    /// cette version ne connaît pas. Écriture atomique.
+    /// Writes these settings into the app's folder (created if missing), keeping the keys this
+    /// version does not know. Atomic write.
     pub fn remember(&self, app_folder: &Path) -> Result<(), String> {
         let mut v = read_file(app_folder);
         let path = |p: &Path| Value::String(p.to_string_lossy().into_owned());
@@ -104,13 +104,13 @@ impl PersistedSettings {
         std::fs::write(&temp, text).and_then(|()| std::fs::rename(&temp, &f)).map_err(|e| format!("{} : {e}", f.display()))
     }
 
-    /// Les réglages du cœur avec ceux-ci (sources, démarrage du traitement, dossiers de
-    /// contexte) ; lexique et cache de recherche ne changent pas.
+    /// The core's settings with these applied (sources, processing start, context folders);
+    /// lexicon and search cache do not change.
     pub fn apply(&self, settings: Settings) -> Settings {
         Settings { process_on_stop: self.process_on_stop, sources: self.sources, context_folders: self.context_folders.clone(), ..settings }
     }
 
-    /// Reprend sources, démarrage du traitement et dossiers de contexte des réglages du cœur.
+    /// Takes the sources, processing start and context folders from the core's settings.
     pub fn from_meeting(&mut self, settings: &Settings) {
         self.process_on_stop = settings.process_on_stop;
         self.sources = settings.sources;
@@ -118,12 +118,12 @@ impl PersistedSettings {
     }
 }
 
-/// Crée le dossier de réunions s'il n'existe pas.
+/// Creates the meetings folder if it does not exist.
 pub fn create_meetings_folder(folder: &Path) -> Result<(), String> {
     std::fs::create_dir_all(folder).map_err(|e| format!("{} : {e}", folder.display()))
 }
 
-/// Crée le dossier de réunions s'il n'existe pas et le retient pour les lancements suivants.
+/// Creates the meetings folder if it does not exist and remembers it for later launches.
 pub fn choose_meetings_folder(app_folder: &Path, folder: &Path) -> Result<(), String> {
     create_meetings_folder(folder)?;
     let mut r = PersistedSettings::read(app_folder);

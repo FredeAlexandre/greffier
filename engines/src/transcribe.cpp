@@ -1,14 +1,14 @@
-// Une transcription whisper.cpp avec les réglages de la commande du vault :
+// A whisper.cpp transcription with the settings of the vault's command:
 //
 //     whisper-cli -m ggml-large-v3.bin -f audio.wav -l fr -t 6 \
-//       [--prompt "<vocabulaire>" --carry-initial-prompt] -ml 1 -sow -ojf \
+//       [--prompt "<vocabulary>" --carry-initial-prompt] -ml 1 -sow -ojf \
 //       --vad -vm ggml-silero-v5.1.2.bin -pp -np
 //
-// Les paramètres sont posés exactement comme examples/cli/cli.cpp les pose (valeurs par défaut de
-// whisper-cli pour tout le reste : beam 5, best-of 5, température 0 avec repli de 0,2…). Chaque
-// segment (un mot, grâce à -ml 1 -sow) est rendu avec sa confiance : le minimum des `p` de ses
-// jetons, sans les jetons spéciaux (« [_BEG_] », « [_TT_…] »), comme le lisait le vault dans le
-// JSON complet (jetons UTF-8 coupés regroupés, `p` du premier).
+// The parameters are set exactly as examples/cli/cli.cpp sets them (whisper-cli defaults for
+// everything else: beam 5, best-of 5, temperature 0 with a 0.2 fallback step…). Each segment (one
+// word, thanks to -ml 1 -sow) is returned with its confidence: the minimum `p` of its tokens,
+// excluding special tokens ("[_BEG_]", "[_TT_…]"), as the vault read it from the full JSON (split
+// UTF-8 tokens grouped, `p` of the first one).
 
 #include "whisper.h"
 
@@ -19,29 +19,29 @@
 
 extern "C" {
 
-struct greffier_reglages {
-    const char * modele;
+struct greffier_settings {
+    const char * model;
     const char * vad;
-    const char * langue;
+    const char * language;
     int threads;
-    // Vide : pas de prompt.
-    const char * vocabulaire;
+    // Empty: no prompt.
+    const char * vocabulary;
 };
 
-typedef void (*greffier_mot)(void * user, const char * texte, int64_t t0_ms, int64_t t1_ms, float p);
-typedef void (*greffier_progres)(void * user, int progres);
-typedef bool (*greffier_abandon)(void * user);
+typedef void (*greffier_word)(void * user, const char * text, int64_t t0_ms, int64_t t1_ms, float p);
+typedef void (*greffier_progress)(void * user, int progress);
+typedef bool (*greffier_abort)(void * user);
 
-static std::string derniere_erreur;
+static std::string last_error;
 
-static void journal(enum ggml_log_level niveau, const char * texte, void *) {
-    if (niveau == GGML_LOG_LEVEL_ERROR && texte) {
-        derniere_erreur = texte;
+static void log_callback(enum ggml_log_level level, const char * text, void *) {
+    if (level == GGML_LOG_LEVEL_ERROR && text) {
+        last_error = text;
     }
 }
 
-// utf8_trailing_bytes_needed d'examples/common-whisper.cpp.
-static int octets_utf8_manquants(const std::string & s) {
+// utf8_trailing_bytes_needed from examples/common-whisper.cpp.
+static int utf8_missing_bytes(const std::string & s) {
     const int n = (int) s.size();
     int i = n - 1;
     while (i >= 0 && ((unsigned char) s[i] & 0xC0) == 0x80) {
@@ -51,38 +51,38 @@ static int octets_utf8_manquants(const std::string & s) {
         return 0;
     }
     const unsigned char c = (unsigned char) s[i];
-    int attendu;
+    int expected;
     if ((c & 0x80) == 0x00) {
-        attendu = 1;
+        expected = 1;
     } else if ((c & 0xE0) == 0xC0) {
-        attendu = 2;
+        expected = 2;
     } else if ((c & 0xF0) == 0xE0) {
-        attendu = 3;
+        expected = 3;
     } else if ((c & 0xF8) == 0xF0) {
-        attendu = 4;
+        expected = 4;
     } else {
         return 0;
     }
     const int present = n - i;
-    return present >= attendu ? 0 : (attendu - present);
+    return present >= expected ? 0 : (expected - present);
 }
 
-struct rappels {
+struct callbacks {
     void * user;
-    greffier_progres progres;
-    greffier_abandon abandon;
+    greffier_progress progress;
+    greffier_abort should_abort;
 };
 
-// 0 : fini ; 1 : modèle illisible ; 2 : échec de whisper ; 3 : abandon.
-int greffier_transcribe(const greffier_reglages * r, const float * pcm, int n, void * user, greffier_mot mot, greffier_progres progres, greffier_abandon abandon,
-                        char * erreur, int taille_erreur) {
-    whisper_log_set(journal, nullptr);
-    derniere_erreur.clear();
-    auto rendre_erreur = [&](const char * defaut) {
-        const std::string & m = derniere_erreur.empty() ? std::string(defaut) : derniere_erreur;
-        if (taille_erreur > 0) {
-            std::strncpy(erreur, m.c_str(), taille_erreur - 1);
-            erreur[taille_erreur - 1] = 0;
+// 0: done; 1: model unreadable; 2: whisper failed; 3: aborted.
+int greffier_transcribe(const greffier_settings * r, const float * pcm, int n, void * user, greffier_word word, greffier_progress progress, greffier_abort should_abort,
+                        char * error, int error_size) {
+    whisper_log_set(log_callback, nullptr);
+    last_error.clear();
+    auto return_error = [&](const char * fallback) {
+        const std::string & m = last_error.empty() ? std::string(fallback) : last_error;
+        if (error_size > 0) {
+            std::strncpy(error, m.c_str(), error_size - 1);
+            error[error_size - 1] = 0;
         }
     };
 
@@ -90,24 +90,24 @@ int greffier_transcribe(const greffier_reglages * r, const float * pcm, int n, v
     cparams.use_gpu = true;
     cparams.gpu_device = 0;
     cparams.flash_attn = true;
-    whisper_context * ctx = whisper_init_from_file_with_params(r->modele, cparams);
+    whisper_context * ctx = whisper_init_from_file_with_params(r->model, cparams);
     if (!ctx) {
-        rendre_erreur("impossible de charger le modèle");
+        return_error("impossible de charger le modèle");
         return 1;
     }
 
-    const bool avec_vocabulaire = r->vocabulaire && r->vocabulaire[0];
+    const bool with_vocabulary = r->vocabulary && r->vocabulary[0];
 
     whisper_full_params w = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     const int beam_size = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH).beam_search.beam_size;
     const int best_of = whisper_full_default_params(WHISPER_SAMPLING_GREEDY).greedy.best_of;
     w.strategy = beam_size > 1 ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY;
     w.print_realtime = false;
-    w.print_progress = false;  // -pp : l'avancement passe par le rappel
+    w.print_progress = false;  // -pp: progress goes through the callback
     w.print_timestamps = true;
     w.print_special = false;
     w.translate = false;
-    w.language = r->langue;
+    w.language = r->language;
     w.detect_language = false;
     w.n_threads = r->threads;
     w.offset_ms = 0;
@@ -120,8 +120,8 @@ int greffier_transcribe(const greffier_reglages * r, const float * pcm, int n, v
     w.debug_mode = false;
     w.tdrz_enable = false;
     w.suppress_regex = nullptr;
-    w.initial_prompt = avec_vocabulaire ? r->vocabulaire : "";
-    w.carry_initial_prompt = avec_vocabulaire;
+    w.initial_prompt = with_vocabulary ? r->vocabulary : "";
+    w.carry_initial_prompt = with_vocabulary;
     w.greedy.best_of = best_of;
     w.beam_search.beam_size = beam_size;
     w.temperature_inc = 0.2f;
@@ -140,55 +140,55 @@ int greffier_transcribe(const greffier_reglages * r, const float * pcm, int n, v
     w.vad_params.speech_pad_ms = 30;
     w.vad_params.samples_overlap = 0.1f;
 
-    rappels rp{user, progres, abandon};
+    callbacks rp{user, progress, should_abort};
     w.progress_callback = [](whisper_context *, whisper_state *, int p, void * u) {
-        auto * rp = (rappels *) u;
-        rp->progres(rp->user, p);
+        auto * rp = (callbacks *) u;
+        rp->progress(rp->user, p);
     };
     w.progress_callback_user_data = &rp;
     w.abort_callback = [](void * u) {
-        auto * rp = (rappels *) u;
-        return rp->abandon(rp->user);
+        auto * rp = (callbacks *) u;
+        return rp->should_abort(rp->user);
     };
     w.abort_callback_user_data = &rp;
     w.encoder_begin_callback = [](whisper_context *, whisper_state *, void * u) {
-        auto * rp = (rappels *) u;
-        return !rp->abandon(rp->user);
+        auto * rp = (callbacks *) u;
+        return !rp->should_abort(rp->user);
     };
     w.encoder_begin_callback_user_data = &rp;
 
     const int res = whisper_full(ctx, w, pcm, n);
-    if (abandon(user)) {
+    if (should_abort(user)) {
         whisper_free(ctx);
         return 3;
     }
     if (res != 0) {
-        rendre_erreur("whisper a échoué");
+        return_error("whisper a échoué");
         whisper_free(ctx);
         return 2;
     }
 
     const int n_segments = whisper_full_n_segments(ctx);
     for (int i = 0; i < n_segments; ++i) {
-        const char * texte = whisper_full_get_segment_text(ctx, i);
+        const char * text = whisper_full_get_segment_text(ctx, i);
         const int64_t t0 = whisper_full_get_segment_t0(ctx, i) * 10;
         const int64_t t1 = whisper_full_get_segment_t1(ctx, i) * 10;
         float p = 1.0f;
-        bool vu = false;
+        bool seen = false;
         const int nt = whisper_full_n_tokens(ctx, i);
         for (int j = 0; j < nt;) {
             whisper_token_data d = whisper_full_get_token_data(ctx, i, j);
             std::string t = whisper_token_to_str(ctx, d.id);
             ++j;
-            while (j < nt && octets_utf8_manquants(t) > 0) {
+            while (j < nt && utf8_missing_bytes(t) > 0) {
                 t += whisper_token_to_str(ctx, whisper_full_get_token_data(ctx, i, j).id);
                 ++j;
             }
             if (t.rfind("[_", 0) == 0) continue;
-            p = vu ? (d.p < p ? d.p : p) : d.p;
-            vu = true;
+            p = seen ? (d.p < p ? d.p : p) : d.p;
+            seen = true;
         }
-        mot(user, texte, t0, t1, p);
+        word(user, text, t0, t1, p);
     }
     whisper_free(ctx);
     return 0;

@@ -1,9 +1,9 @@
-//! Données fictives du prototype, en attendant le dossier de réunions. La forme suit ce que
-//! produisait l'outil « Réunions » du vault : locuteurs SPEAKER_xx avec un nom proposé, répliques
-//! horodatées, passages à vérifier, sujets horodatés, décisions, actions et questions ouvertes.
+//! The prototype's fake data, until the meetings folder exists. The shape follows what the
+//! vault's "Réunions" tool produced: SPEAKER_xx speakers with a suggested name, timestamped
+//! utterances, passages to check, timestamped topics, decisions, actions and open questions.
 //!
-//! [`adaptateurs`] branche les faux adaptateurs du prototype : une capture au temps accéléré, un
-//! transcripteur et un séparateur qui inventent une réunion courte, un agent qui en écrit le bilan.
+//! [`adapters`] plugs in the prototype's fake adapters: a capture with sped-up time, a
+//! transcriber and a diarizer that invent a short meeting, an agent that writes its summary.
 
 use crate::adapters::{Adapters, SummaryRequest, ResourceState, SummarySpeaker, Resource, ReviewResult, SummaryResult};
 use crate::fake::{FakeCapture, FakeTrash, FakeClock, FakeMp4Muxer, FakeResources, FakeAgent, FakeDiarizer, FakeTranscriber};
@@ -11,19 +11,19 @@ use crate::meeting::{Stage, Speaker, Word, PassageToCheck, Marker, Utterance, Me
 use crate::time::{DateTime, hms};
 use crate::{summary, folder};
 
-/// Aujourd'hui, pour les données fictives : samedi 21 novembre 2026, 14h02.
+/// Today, for the fake data: Saturday 21 November 2026, 14:02.
 pub const TODAY: DateTime = DateTime::new(2026, 11, 21, 14, 2);
 
-/// Le temps de l'enregistrement va 20 fois plus vite que l'horloge, pour la démo.
+/// Recording time runs 20 times faster than the clock, for the demo.
 pub const RECORDING_SPEED: f64 = 20.0;
 
-/// Durée simulée d'une étape, en secondes : son poids (6 s de transcription, 4,5 s de relecture
-/// et de bilan), pour que l'estimation du temps restant tombe juste dans la démo.
+/// Simulated duration of a stage, in seconds: its weight (6 s of transcription, 4.5 s of review
+/// and of summary), so the remaining-time estimate comes out right in the demo.
 pub fn simulated_duration(stage: Stage) -> f64 {
     stage.weight()
 }
 
-/// Les personnes du lexique, proposées quand on nomme un locuteur.
+/// The lexicon's people, suggested when naming a speaker.
 pub const PEOPLE: [&str; 7] = ["Alexandre", "Jérôme", "Khalid", "Pablo", "Aref", "Nico", "Samuel"];
 
 struct Lcg(u64);
@@ -75,8 +75,8 @@ const FILLERS: [&str; 24] = [
     "Juste une question avant : ça part en prod quand ?",
 ];
 
-/// Remplit les trous entre les répliques clés avec des répliques de remplissage, pour que la
-/// timeline et la transcription aient la densité d'une vraie réunion.
+/// Fills the gaps between the key utterances with filler utterances, so the timeline and the
+/// transcription have the density of a real meeting.
 fn weave(keys: Vec<Utterance>, duration: f64, weights: &[f64], seed: u64) -> Vec<Utterance> {
     let mut rng = Lcg(seed);
     let mut out = Vec::new();
@@ -100,7 +100,7 @@ fn weave(keys: Vec<Utterance>, duration: f64, weights: &[f64], seed: u64) -> Vec
             sp = rng.pick(weights);
         }
         let text = FILLERS[(rng.next() % FILLERS.len() as u64) as usize].to_string();
-        out.push(Utterance { speaker: sp, start: t, end: t + len, text: text, passages: vec![] });
+        out.push(Utterance { speaker: sp, start: t, end: t + len, text, passages: vec![] });
         last = sp;
         t += len + rng.range(0.3, 3.0);
     }
@@ -108,7 +108,7 @@ fn weave(keys: Vec<Utterance>, duration: f64, weights: &[f64], seed: u64) -> Vec
 }
 
 fn u(speaker: usize, start: f64, len: f64, text: &str) -> Utterance {
-    Utterance { speaker, start: start, end: start + len, text: text.to_string(), passages: vec![] }
+    Utterance { speaker, start, end: start + len, text: text.to_string(), passages: vec![] }
 }
 
 fn sp(label: &str, guess: &str, evidence: &str, hue: f32, confirmed: bool) -> Speaker {
@@ -120,7 +120,7 @@ fn sp(label: &str, guess: &str, evidence: &str, hue: f32, confirmed: bool) -> Sp
     }
 }
 
-/// Relie chaque passage douteux à la réplique qui contient son extrait.
+/// Links each doubtful passage to the utterance that contains its excerpt.
 fn attach_doubts(utterances: &mut [Utterance], doubts: &mut [PassageToCheck]) {
     for (di, d) in doubts.iter_mut().enumerate() {
         if let Some(ui) = utterances.iter().position(|x| x.text.contains(&d.excerpt) && x.passages.is_empty()) {
@@ -134,7 +134,7 @@ fn doubt(excerpt: &str, hypothesis: Option<&str>, relisten: &str) -> PassageToCh
     PassageToCheck { utterance: 0, excerpt: excerpt.into(), hypothesis: hypothesis.map(Into::into), relisten: relisten.into(), status: PassageStatus::Pending }
 }
 
-/// Une réunion entièrement traitée.
+/// A fully processed meeting.
 fn done_meeting(id: u32, start: DateTime, duration: f64, title: &str) -> Meeting {
     Meeting {
         title: title.into(),
@@ -145,7 +145,7 @@ fn done_meeting(id: u32, start: DateTime, duration: f64, title: &str) -> Meeting
     }
 }
 
-/// La revue de release : la réunion détaillée du prototype.
+/// The release review: the prototype's detailed meeting.
 pub fn release_review(id: u32) -> Meeting {
     let duration = hms(2, 34, 22);
     let mut demo_speakers = vec![
@@ -200,7 +200,7 @@ pub fn release_review(id: u32) -> Meeting {
     attach_doubts(&mut utterances, &mut doubts);
     Meeting {
         speakers: demo_speakers,
-        utterances: utterances,
+        utterances,
         passages: doubts,
         markers: vec![Marker { instant: hms(1, 58, 45), label: "Ma démo bookmarks".into() }],
         corrections: 147,
@@ -217,7 +217,7 @@ pub struct Brief<'a> {
     pub actions: &'a [(&'a str, &'a str)],
 }
 
-/// Les locuteurs des réunions courtes : (étiquette, nom, justification, teinte).
+/// The speakers of the short meetings: (label, name, justification, hue).
 const TEAM: [(&str, &str, &str, f32); 4] = [
     ("SPEAKER_00", "Khalid", "Anime le point et distribue les sujets.", 160.0),
     ("SPEAKER_01", "Alexandre", "Parle de ses tickets en cours.", 255.0),
@@ -225,13 +225,13 @@ const TEAM: [(&str, &str, &str, f32); 4] = [
     ("SPEAKER_03", "Aref", "Produit et data.", 200.0),
 ];
 
-/// Le début de chaque sujet d'une réunion courte.
+/// The start of each topic of a short meeting.
 fn topic_starts(b: &Brief, duration: f64) -> Vec<f64> {
     let n = b.topics.len().max(1) as f64;
     (0..b.topics.len()).map(|i| 1.0 + duration * i as f64 / n).collect()
 }
 
-/// Les répliques d'une réunion courte : une par sujet, tissées de répliques de remplissage.
+/// The utterances of a short meeting: one per topic, woven with filler utterances.
 fn generic_utterances(b: &Brief, duration: f64, seed: u64) -> Vec<Utterance> {
     let starts = topic_starts(b, duration);
     let keys: Vec<Utterance> = b
@@ -244,7 +244,7 @@ fn generic_utterances(b: &Brief, duration: f64, seed: u64) -> Vec<Utterance> {
     weave(keys, duration, &[0.35, 0.25, 0.25, 0.15], seed)
 }
 
-/// Une réunion courte et générique (daily, point produit), entièrement traitée.
+/// A short, generic meeting (daily, product sync), fully processed.
 pub fn generic(id: u32, start: DateTime, duration: f64, b: &Brief, seed: u64) -> Meeting {
     Meeting {
         speakers: TEAM.iter().map(|(l, n, j, h)| sp(l, n, j, *h, true)).collect(),
@@ -255,7 +255,7 @@ pub fn generic(id: u32, start: DateTime, duration: f64, b: &Brief, seed: u64) ->
     .with_summary(brief_markdown(b, duration, &topic_starts(b, duration)))
 }
 
-/// Le bilan qu'écrirait l'agent pour une réunion courte, au format du prompt du bilan.
+/// The summary the agent would write for a short meeting, in the summary prompt's format.
 fn brief_markdown(b: &Brief, duration: f64, starts: &[f64]) -> String {
     let ts = |t: f64| {
         let t = t as u64;
@@ -283,12 +283,12 @@ fn brief_markdown(b: &Brief, duration: f64, starts: &[f64]) -> String {
     md
 }
 
-/// Une réunion enregistrée mais pas encore traitée.
+/// A meeting recorded but not processed yet.
 pub fn to_process(id: u32, start: DateTime, duration: f64) -> Meeting {
     Meeting::new(id, folder::folder_name(start, "Réunion"), start, duration)
 }
 
-/// Ce que les faux adaptateurs inventent pour toute nouvelle réunion.
+/// What the fake adapters invent for any new meeting.
 pub const NEW_MEETING: Brief = Brief {
     title: "Point produit : maquettes bookmarks, staging",
     brief: "Alexandre a montré les trois maquettes des bookmarks. La version allégée est retenue pour les bêta-testeurs. Pablo signale que staging sera indisponible mardi matin. Aref veut revoir la colonne labels dans l'Explore.",
@@ -301,7 +301,7 @@ pub const NEW_MEETING: Brief = Brief {
     actions: &[("Alexandre", "Envoyer la version allégée aux bêta-testeurs"), ("Aref", "Spécifier le tri par label dans l'Explore"), ("Pablo", "Prévenir l'équipe de la coupure de staging")],
 };
 
-/// Les réunions du prototype, les plus récentes d'abord.
+/// The prototype's meetings, most recent first.
 pub fn meetings() -> Vec<Meeting> {
     let m = |h, mi| hms(h, mi, 0);
     let on_day = |day, h, mi| DateTime::new(2026, 11, day, h, mi);
@@ -335,7 +335,7 @@ pub fn meetings() -> Vec<Meeting> {
             decisions: &["Une page par règle dans le dépôt docs."],
             actions: &[("Alexandre", "Rédiger les dix premières règles"), ("Aref", "Relire les règles data")],
         }),
-        // Dimanche, pour rester dans « Semaine dernière » de la barre latérale.
+        // Sunday, to stay in the sidebar's "Semaine dernière".
         (on_day(15, 9, 32), m(1, 32), Brief {
             title: "Daily : sponsorships manquants, banc Sportload",
             brief: "Analyse du banc d'essai sur 83 marques Sportload : 12 sponsorships manquants.",
@@ -378,8 +378,8 @@ pub fn meetings() -> Vec<Meeting> {
     v
 }
 
-/// Les mots et les tours de parole d'une nouvelle réunion inventée : chaque réplique de
-/// [`NOUVELLE_REUNION`] devient des mots contigus et un tour de parole.
+/// The words and speaker turns of a new invented meeting: each utterance of [`NEW_MEETING`]
+/// becomes contiguous words and a speaker turn.
 fn new_transcription(duration: f64, seed: u64) -> (Vec<Word>, Vec<SpeakerTurn>) {
     let mut words = Vec::new();
     let mut turns = Vec::new();
@@ -393,7 +393,7 @@ fn new_transcription(duration: f64, seed: u64) -> (Vec<Word>, Vec<SpeakerTurn>) 
         }
         turns.push(SpeakerTurn { start: r.start, end: r.end, speaker: TEAM[r.speaker].0.into() });
     }
-    // Toute l'équipe est détectée, même qui ne parle presque pas.
+    // The whole team is detected, even those who barely speak.
     for (l, ..) in TEAM {
         if !turns.iter().any(|t| t.speaker == l) {
             turns.push(SpeakerTurn { start: duration, end: duration, speaker: l.into() });
@@ -402,8 +402,8 @@ fn new_transcription(duration: f64, seed: u64) -> (Vec<Word>, Vec<SpeakerTurn>) 
     (words, turns)
 }
 
-/// Le bilan de l'agent fictif : le bilan actuel quand on le refait, sinon celui de
-/// [`NOUVELLE_REUNION`].
+/// The fake agent's summary: the current summary when it is redone, otherwise that of
+/// [`NEW_MEETING`].
 fn invented_summary(d: &SummaryRequest) -> Result<(String, SummaryResult), String> {
     let session = Some("session-fictive".to_string());
     if let Some(md) = &d.current_summary {
@@ -427,9 +427,9 @@ fn invented_summary(d: &SummaryRequest) -> Result<(String, SummaryResult), Strin
     Ok((md, result))
 }
 
-/// Les faux adaptateurs du prototype.
+/// The prototype's fake adapters.
 pub fn adapters() -> Adapters {
-    // Le transcripteur et le séparateur inventent la même réunion : même graine, appel après appel.
+    // The transcriber and the diarizer invent the same meeting: same seed, call after call.
     let (mut seed_t, mut seed_s) = (100, 100);
     Adapters {
         capture: Box::new(FakeCapture::new(RECORDING_SPEED, 60.0)),
@@ -453,7 +453,7 @@ fn resource(name: &str, detail: &str, state: ResourceState, size: u64, total: u6
     Resource { name: name.into(), detail: detail.into(), state, size, total, help: None, stages: stages.to_vec() }
 }
 
-/// Les ressources d'une installation complète, aux tailles réelles.
+/// The resources of a complete installation, at their real sizes.
 pub fn resources() -> Vec<Resource> {
     let t = [Stage::Transcription];
     vec![
@@ -465,13 +465,13 @@ pub fn resources() -> Vec<Resource> {
     ]
 }
 
-/// Un premier lancement en cours : whisper se télécharge, le Python s'installe, le sha256 d'un
-/// fichier de pyannote n'a pas correspondu et la CLI `claude` n'est pas installée.
+/// A first launch in progress: whisper is downloading, Python is installing, the sha256 of a
+/// pyannote file did not match and the `claude` CLI is not installed.
 pub fn installing_resources() -> Vec<Resource> {
     let mut r = resources();
     r[0].state = ResourceState::Downloading { received: 1_342_177_280, total: 3_095_033_483 };
     r[0].size = 1_342_177_280;
-    r[2].state = ResourceState::Failed("sha256 incorrect pour modeles/pyannote-community-1/embedding/pytorch_model.bin. Le fichier est supprimé ; il sera retéléchargé au prochain essai.".into());
+    r[2].state = ResourceState::Failed("sha256 incorrect pour models/pyannote-community-1/embedding/pytorch_model.bin. Le fichier est supprimé ; il sera retéléchargé au prochain essai.".into());
     r[2].size = 6_174_803;
     r[3].state = ResourceState::Installing;
     r[3].size = 0;
@@ -481,7 +481,7 @@ pub fn installing_resources() -> Vec<Resource> {
     r
 }
 
-/// Le bilan de la revue de release, comme l'agent l'écrit avec le prompt du bilan.
+/// The release review's summary, as the agent writes it with the summary prompt.
 const RELEASE_SUMMARY: &str = r#"## En bref
 
 Khalid a présenté à Jérôme les correctifs de la release. La plus grosse partie de la réunion a porté sur le cas Hisense remonté par Sportload : le Search, les URL et les brand IDs donnent accès à des marques hors du dataset du client. Décision : on vend **« au moins 10 000 marques »**, et le dataset d'un client devient sa wave plus les sponsors actifs des ayants droit achetés, en ajout seulement. Le filtre fiscal year reçoit un badge Alpha. Les labels des bookmarks plaisent mais l'interface est trop chargée : trois versions iront aux bêta-testeurs.

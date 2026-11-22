@@ -1,20 +1,20 @@
-//! La durée d'un enregistrement MP4, lue dans ses boîtes sans décoder le média : `moov/mvhd`,
-//! `moov/mvex/mehd` pour un MP4 fragmenté, et la fin du dernier fragment (`moof/traf` : `tfdt` et
-//! `trun`) pour un MP4 fragmenté que l'arrêt brutal de l'app a laissé sans durée. On garde la plus
-//! longue : un fichier coupé peut annoncer dans son `moov` la durée de son seul premier morceau.
+//! An MP4 recording's duration, read from its boxes without decoding the media: `moov/mvhd`,
+//! `moov/mvex/mehd` for a fragmented MP4, and the end of the last fragment (`moof/traf`: `tfdt` and
+//! `trun`) for a fragmented MP4 that the app's abrupt stop left without a duration. The longest is
+//! kept: a cut-off file may announce in its `moov` the duration of its first chunk only.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-/// La durée en secondes, ou `None` si le fichier n'est pas un MP4 lisible ou ne la dit pas.
+/// The duration in seconds, or `None` if the file is not a readable MP4 or does not state it.
 pub fn duration(path: &Path) -> Option<f64> {
     let mut f = File::open(path).ok()?;
     let size = f.metadata().ok()?.len();
     let mut pos = 0;
     let mut movie: Option<Movie> = None;
     let mut end = 0.0_f64;
-    // Une boîte tronquée (écriture coupée) arrête la lecture : ce qui précède compte.
+    // A truncated box (interrupted write) stops reading: what comes before counts.
     while pos + 8 <= size {
         f.seek(SeekFrom::Start(pos)).ok()?;
         let Some((length, name, header)) = read_header(&mut f, size - pos) else { break };
@@ -34,11 +34,11 @@ pub fn duration(path: &Path) -> Option<f64> {
     (duration > 0.0).then_some(duration)
 }
 
-/// Ce que dit le `moov` : sa durée (0 si inconnue) et, par piste, l'échelle de temps et la fin
-/// des échantillons déjà rangés.
+/// What the `moov` says: its duration (0 if unknown) and, per track, the timescale and the end
+/// of the samples already stored.
 struct Movie {
     duration: f64,
-    /// (identifiant de piste, échelle, fin courante, durée d'échantillon par défaut du `trex`)
+    /// (track id, timescale, current end, the `trex`'s default sample duration)
     tracks: Vec<(u64, u64, u64, u64)>,
 }
 
@@ -76,7 +76,7 @@ impl Movie {
         Some(Movie { duration, tracks })
     }
 
-    /// Avance les pistes du fragment ; rend la fin la plus tardive, en secondes.
+    /// Advances the fragment's tracks; returns the latest end, in seconds.
     fn fragment(&mut self, moof: &[u8]) -> f64 {
         let mut end = 0.0_f64;
         for (_, traf) in boxes(moof).filter(|(n, _)| n == b"traf") {
@@ -106,7 +106,7 @@ impl Movie {
     }
 }
 
-/// La somme des durées des échantillons d'un `trun`.
+/// The sum of a `trun`'s sample durations.
 fn trun_duration(trun: &[u8], default: u64) -> Option<u64> {
     let flags = u32_a(trun, 0)? & 0xff_ffff;
     let number = u32_a(trun, 4)?;
@@ -128,18 +128,18 @@ fn trun_duration(trun: &[u8], default: u64) -> Option<u64> {
     Some(total)
 }
 
-/// La date de création inscrite dans `moov/mvhd`, si elle y est (0 veut dire absente).
+/// The creation date stored in `moov/mvhd`, if present (0 means absent).
 pub fn creation_date(path: &Path) -> Option<std::time::SystemTime> {
     let moov = moov(path)?;
     let (_, mvhd) = boxes(&moov).find(|(n, _)| n == b"mvhd")?;
     let seconds = if *mvhd.first()? == 1 { u64_a(mvhd, 4)? } else { u32_a(mvhd, 4)? };
-    // Les dates MP4 comptent depuis le 1er janvier 1904.
+    // MP4 dates count from January 1, 1904.
     const FROM_1904_TO_1970: u64 = 2_082_844_800;
     let unix = seconds.checked_sub(FROM_1904_TO_1970).filter(|_| seconds > 0)?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix))
 }
 
-/// Le contenu de la boîte `moov`.
+/// The content of the `moov` box.
 fn moov(path: &Path) -> Option<Vec<u8>> {
     let mut f = File::open(path).ok()?;
     let size = f.metadata().ok()?.len();
@@ -157,7 +157,7 @@ fn moov(path: &Path) -> Option<Vec<u8>> {
     None
 }
 
-/// (longueur totale, nom, longueur de l'en-tête) de la boîte qui commence ici.
+/// (total length, name, header length) of the box starting here.
 fn read_header(f: &mut File, rest: u64) -> Option<(u64, [u8; 4], u64)> {
     let mut b = [0; 8];
     f.read_exact(&mut b).ok()?;
@@ -174,7 +174,7 @@ fn read_header(f: &mut File, rest: u64) -> Option<(u64, [u8; 4], u64)> {
     (length >= header && length <= rest).then_some((length, name, header))
 }
 
-/// Les boîtes filles d'un contenu : (nom, contenu).
+/// The child boxes of a content: (name, content).
 fn boxes(mut b: &[u8]) -> impl Iterator<Item = ([u8; 4], &[u8])> {
     std::iter::from_fn(move || {
         if b.len() < 8 {

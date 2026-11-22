@@ -1,4 +1,4 @@
-//! Petits morceaux d'interface partagés : icônes, formats de temps, cartes, puces d'horodatage.
+//! Small shared UI pieces: icons, time formats, cards, timestamp chips.
 
 use rune::tok::TextStyle;
 use rune::{Color, El, Icon, col, el, icon, oklch, row, text};
@@ -60,7 +60,7 @@ pub fn dur(t: f64) -> String {
     }
 }
 
-/// 3,1 Go, 33 Mo, 864 Ko (en unités décimales, comme le Finder).
+/// 3,1 Go, 33 Mo, 864 Ko (in decimal units, like the Finder).
 pub fn bytes(n: u64) -> String {
     let n = n as f64;
     let (value, unit) = match n {
@@ -73,7 +73,7 @@ pub fn bytes(n: u64) -> String {
     format!("{} {unit}", text.replace('.', ","))
 }
 
-/// Le nom d'une étape dans l'interface.
+/// A stage's name in the UI.
 pub fn step(e: Stage) -> &'static str {
     match e {
         Stage::Transcription => "Transcription",
@@ -82,14 +82,14 @@ pub fn step(e: Stage) -> &'static str {
     }
 }
 
-/// Le temps restant d'une réunion dans la file (le sien et celui des réunions d'avant), une
-/// minute au moins.
+/// A meeting's remaining time in the queue (its own and that of the meetings ahead), at least one
+/// minute.
 pub fn eta(s: &App, id: greffier_core::MeetingId) -> String {
     dur(s.core.time_remaining(id).unwrap_or(0.0).max(60.0))
 }
 
-/// Le statut d'une réunion en une ligne courte, avec où elle en est dans la file : « 2ᵉ dans la
-/// file · 15 min », « Transcription 40 % · 7 min », sinon [`status`] en minuscules.
+/// A meeting's status as a short line, with where it stands in the queue: « 2ᵉ dans la
+/// file · 15 min », « Transcription 40 % · 7 min », otherwise [`status`] in lowercase.
 pub fn status_line(s: &App, m: &greffier_core::Meeting) -> String {
     match &m.status {
         Status::Pending(_) => format!("{}ᵉ dans la file · {}", s.core.rank(m.id).map_or(1, |r| r + 1), eta(s, m.id)),
@@ -98,7 +98,7 @@ pub fn status_line(s: &App, m: &greffier_core::Meeting) -> String {
     }
 }
 
-/// Le statut d'une réunion dans l'interface.
+/// A meeting's status in the UI.
 pub fn status(s: &Status) -> String {
     match s {
         Status::Recording => "Enregistrement en cours".into(),
@@ -139,7 +139,7 @@ pub fn muted(k: &Kit, s: impl Into<String>) -> El {
     text(s.into()).font(k.ty.small).color(k.c.text_muted).wrap()
 }
 
-/// Une puce cliquable « ▶ 0:44:12 » qui saute à ce moment et lance la lecture.
+/// A clickable « ▶ 0:44:12 » chip that jumps to that moment and starts playback.
 pub fn ts_chip(k: &Kit, t: f64, key: String) -> El {
     row()
         .key(key)

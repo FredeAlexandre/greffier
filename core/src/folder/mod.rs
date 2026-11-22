@@ -1,11 +1,11 @@
-//! Le dossier de réunions (ADR 0001) : un sous-dossier par réunion, nommé
-//! `AAAA-MM-JJ HHhMM - Titre`, dont chaque fichier reprend le nom suivi de son rôle.
+//! The meetings folder (ADR 0001): one subfolder per meeting, named
+//! `YYYY-MM-DD HHhMM - Title`, whose files each repeat that name followed by their role.
 //!
-//! Ce module nomme les dossiers et les fichiers, et lit tout ce qui existe, y compris les
-//! réunions incomplètes (un enregistrement seul, un enregistrement et sa transcription…).
-//! Les empreintes des fichiers (`surveillance`) disent ce qui a changé hors de l'app ; le
-//! `renommage` suit le titre. Une réunion supprimée part entière à la corbeille du Mac
-//! (adaptateur `Corbeille`, voir `Greffier::supprimer`).
+//! This module names the folders and files, and reads everything that exists, including
+//! incomplete meetings (a recording alone, a recording and its transcription…).
+//! File fingerprints (`watch`) tell what changed outside the app; `renaming` follows the
+//! title. A deleted meeting goes whole to the Mac's trash (`Trash` adapter, see
+//! `Greffier::delete`).
 
 pub mod sheet;
 pub(crate) mod import;
@@ -24,7 +24,7 @@ use transcription::StructuredTranscription;
 pub use import::{MEDIA_EXTENSIONS, Import};
 use crate::time::DateTime;
 
-/// Le rôle d'un fichier dans le dossier d'une réunion.
+/// The role of a file in a meeting's folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Role {
     Sheet,
@@ -50,13 +50,13 @@ impl Role {
 
 const FORBIDDEN: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
-/// `AAAA-MM-JJ HHhMM - Titre`, les caractères interdits du titre devenus des tirets.
+/// `YYYY-MM-DD HHhMM - Title`, with the title's forbidden characters turned into dashes.
 pub fn folder_name(start: DateTime, title: &str) -> String {
     let title: String = title.chars().map(|c| if FORBIDDEN.contains(&c) || c.is_control() { '-' } else { c }).collect();
     format!("{} - {}", start.timestamp(), title.trim())
 }
 
-/// Lit `AAAA-MM-JJ HHhMM - Titre` : le début et le titre (sans le « (2) » d'une collision).
+/// Reads `YYYY-MM-DD HHhMM - Title`: the start and the title (without a collision's "(2)").
 pub fn read_folder_name(name: &str) -> Option<(DateTime, String)> {
     let b = name.as_bytes();
     if name.get(16..19) != Some(" - ") {
@@ -91,29 +91,29 @@ impl MeetingsFolder {
         &self.root
     }
 
-    /// Le dossier d'une réunion.
+    /// A meeting's folder.
     pub fn folder(&self, name: &str) -> PathBuf {
         self.root.join(name)
     }
 
-    /// Un fichier d'une réunion : `<nom>/<nom> - <rôle>`.
+    /// A meeting's file: `<name>/<name> - <role>`.
     pub fn file(&self, name: &str, role: Role) -> PathBuf {
         self.folder(name).join(format!("{name} - {}", role.suffix()))
     }
 
-    /// Crée le dossier d'une réunion s'il n'existe pas.
+    /// Creates a meeting's folder if it does not exist.
     pub fn create(&self, name: &str) -> Result<(), String> {
         let d = self.folder(name);
         std::fs::create_dir_all(&d).map_err(|e| format!("{} : {e}", d.display()))
     }
 
-    /// Le bilan d'une réunion, tel qu'il est sur le disque.
+    /// A meeting's summary, as it is on disk.
     pub fn read_summary(&self, name: &str) -> Result<String, String> {
         std::fs::read_to_string(self.file(name, Role::Summary)).map_err(|e| e.to_string())
     }
 
-    /// Les noms des dossiers de réunion, les plus récents d'abord. Ce qui ne suit pas la règle
-    /// de nommage est ignoré.
+    /// The names of the meeting folders, most recent first. Anything that does not follow the
+    /// naming rule is ignored.
     pub fn names(&self) -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(&self.root) else { return vec![] };
         let mut names: Vec<(DateTime, String)> = entries
@@ -126,13 +126,13 @@ impl MeetingsFolder {
         names.into_iter().map(|(_, name)| name).collect()
     }
 
-    /// Les fichiers présents dans le dossier d'une réunion.
+    /// The files present in a meeting's folder.
     pub fn present_roles(&self, name: &str) -> Vec<Role> {
         Role::ALL.into_iter().filter(|r| if *r == Role::Recording { self.recording(name).is_some() } else { self.file(name, *r).is_file() }).collect()
     }
 
-    /// L'enregistrement d'une réunion tel qu'il est sur le disque : `… - enregistrement.mp4`,
-    /// ou un autre média importé qui garde son extension (`… - enregistrement.m4a`).
+    /// A meeting's recording as it is on disk: `… - enregistrement.mp4`, or another imported
+    /// media file that keeps its extension (`… - enregistrement.m4a`).
     pub fn recording(&self, name: &str) -> Option<PathBuf> {
         let mp4 = self.file(name, Role::Recording);
         if mp4.is_file() {
@@ -141,27 +141,26 @@ impl MeetingsFolder {
         MEDIA_EXTENSIONS.iter().map(|e| self.recording_file(name, e)).find(|f| f.is_file())
     }
 
-    /// `<nom>/<nom> - enregistrement.<extension>`.
+    /// `<name>/<name> - enregistrement.<extension>`.
     pub fn recording_file(&self, name: &str, extension: &str) -> PathBuf {
         self.folder(name).join(format!("{name} - enregistrement.{extension}"))
     }
 
-    /// Toutes les réunions du dossier, les plus récentes d'abord, numérotées à partir de `premier_id`.
+    /// All the meetings in the folder, most recent first, numbered from `first_id`.
     pub fn read_all(&self, first_id: MeetingId) -> Vec<Meeting> {
         self.names().iter().zip(first_id..).filter_map(|(name, id)| self.read(name, id)).collect()
     }
 
-    /// La réunion d'un dossier, avec ce qu'il contient. Un fichier illisible compte comme
-    /// absent : la réunion s'affiche avec le reste.
+    /// A folder's meeting, with what it contains. An unreadable file counts as absent: the
+    /// meeting shows with the rest.
     ///
-    /// - Sans fiche : début et titre viennent du nom du dossier ; terminée s'il y a un bilan,
-    ///   à traiter sinon.
-    /// - La dernière étape faite se déduit des fichiers (transcription structurée, relecture
-    ///   dans son journal, bilan), bornée par celle de la fiche et par l'étape en attente ou en
-    ///   échec.
-    /// - Un enregistrement en cours dans la fiche est relu interrompu (l'app s'est arrêtée).
-    /// - La durée : celle de la fiche, sinon celle de l'enregistrement, sinon la fin de la
-    ///   dernière réplique.
+    /// - Without a sheet: start and title come from the folder name; done if there is a
+    ///   summary, to process otherwise.
+    /// - The last completed stage is inferred from the files (structured transcription, review
+    ///   in its log, summary), capped by the sheet's and by the pending or failed stage.
+    /// - A recording in progress in the sheet is read back as interrupted (the app stopped).
+    /// - The duration: the sheet's, otherwise the recording's, otherwise the end of the last
+    ///   utterance.
     pub fn read(&self, name: &str, id: MeetingId) -> Option<Meeting> {
         let (start, title) = read_folder_name(name)?;
         let files = self.present_roles(name);
@@ -202,14 +201,14 @@ impl MeetingsFolder {
         Some(r)
     }
 
-    /// Écrit la fiche et, s'il y a une transcription, la transcription structurée et la
-    /// transcription lisible. Le bilan (écrit par l'agent) et l'enregistrement n'y sont pas.
-    /// Chaque fichier est écrit à côté puis renommé, pour qu'un lecteur ne le voie jamais à moitié.
+    /// Writes the sheet and, if there is a transcription, the structured and readable
+    /// transcriptions. The summary (written by the agent) and the recording are not included.
+    /// Each file is written alongside then renamed, so a reader never sees it half-written.
     pub fn write(&self, r: &Meeting) -> Result<(), String> {
         self.write_files(r).map(|_| ())
     }
 
-    /// Comme [`DossierDeReunions::ecrire`], et rend les rôles des fichiers écrits.
+    /// Like [`MeetingsFolder::write`], and returns the roles of the files written.
     pub fn write_files(&self, r: &Meeting) -> Result<Vec<Role>, String> {
         let name = &r.folder_name;
         let folder = self.folder(name);
@@ -223,7 +222,7 @@ impl MeetingsFolder {
         Ok(vec![Role::Sheet])
     }
 
-    /// Un nom de dossier libre pour une nouvelle réunion (« (2) », « (3) »… si besoin).
+    /// A free folder name for a new meeting ("(2)", "(3)"… if needed).
     pub fn available_name(&self, start: DateTime, title: &str) -> String {
         let base = folder_name(start, title);
         let mut name = base.clone();

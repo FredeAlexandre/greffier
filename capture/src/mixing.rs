@@ -1,18 +1,18 @@
-//! Le mixage des deux sources audio en trois pistes : mixage, micro seul, son du Mac seul.
+//! Mixing the two audio sources into three tracks: mix, microphone only, Mac audio only.
 //!
-//! ScreenCaptureKit livre le micro et le son du Mac par paquets séparés, chacun avec son
-//! horodatage. Le mixeur range chaque paquet à sa place (en échantillons depuis le début de
-//! l'enregistrement), puis rend des blocs alignés des trois pistes. Une source qui se tait (pas de
-//! paquet) ne bloque pas les autres plus de [`RETARD_MAX`] échantillons : son trou devient du
-//! silence. Tout est en stéréo entrelacée, flottants 32 bits, à [`FREQUENCE`] Hz.
+//! ScreenCaptureKit delivers the microphone and the Mac audio in separate packets, each with its
+//! own timestamp. The mixer puts each packet in its place (in samples since the start of the
+//! recording), then renders aligned blocks of the three tracks. A source that goes quiet (no
+//! packets) holds the others back by at most [`MAX_DELAY`] samples: its gap becomes silence.
+//! Everything is interleaved stereo, 32-bit floats, at [`SAMPLE_RATE`] Hz.
 
 use std::collections::VecDeque;
 
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const CHANNELS: usize = 2;
-/// Au plus une demi-seconde d'attente d'une source en retard.
+/// Wait at most half a second for a late source.
 pub const MAX_DELAY: u64 = SAMPLE_RATE as u64 / 2;
-/// Un décalage d'horodatage plus petit (1 ms) est du bruit d'horloge, pas un trou.
+/// A timestamp offset smaller than this (1 ms) is clock noise, not a gap.
 const TOLERANCE: u64 = SAMPLE_RATE as u64 / 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +21,7 @@ pub enum Source {
     MacAudio = 1,
 }
 
-/// Des trames stéréo alignées sur les trois pistes, à partir de la trame `debut`.
+/// Stereo frames aligned across the three tracks, starting at frame `start`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AudioBlock {
     pub start: u64,
@@ -38,10 +38,10 @@ impl AudioBlock {
 
 #[derive(Default)]
 struct Track {
-    /// Trame du premier échantillon de `tampon`.
+    /// Frame of the first sample in `buffer`.
     start: u64,
     buffer: VecDeque<f32>,
-    /// A reçu au moins un paquet.
+    /// Has received at least one packet.
     seen: bool,
 }
 
@@ -55,7 +55,7 @@ impl Track {
 pub struct Mixer {
     tracks: [Track; 2],
     active: [bool; 2],
-    /// Trames déjà rendues.
+    /// Frames already rendered.
     rendered: u64,
 }
 
@@ -64,14 +64,14 @@ impl Mixer {
         Mixer { active: [micro, mac_audio], ..Mixer::default() }
     }
 
-    /// Range un paquet de trames stéréo entrelacées qui commence à la trame `debut` (négative si
-    /// le paquet commence avant l'enregistrement).
+    /// Stores a packet of interleaved stereo frames that starts at frame `start` (negative if the
+    /// packet starts before the recording).
     pub fn push(&mut self, source: Source, start: i64, frames: &[f32]) {
         let rendered = self.rendered;
         let p = &mut self.tracks[source as usize];
         let mut frames = frames;
         let mut start = start;
-        // Ce qui tombe avant le début ou avant ce qui est déjà rendu est perdu.
+        // Anything before the start or before what is already rendered is lost.
         let floor = rendered.max(if p.seen { p.end() } else { 0 }) as i64;
         if !p.seen && p.buffer.is_empty() {
             p.start = rendered;
@@ -96,26 +96,26 @@ impl Mixer {
         p.seen = true;
     }
 
-    /// Le bloc prêt : jusqu'où toutes les sources actives sont arrivées, ou jusqu'à
-    /// [`RETARD_MAX`] derrière la plus avancée. `None` s'il n'y a rien de nouveau.
+    /// The ready block: up to where all active sources have arrived, or up to [`MAX_DELAY`]
+    /// behind the furthest one. `None` if there is nothing new.
     pub fn pull(&mut self) -> Option<AudioBlock> {
         let ends: Vec<u64> = (0..2).filter(|i| self.active[*i]).map(|i| self.tracks[i].end()).collect();
         let (min, max) = (ends.iter().copied().min()?, ends.iter().copied().max()?);
         self.render_until(min.max(max.saturating_sub(MAX_DELAY)))
     }
 
-    /// Du silence jusqu'à la trame `fin`, quand aucune source audio n'est enregistrée.
+    /// Silence up to frame `end`, when no audio source is recorded.
     pub fn silence_until(&mut self, end: u64) -> Option<AudioBlock> {
         self.render_until(end)
     }
 
-    /// Tout ce qui reste, à l'arrêt.
+    /// Everything left, on stop.
     pub fn drain(&mut self) -> Option<AudioBlock> {
         let max = self.tracks.iter().map(Track::end).max()?;
         self.render_until(max)
     }
 
-    /// Trames déjà rendues : la durée de l'audio écrit.
+    /// Frames already rendered: the duration of the audio written.
     pub fn rendered(&self) -> u64 {
         self.rendered
     }
@@ -128,7 +128,7 @@ impl Mixer {
         let mut outputs = [Vec::with_capacity(n * CHANNELS), Vec::with_capacity(n * CHANNELS)];
         for (p, output) in self.tracks.iter_mut().zip(outputs.iter_mut()) {
             if p.start < self.rendered {
-                // Une piste jamais vue reste à la traîne : on la recale.
+                // A track never seen lags behind: realign it.
                 let delay = ((self.rendered - p.start) as usize * CHANNELS).min(p.buffer.len());
                 p.buffer.drain(..delay);
                 p.start = self.rendered;
@@ -146,9 +146,9 @@ impl Mixer {
     }
 }
 
-/// Convertit un paquet en stéréo entrelacée à [`FREQUENCE`] Hz : `canaux` est le nombre de canaux
-/// de `entree` (entrelacés), `frequence` sa fréquence. Le rééchantillonnage est linéaire (le micro
-/// arrive en principe déjà à 48 kHz).
+/// Converts a packet to interleaved stereo at [`SAMPLE_RATE`] Hz: `channels` is the number of
+/// (interleaved) channels in `input`, `sample_rate` its sample rate. Resampling is linear (the
+/// microphone normally already arrives at 48 kHz).
 pub fn to_stereo_48k(input: &[f32], channels: usize, sample_rate: f64) -> Vec<f32> {
     if channels == 0 {
         return Vec::new();
@@ -178,8 +178,8 @@ pub fn to_stereo_48k(input: &[f32], channels: usize, sample_rate: f64) -> Vec<f3
         .collect()
 }
 
-/// Le niveau affiché d'un paquet, de 0 à 1 : sa puissance en dB, de -60 dB (0) à 0 dB (1) ; le
-/// bruit d'une pièce calme (vers -60 dB) se voit à peine, une voix (-30 à -20 dB) bien.
+/// The displayed level of a packet, from 0 to 1: its power in dB, from -60 dB (0) to 0 dB (1);
+/// the noise of a quiet room (around -60 dB) barely shows, a voice (-30 to -20 dB) clearly does.
 pub fn level(frames: &[f32]) -> f32 {
     if frames.is_empty() {
         return 0.0;
@@ -203,14 +203,14 @@ mod tests {
     fn two_aligned_sources_are_summed() {
         let mut m = Mixer::new(true, true);
         m.push(Source::Micro, 0, &constant(100, 0.25));
-        assert_eq!(m.pull(), None, "le son du Mac n'est pas encore arrivé");
+        assert_eq!(m.pull(), None, "the Mac audio has not arrived yet");
         m.push(Source::MacAudio, 0, &constant(60, 0.5));
-        let b = m.pull().expect("bloc");
+        let b = m.pull().expect("block");
         assert_eq!((b.start, b.frames()), (0, 60));
         assert_eq!(b.mixing[0], 0.75);
         assert_eq!(b.micro[0], 0.25);
         assert_eq!(b.mac_audio[0], 0.5);
-        let rest = m.drain().expect("reste");
+        let rest = m.drain().expect("rest");
         assert_eq!((rest.start, rest.frames()), (60, 40));
         assert_eq!(rest.mixing[0], 0.25);
         assert_eq!(m.rendered(), 100);
@@ -220,12 +220,12 @@ mod tests {
     fn a_silent_source_blocks_only_half_a_second() {
         let mut m = Mixer::new(true, true);
         m.push(Source::Micro, 0, &constant(48_000, 0.1));
-        let b = m.pull().expect("bloc");
+        let b = m.pull().expect("block");
         assert_eq!(b.frames(), 24_000);
         assert!(b.mac_audio.iter().all(|x| *x == 0.0));
-        // Le son du Mac arrive enfin, à sa place.
+        // The Mac audio finally arrives, in its place.
         m.push(Source::MacAudio, 30_000, &constant(18_000, 0.2));
-        let b = m.pull().expect("bloc");
+        let b = m.pull().expect("block");
         assert_eq!((b.start, b.frames()), (24_000, 24_000));
         assert_eq!(b.mac_audio[(5_999) * CHANNELS], 0.0);
         assert_eq!(b.mac_audio[6_000 * CHANNELS], 0.2);
@@ -237,9 +237,9 @@ mod tests {
         m.push(Source::Micro, 0, &constant(100, 0.1));
         m.push(Source::Micro, 120, &constant(100, 0.1));
         m.push(Source::Micro, 1_000, &constant(10, 0.3));
-        let b = m.drain().expect("bloc");
+        let b = m.drain().expect("block");
         assert_eq!(b.frames(), 1_010);
-        assert_eq!(b.micro[150 * CHANNELS], 0.1, "20 trames de décalage : collées");
+        assert_eq!(b.micro[150 * CHANNELS], 0.1, "20-frame offset: joined");
         assert_eq!(b.micro[500 * CHANNELS], 0.0);
         assert_eq!(b.micro[1_000 * CHANNELS], 0.3);
     }
@@ -248,7 +248,7 @@ mod tests {
     fn content_before_the_start_is_cut() {
         let mut m = Mixer::new(true, false);
         m.push(Source::Micro, -10, &[vec![0.9; 10 * CHANNELS], constant(5, 0.1)].concat());
-        let b = m.drain().expect("bloc");
+        let b = m.drain().expect("block");
         assert_eq!((b.start, b.frames()), (0, 5));
         assert_eq!(b.micro[0], 0.1);
     }
@@ -258,7 +258,7 @@ mod tests {
         let mut m = Mixer::new(true, true);
         m.push(Source::Micro, 0, &constant(1, 0.8));
         m.push(Source::MacAudio, 0, &constant(1, 0.8));
-        assert_eq!(m.pull().expect("bloc").mixing, [1.0, 1.0]);
+        assert_eq!(m.pull().expect("block").mixing, [1.0, 1.0]);
     }
 
     #[test]

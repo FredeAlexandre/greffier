@@ -1,5 +1,5 @@
-//! La recherche ⌘K : un mot d'un titre, d'un bilan ou d'une transcription, dans toutes les
-//! réunions, et l'instant où ouvrir la réunion (la réplique, ou le sujet d'une ligne du bilan).
+//! ⌘K search: a word from a title, a summary or a transcription, across all meetings, and the
+//! moment at which to open the meeting (the utterance, or the topic of a summary line).
 
 mod bench;
 
@@ -9,7 +9,7 @@ use greffier_core::search::{Location, SearchResult};
 
 const RELEASE: &str = "2026-11-20 10h00 - Revue de release";
 
-/// Ce qu'on regarde d'un résultat : où, à quel instant, et le passage surligné.
+/// What we look at in a result: where, at what moment, and the highlighted passage.
 fn outline(r: &SearchResult) -> (Location, Option<f64>, &str) {
     (r.location, r.instant, &r.excerpt[r.highlight.0..r.highlight.1])
 }
@@ -37,7 +37,7 @@ fn a_decision_opens_the_meeting_at_its_own_moment() {
     assert_eq!(
         found,
         [
-            // En bref et Actions n'ont pas d'instant : la réunion s'ouvre au début.
+            // En bref and Actions have no moment: the meeting opens at the start.
             (Location::Summary, None, "vendredi"),
             (Location::Summary, Some(2.0), "vendredi"),
             (Location::Summary, None, "vendredi"),
@@ -105,7 +105,7 @@ fn search_follows_a_summary_edited_outside_the_app() {
     assert_eq!(bench.greffier.search("kangourou").iter().map(outline).collect::<Vec<_>>(), [(Location::Summary, Some(5.0), "kangourou")]);
 }
 
-// --- Le cache dans le dossier de l'app -------------------------------------------------------
+// --- The cache in the app folder -------------------------------------------------------------
 
 fn cache_file(cache: &std::path::Path, name: &str) -> std::path::PathBuf {
     cache.join(format!("{name}.json"))
@@ -139,7 +139,7 @@ fn cache_follows_changes_to_the_meetings_folder() {
     let json = bench.read(&cache_file(&cache, RELEASE));
     assert!(json.contains("kangourou") && !json.contains("prévient"));
 
-    // Un dossier supprimé dans le Finder : son entrée quitte le cache.
+    // A folder deleted in the Finder: its entry leaves the cache.
     std::fs::remove_dir_all(bench.folder.join(RELEASE)).unwrap();
     bench.greffier.rescan_folder();
     assert!(!cache_file(&cache, RELEASE).exists());
@@ -150,7 +150,7 @@ fn cache_follows_changes_to_the_meetings_folder() {
 fn a_stale_or_unreadable_cache_is_rebuilt_at_launch() {
     let mut bench = Bench::on_fixtures();
     let cache = bench.enable_search_cache();
-    // App fermée : le bilan change, et le cache d'une autre réunion est abîmé.
+    // App closed: the summary changes, and another meeting's cache gets corrupted.
     let path = bench.greffier.folder().file(RELEASE, Role::Summary);
     let md = bench.read(&path).replace("- Alexandre prévient le support.", "- Le kangourou du support est en congé.");
     std::fs::write(&path, md).unwrap();

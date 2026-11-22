@@ -1,5 +1,5 @@
-//! Trancher les passages à vérifier et corriger la transcription à la main : la réplique, la
-//! transcription structurée et la transcription lisible suivent.
+//! Deciding passages to check and correcting the transcription by hand: the utterance, the
+//! structured transcription and the readable transcription follow.
 
 mod bench;
 
@@ -9,9 +9,8 @@ use greffier_core::folder::transcription::StructuredTranscription;
 use greffier_core::fake::FakeAgent;
 use greffier_core::{Command, MeetingId, Role, Status, PassageStatus, Resolution};
 
-/// Une réunion terminée dont la relecture a laissé deux passages à vérifier : « tous » sans
-/// hypothèse dans « Bonjour à tous. », « Alexandre » (hypothèse « Alexandra ») dans « Salut
-/// Alexandre. ».
+/// A done meeting whose review left two passages to check: « tous » without a hypothesis in
+/// « Bonjour à tous. », « Alexandre » (hypothesis « Alexandra ») in « Salut Alexandre. ».
 fn meeting_to_check() -> (Bench, MeetingId) {
     let mut a = bench::adapters();
     a.agent = Box::new(FakeAgent::new(
@@ -101,7 +100,7 @@ fn correcting_by_hand_replaces_the_excerpt_with_the_correction() {
 fn an_empty_correction_is_rejected() {
     let (mut bench, id) = meeting_to_check();
     assert!(bench.greffier.execute(Command::Resolve { meeting: id, passage: 0, resolution: Resolution::Correct("  ".into()) }).is_err());
-    assert!(bench.greffier.execute(Command::Resolve { meeting: id, passage: 0, resolution: Resolution::AcceptHypothesis }).is_err(), "pas d'hypothèse");
+    assert!(bench.greffier.execute(Command::Resolve { meeting: id, passage: 0, resolution: Resolution::AcceptHypothesis }).is_err(), "no hypothesis");
     assert_eq!(bench.meeting(id).pending_passages(), 2);
 }
 
@@ -151,7 +150,7 @@ fn correcting_a_word_records_it_as_a_manual_correction() {
     assert_eq!(json.utterances[0].text, "Bonsoir à tous.");
     let md = readable(&bench, id);
     assert!(md.contains("Bonsoir à tous.\n"), "{md}");
-    // Le passage à vérifier de la réplique est toujours là, et se tranche encore.
+    // The utterance's passage to check is still there, and can still be decided.
     assert!(md.contains("> À vérifier : « tous »"), "{md}");
     bench.execute(Command::Resolve { meeting: id, passage: 0, resolution: Resolution::Correct("vous".into()) });
     assert_eq!(texts(&bench, id)[0], "Bonsoir à vous.");
@@ -210,7 +209,7 @@ fn transcription_cannot_be_corrected_during_review() {
 fn listening_to_a_passage_plays_its_utterance_within_1_5_s_like_relisten() {
     let (bench, id) = meeting_to_check();
     let r = bench.meeting(id);
-    // « Salut Alexandre. » va de 3,0 à 4,0 s ; « Bonjour à tous. » commence à 0.
+    // « Salut Alexandre. » runs from 3.0 to 4.0 s; « Bonjour à tous. » starts at 0.
     assert_eq!(r.excerpt_to_listen(1), Some((1.5, 5.5)));
     assert_eq!(r.excerpt_to_listen(0), Some((0.0, 3.0)));
     assert_eq!(r.excerpt_to_listen(2), None);

@@ -1,7 +1,6 @@
-//! La surveillance du dossier de réunions : macOS (FSEvents) signale qu'un fichier a changé,
-//! on réveille l'interface, et son `poll` demande au cœur de relire le dossier
-//! (`Greffier::relire_le_dossier`). Le cœur seul décide de ce qui a vraiment changé : les
-//! écritures de Greffier lui-même ne rechargent rien.
+//! Watching the meetings folder: macOS (FSEvents) reports that a file changed, we wake the UI,
+//! and its `poll` asks the core to reread the folder (`Greffier::rescan_folder`). Only the core
+//! decides what really changed: Greffier's own writes reload nothing.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -16,12 +15,12 @@ pub struct FolderWatch {
 }
 
 impl FolderWatch {
-    /// Surveille `dossier` (et ses sous-dossiers) ; `waker` réveille l'interface à chaque changement.
+    /// Watches `folder` (and its subfolders); `waker` wakes the UI on every change.
     pub fn new(folder: &Path, waker: Waker) -> Result<FolderWatch, String> {
         let change = Arc::new(AtomicBool::new(false));
         let signal = change.clone();
         let mut watcher = notify::recommended_watcher(move |ev: notify::Result<notify::Event>| {
-            // Les fichiers provisoires des écritures atomiques (`.<fichier>.greffier`) ne comptent pas.
+            // The temporary files of atomic writes (`.<file>.greffier`) don't count.
             let temporary = |p: &std::path::PathBuf| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.') && n.ends_with(".greffier"));
             let account = match &ev {
                 Ok(e) => e.need_rescan() || !e.paths.iter().all(temporary),
@@ -36,7 +35,7 @@ impl FolderWatch {
         Ok(FolderWatch { _watcher: watcher, change })
     }
 
-    /// Vrai si le dossier a changé depuis le dernier appel.
+    /// True if the folder changed since the last call.
     pub fn has_changed(&self) -> bool {
         self.change.swap(false, Ordering::AcqRel)
     }
@@ -64,8 +63,8 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         let _ = std::fs::remove_dir_all(&folder);
-        assert!(wakes.load(Ordering::SeqCst) >= 1, "pas de réveil");
+        assert!(wakes.load(Ordering::SeqCst) >= 1, "no wake");
         assert!(watch.has_changed());
-        assert!(!watch.has_changed(), "le changement n'est rendu qu'une fois");
+        assert!(!watch.has_changed(), "the change is reported only once");
     }
 }

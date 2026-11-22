@@ -1,11 +1,11 @@
-//! La vraie capture de Greffier, sur macOS : ScreenCaptureKit pour l'écran, le son du Mac et le
-//! micro ; AVAssetWriter pour l'écriture en MP4 fragmenté ; l'assertion de non-veille d'IOKit
-//! ([`veille::PasDeVeille`]) qui garde le Mac éveillé pendant un enregistrement ou un traitement ;
-//! la corbeille du Mac ([`CorbeilleDuMac`]), où partent les réunions supprimées ; la mise en MP4
-//! des médias importés ([`MiseEnMp4DuMac`]).
-//! La capture implémente
-//! [`greffier_coeur::adaptateurs::Capture`]. Elle n'est pas testée par la suite automatique
-//! (spec : les vrais adaptateurs sont couverts par l'usage), sauf le mixage, qui est du calcul.
+//! Greffier's real capture, on macOS: ScreenCaptureKit for the screen, the Mac audio and the
+//! microphone; AVAssetWriter for writing fragmented MP4; the IOKit sleep assertion
+//! ([`sleep::KeepAwake`]) that keeps the Mac awake during a recording or processing; the Mac's
+//! Trash ([`MacTrash`]), where deleted meetings go; MP4 muxing of imported media
+//! ([`MacMp4Muxer`]).
+//! The capture implements
+//! [`greffier_core::adapters::Capture`]. It is not tested by the automated suite (spec: the real
+//! adapters are covered by use), except the mixing, which is computation.
 
 pub mod mixing;
 

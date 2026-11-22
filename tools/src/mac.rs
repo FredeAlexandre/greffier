@@ -1,10 +1,10 @@
-//! Les vrais [`Outils`] des ressources, sur le Mac : `curl` du système pour les téléchargements
-//! (reprise avec `--continue-at -`), le sha256 calculé sur un fil, l'uv embarqué dans l'app pour
-//! le Python privé, et la CLI `claude` de l'utilisateur.
+//! The resources' real [`Tools`], on the Mac: the system's `curl` for downloads (resumed with
+//! `--continue-at -`), the sha256 computed on a thread, the uv bundled in the app for the private
+//! Python, and the user's `claude` CLI.
 //!
-//! Rien n'est écrit hors du dossier qu'on leur donne : uv et Python reçoivent un environnement
-//! vidé où chaque cache, chaque dossier de données ou de configuration pointe dans le dossier du
-//! Python privé (voir [`environnement_python`]).
+//! Nothing is written outside the folder they are given: uv and Python get a cleared environment
+//! where every cache, data or configuration folder points into the private Python's folder (see
+//! [`python_env`]).
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ use greffier_core::resources::{ClaudeState, Tools, hex};
 
 use crate::subprocess::{Interruption, Progression, wait, on_thread};
 
-/// La version d'uv livrée avec l'app (`scripts/installer_app.py` la télécharge).
+/// The uv version shipped with the app (`scripts/install_app.py` downloads it).
 pub const UV_VERSION: &str = "0.13.7";
 
 pub struct MacTools {
@@ -30,7 +30,7 @@ impl MacTools {
     pub fn new() -> MacTools {
         MacTools { uv: bundled_uv() }
     }
-    /// Avec cet uv plutôt que celui de l'app (outils de développement).
+    /// With this uv rather than the app's (development tools).
     pub fn with_uv(uv: PathBuf) -> MacTools {
         MacTools { uv: Some(uv) }
     }
@@ -42,16 +42,16 @@ impl Default for MacTools {
     }
 }
 
-/// L'uv livré avec l'app : à côté de l'exécutable dans `Greffier.app/Contents/MacOS/`, ou, pour
-/// `cargo run`, dans `target/uv-<version>/` où `scripts/installer-app` le dépose.
+/// The uv shipped with the app: next to the executable in `Greffier.app/Contents/MacOS/`, or, for
+/// `cargo run`, in `target/uv-<version>/` where `scripts/install-app` puts it.
 pub fn bundled_uv() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let folder = exe.parent()?;
     [folder.join("uv"), folder.join(format!("../uv-{UV_VERSION}/uv"))].into_iter().find(|p| p.is_file())
 }
 
-/// L'environnement des processus du Python privé (uv et python) : rien n'hérite de celui de
-/// l'utilisateur, et tout ce qu'ils pourraient écrire va dans `dossier`.
+/// The environment of the private Python's processes (uv and python): nothing is inherited from
+/// the user's, and everything they might write goes into `folder`.
 pub fn python_env(folder: &Path) -> Vec<(&'static str, String)> {
     let d = |s: &str| folder.join(s).to_string_lossy().into_owned();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
@@ -61,9 +61,9 @@ pub fn python_env(folder: &Path) -> Vec<(&'static str, String)> {
         ("LANG", "fr_FR.UTF-8".into()),
         ("TMPDIR", d("tmp")),
         ("UV_CACHE_DIR", d("cache")),
-        ("UV_PYTHON_INSTALL_DIR", d("interpreteurs")),
+        ("UV_PYTHON_INSTALL_DIR", d("interpreters")),
         ("UV_PYTHON_BIN_DIR", d("bin")),
-        ("UV_TOOL_DIR", d("outils")),
+        ("UV_TOOL_DIR", d("tools")),
         ("UV_TOOL_BIN_DIR", d("bin")),
         ("UV_PROJECT_ENVIRONMENT", d("venv")),
         ("UV_NO_CONFIG", "1".into()),
@@ -86,12 +86,12 @@ pub fn python_env(folder: &Path) -> Vec<(&'static str, String)> {
     ]
 }
 
-/// Le python de l'environnement privé.
+/// The private environment's python.
 pub fn python(folder: &Path) -> PathBuf {
     folder.join("venv/bin/python")
 }
 
-/// `curl` qui écrit dans le fichier partiel ; l'avancement est sa taille.
+/// `curl` writing into the partial file; the progress is its size.
 struct Curl {
     child: Child,
     partial: PathBuf,
@@ -128,8 +128,8 @@ impl Drop for Curl {
     }
 }
 
-/// Lance `commande` jusqu'au bout (ou jusqu'à l'arrêt), sa sortie d'erreur dans `journal` ;
-/// l'erreur rendue reprend les dernières lignes du journal.
+/// Runs `command` to the end (or until stopped), its error output into `log`; the error returned
+/// repeats the last lines of the log.
 fn launch(mut command: Command, log: &Path, what: &str, stop: &AtomicBool) -> Result<(), String> {
     let output = std::fs::File::create(log).map_err(|e| format!("{} : {e}", log.display()))?;
     let mut child = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(output).spawn().map_err(|e| format!("{what} : {e}"))?;
@@ -146,7 +146,7 @@ fn launch(mut command: Command, log: &Path, what: &str, stop: &AtomicBool) -> Re
     }
 }
 
-/// Lance `programme` avec `arguments` et rend sa sortie standard, en `delai` au plus.
+/// Runs `program` with `arguments` and returns its standard output, within `timeout` at most.
 fn output_of(program: &Path, arguments: &[&str], timeout: Duration) -> Result<(bool, String), String> {
     let mut child = Command::new(program)
         .args(arguments)
@@ -169,8 +169,8 @@ fn output_of(program: &Path, arguments: &[&str], timeout: Duration) -> Result<(b
     Ok((status.success(), reader.join().unwrap_or_default()))
 }
 
-/// La CLI `claude` : une app lancée du Finder n'a pas le PATH du terminal, on regarde donc aux
-/// endroits où ses installateurs la mettent avant le PATH.
+/// The `claude` CLI: an app launched from the Finder does not have the terminal's PATH, so we look
+/// where its installers put it before the PATH.
 pub(crate) fn find_claude() -> Option<PathBuf> {
     let home = greffier_core::settings::home();
     let known = [home.join(".local/bin/claude"), home.join(".claude/local/claude"), "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into()];
@@ -178,7 +178,7 @@ pub(crate) fn find_claude() -> Option<PathBuf> {
     known.into_iter().chain(path).find(|p| p.is_file())
 }
 
-/// La valeur d'un champ texte ou booléen d'un JSON plat, sans dépendance de plus.
+/// The value of a text or boolean field of a flat JSON, with no extra dependency.
 fn field(json: &str, name: &str) -> Option<String> {
     let compact: String = json.split_whitespace().collect();
     let rest = &compact[compact.find(&format!("\"{name}\":"))? + name.len() + 3..];
@@ -244,7 +244,7 @@ impl Tools for MacTools {
     fn install_python(&mut self, project: &Path, folder: &Path) -> BoxedTask<()> {
         let (uv, project, folder) = (self.uv.clone(), project.to_path_buf(), folder.to_path_buf());
         on_thread("uv", Progression::Exact, move |stop, _| {
-            let uv = uv.ok_or("uv embarqué introuvable : installer l'app avec scripts/installer-app.")?;
+            let uv = uv.ok_or("uv embarqué introuvable : installer l'app avec scripts/install-app.")?;
             let env = python_env(&folder);
             std::fs::create_dir_all(folder.join("tmp")).map_err(|e| e.to_string())?;
             let mut sync = Command::new(&uv);
@@ -253,7 +253,7 @@ impl Tools for MacTools {
             let mut import = Command::new(python(&folder));
             import.args(["-c", "import pyannote.audio"]).current_dir(&folder).env_clear().envs(env.iter().cloned());
             launch(import, &folder.join("import.log"), "import pyannote.audio", stop)?;
-            // Le cache d'uv ne sert qu'à l'installation : l'environnement a ses propres copies.
+            // uv's cache is only used for installing: the environment has its own copies.
             let _ = std::fs::remove_dir_all(folder.join("cache"));
             let _ = std::fs::remove_dir_all(folder.join("tmp"));
             Ok(())

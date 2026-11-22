@@ -1,14 +1,14 @@
-//! Les vrais moteurs de Greffier, branchés sur les adaptateurs du cœur.
+//! Greffier's real engines, plugged into the core's adapters.
 //!
-//! - [`TranscripteurWhisper`] : la piste de mixage extraite par AVFoundation ([`audio`]), puis
-//!   transcrite par whisper.cpp ([`whisper`]), compilé dans l'app depuis ses sources (build.rs),
-//!   avec les paramètres du vault.
-//! - [`SeparateurPyannote`] : la même piste de mixage, séparée en tours de parole par pyannote
-//!   community-1 dans le Python privé de l'app ([`pyannote`]), pendant que whisper transcrit.
+//! - [`WhisperTranscriber`]: the mix track extracted by AVFoundation ([`audio`]), then
+//!   transcribed by whisper.cpp ([`whisper`]), built into the app from its sources (build.rs),
+//!   with the vault's parameters.
+//! - [`PyannoteDiarizer`]: the same mix track, split into speaker turns by pyannote community-1
+//!   in the app's private Python ([`pyannote`]), while whisper transcribes.
 //!
-//! Ces moteurs ne sont pas testés par la suite automatique (le cœur l'est, avec de faux
-//! adaptateurs) ; ils se vérifient par le banc de parité et par
-//! `cargo run -p greffier-moteurs --example transcrire -- <média>` (et `--example separer`).
+//! These engines are not tested by the automated suite (the core is, with fake adapters); they
+//! are checked with the parity bench and with
+//! `cargo run -p greffier-engines --example transcribe -- <media>` (and `--example diarize`).
 
 pub mod audio;
 pub mod pyannote;
@@ -23,23 +23,23 @@ use greffier_core::Word;
 pub use pyannote::PyannoteDiarizer;
 use greffier_core::adapters::{TaskProgress, TranscriptionRequest, Task, BoxedTask, Transcriber};
 
-/// Part de l'avancement donnée à l'extraction de l'audio (le reste va à whisper).
+/// Share of the progress given to audio extraction (the rest goes to whisper).
 const AUDIO_SHARE: f64 = 0.05;
 
-/// whisper.cpp large-v3 sur Metal, VAD Silero, avec les modèles du dossier de l'app.
+/// whisper.cpp large-v3 on Metal, Silero VAD, with the models from the app folder.
 pub struct WhisperTranscriber {
     pub model: PathBuf,
     pub vad: PathBuf,
 }
 
 impl WhisperTranscriber {
-    /// Les modèles installés dans le dossier de l'app.
+    /// The models installed in the app folder.
     pub fn from_app(app_folder: &std::path::Path) -> WhisperTranscriber {
         use greffier_core::resources::{VAD_MODEL, WHISPER_MODEL};
         WhisperTranscriber { model: app_folder.join(WHISPER_MODEL), vad: app_folder.join(VAD_MODEL) }
     }
 
-    /// Transcrit sur le fil appelant : l'audio, puis whisper.
+    /// Transcribes on the calling thread: the audio, then whisper.
     pub fn transcribe_here(&self, request: &TranscriptionRequest, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<Vec<Word>, String> {
         let samples = audio::mixing(&request.audio, stop, |p| progress(p * AUDIO_SHARE))?;
         if samples.len() < audio::SAMPLE_RATE as usize {
@@ -93,9 +93,9 @@ impl Transcriber for WhisperTranscriber {
     }
 }
 
-/// La réécoute des passages douteux de la relecture : l'enregistrement est décodé une fois, puis
-/// chaque extrait est retranscrit par whisper.cpp avec les réglages de la transcription (mêmes
-/// modèles, VAD, vocabulaire en prompt).
+/// Relistening to the review's doubtful passages: the recording is decoded once, then each
+/// excerpt is transcribed again by whisper.cpp with the transcription's settings (same models,
+/// VAD, vocabulary as prompt).
 pub struct WhisperRelisten {
     pub model: PathBuf,
     pub vad: PathBuf,
@@ -122,7 +122,7 @@ impl greffier_tools::claude::review::Relisten for WhisperRelisten {
             match whisper::transcribe(&self.model, &self.vad, &samples[i..j], vocabulary, stop, &mut |_| {}) {
                 Ok(words) => texts.push(words.iter().map(|m| m.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ")),
                 Err(e) if stop.load(Ordering::Relaxed) => return Err(e),
-                // Un extrait raté n'empêche pas les autres : l'agent tranchera sans lui.
+                // A failed excerpt doesn't stop the others: the agent will decide without it.
                 Err(_) => texts.push(String::new()),
             }
         }

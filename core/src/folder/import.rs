@@ -1,12 +1,12 @@
-//! L'import d'une réunion passée (glossaire : Import) : un enregistrement (vidéo ou audio
-//! seul), avec ou sans sa transcription, avec ou sans son bilan.
+//! Importing a past meeting (glossary: Import): a recording (video or audio only), with or
+//! without its transcription, with or without its summary.
 //!
-//! [`Import`] dit quels fichiers prendre, avec la date et le titre choisis dans la fenêtre
-//! d'import ; `Greffier::proposer_import` le prépare à partir des fichiers déposés. Le cœur
-//! copie ensuite les fichiers dans un nouveau dossier de réunion : les originaux ne sont jamais
-//! touchés. Un média de la famille MP4 (`.mov`, `.m4a`, `.m4v`) y passe en `… -
-//! enregistrement.mp4` sans réencodage ([`MiseEnMp4`]) ; s'il ne peut pas, ou pour un autre
-//! média (`.wav`, `.mp3`…), il garde son extension.
+//! [`Import`] says which files to take, with the date and title chosen in the import window;
+//! `Greffier::propose_import` prepares it from the dropped files. The core then copies the
+//! files into a new meeting folder: the originals are never touched. A media file of the MP4
+//! family (`.mov`, `.m4a`, `.m4v`) becomes `… - enregistrement.mp4` there without re-encoding
+//! ([`Mp4Muxer`]); if it cannot, or for other media (`.wav`, `.mp3`…), it keeps its
+//! extension.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -17,34 +17,34 @@ use crate::adapters::Mp4Muxer;
 use crate::meeting::{Stage, MeetingId, Speaker, Meeting, Status};
 use crate::time::DateTime;
 
-/// Ce qu'on importe, tel que validé dans la fenêtre d'import.
+/// What is imported, as confirmed in the import window.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Import {
-    /// Le média : vidéo, ou audio seul.
+    /// The media: video, or audio only.
     pub recording: PathBuf,
-    /// Fichier structuré de Greffier (`.json`), WebVTT (`.vtt`) ou SRT (`.srt`).
+    /// Greffier's structured file (`.json`), WebVTT (`.vtt`) or SRT (`.srt`).
     pub transcription: Option<PathBuf>,
-    /// N'importe quel Markdown, copié tel quel.
+    /// Any Markdown, copied as is.
     pub summary: Option<PathBuf>,
     pub start: DateTime,
     pub title: String,
 }
 
-/// L'extension d'un fichier, en minuscules (« mp4 »).
+/// A file's extension, in lowercase ("mp4").
 pub(crate) fn extension(path: &Path) -> String {
     path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase()
 }
 
-/// Les extensions des médias de la famille MP4 qu'AVFoundation passe en `.mp4` sans réencoder.
+/// The extensions of MP4-family media that AVFoundation turns into `.mp4` without re-encoding.
 pub const MP4_FAMILY_EXTENSIONS: [&str; 4] = ["mov", "qt", "m4a", "m4v"];
 
-/// Les extensions des médias qu'AVFoundation lit, vidéo ou audio seul.
+/// The extensions of the media AVFoundation reads, video or audio only.
 pub const MEDIA_EXTENSIONS: [&str; 17] = ["mp4", "m4v", "mov", "qt", "3gp", "3g2", "m4a", "m4b", "mp3", "wav", "aif", "aiff", "aifc", "caf", "aac", "flac", "amr"];
 
 impl MeetingsFolder {
-    /// Copie les fichiers de l'import dans un nouveau dossier de réunion et rend la réunion,
-    /// pas encore écrite : la fiche et les transcriptions viennent ensuite avec [`DossierDeReunions::ecrire`].
-    /// En cas d'erreur, rien ne reste dans le dossier de réunions.
+    /// Copies the import's files into a new meeting folder and returns the meeting, not yet
+    /// written: the sheet and transcriptions come next with [`MeetingsFolder::write`].
+    /// On error, nothing is left in the meetings folder.
     pub fn import(&self, import: &Import, id: MeetingId, mp4_muxing: &dyn Mp4Muxer) -> Result<Meeting, String> {
         let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{} : {e}", p.display()));
         if !MEDIA_EXTENSIONS.contains(&extension(&import.recording).as_str()) {
@@ -74,7 +74,7 @@ impl MeetingsFolder {
                 copy_to(b, self.file(&name, Role::Summary))?;
                 r.brief = crate::summary::brief(&md);
                 r.set_summary(md);
-                // Avec sa transcription, la réunion est complète ; sans, le traitement refera tout.
+                // With its transcription, the meeting is complete; without it, processing redoes everything.
                 if r.completed_stage.is_some() {
                     r.completed_stage = Some(Stage::Summary);
                     r.status = Status::Done;
@@ -92,8 +92,8 @@ impl MeetingsFolder {
 }
 
 impl MeetingsFolder {
-    /// Copie le média en `… - enregistrement.mp4` : tel quel pour un `.mp4`, passé en MP4 pour
-    /// la famille MP4 ; sinon (ou si la mise en MP4 échoue), copié avec son extension.
+    /// Copies the media as `… - enregistrement.mp4`: as is for an `.mp4`, muxed to MP4 for the
+    /// MP4 family; otherwise (or if muxing to MP4 fails), copied with its extension.
     fn copy_recording(&self, media: &Path, name: &str, mp4_muxing: &dyn Mp4Muxer) -> Result<(), String> {
         let copy_to = |to: PathBuf| std::fs::copy(media, &to).map(|_| ()).map_err(|e| format!("{} : {e}", media.display()));
         let ext = extension(media);
@@ -115,7 +115,7 @@ impl MeetingsFolder {
 
 // --- Transcriptions ------------------------------------------------------------------------
 
-/// Une réplique lue dans un fichier de sous-titres.
+/// An utterance read from a subtitle file.
 #[derive(Debug)]
 struct Line {
     start: f64,
@@ -124,9 +124,9 @@ struct Line {
     text: String,
 }
 
-/// Lit la transcription importée dans la réunion : fichier structuré de Greffier, WebVTT ou SRT.
-/// Elle est réputée non relue. Les locuteurs nommés (« Alexandre ») deviennent SPEAKER_00,
-/// SPEAKER_01… dans l'ordre où ils parlent, avec leur nom ; sans locuteur, tout va à SPEAKER_00.
+/// Reads the imported transcription into the meeting: Greffier's structured file, WebVTT or SRT.
+/// It is treated as not reviewed. Named speakers ("Alexandre") become SPEAKER_00, SPEAKER_01…
+/// in the order they speak, with their name; without speakers, everything goes to SPEAKER_00.
 fn apply_transcription(path: &Path, r: &mut Meeting) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{} : {e}", path.display()))?;
     let (transcription, names) = match extension(path).as_str() {
@@ -149,7 +149,7 @@ fn apply_transcription(path: &Path, r: &mut Meeting) -> Result<(), String> {
     Ok(())
 }
 
-/// Les répliques en transcription structurée, et le nom de chaque étiquette donnée à un locuteur nommé.
+/// The utterances as a structured transcription, and the name of each label given to a named speaker.
 fn from_lines(lines: Vec<Line>) -> (StructuredTranscription, Vec<(String, String)>) {
     let is_label = |s: &str| s.strip_prefix("SPEAKER_").is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()));
     let mut taken: Vec<String> = lines.iter().filter_map(|l| l.speaker.clone()).filter(|l| is_label(l)).collect();
@@ -194,14 +194,14 @@ fn from_lines(lines: Vec<Line>) -> (StructuredTranscription, Vec<(String, String
     (t, names)
 }
 
-/// Les répliques d'un WebVTT ou d'un SRT. Le locuteur est lu en tête de réplique : `<v Nom>`,
-/// `[Nom]:` ou `Nom :`. Cette dernière forme n'est retenue que si au moins la moitié des
-/// répliques la portent (sinon « Bref : on y va » serait pris pour un locuteur). Une réplique sans
-/// locuteur dans un fichier qui en a garde celui de la précédente.
+/// The utterances of a WebVTT or SRT file. The speaker is read at the start of the utterance:
+/// `<v Name>`, `[Name]:` or `Name :`. The last form is only kept if at least half the utterances
+/// carry it (otherwise "Bref : on y va" would be taken for a speaker). An utterance without a
+/// speaker in a file that has speakers keeps the previous one's.
 fn read_subtitles(text: &str) -> Vec<Line> {
     let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n").replace('\r', "\n");
     let mut lines = Vec::new();
-    // Pour chaque réplique sans locuteur sûr : (nom, reste) si elle commence par « Nom : ».
+    // For each utterance without a sure speaker: (name, rest) if it starts with "Name :".
     let mut candidates: Vec<Option<(String, String)>> = Vec::new();
     let mut it = text.lines().peekable();
     while let Some(l) = it.next() {
@@ -247,7 +247,7 @@ fn read_subtitles(text: &str) -> Vec<Line> {
     lines
 }
 
-/// `hh:mm:ss.mmm`, `mm:ss.mmm` (WebVTT) ou `hh:mm:ss,mmm` (SRT), en secondes.
+/// `hh:mm:ss.mmm`, `mm:ss.mmm` (WebVTT) or `hh:mm:ss,mmm` (SRT), in seconds.
 fn timestamp(s: &str) -> Option<f64> {
     let s = s.replace(',', ".");
     let parts: Vec<&str> = s.split(':').collect();
@@ -259,7 +259,7 @@ fn timestamp(s: &str) -> Option<f64> {
     }
 }
 
-/// Le texte sans balises (`<i>`, `<v Nom>`, `<00:00:01.000>`…) ni entités, les espaces resserrés.
+/// The text without tags (`<i>`, `<v Name>`, `<00:00:01.000>`…) or entities, whitespace collapsed.
 fn without_tags(s: &str) -> String {
     let mut out = String::new();
     let mut into = false;
@@ -275,7 +275,7 @@ fn without_tags(s: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `[Nom]: texte` ou `[Nom] : texte`.
+/// `[Name]: text` or `[Name] : text`.
 fn bracketed(s: &str) -> Option<(String, String)> {
     let (name, rest) = s.strip_prefix('[')?.split_once(']')?;
     let rest = rest.trim_start().strip_prefix(':')?;
@@ -283,8 +283,8 @@ fn bracketed(s: &str) -> Option<(String, String)> {
     (!name.is_empty()).then(|| (name.to_string(), rest.trim().to_string()))
 }
 
-/// `Nom : texte` ou `Nom: texte` : un nom court (quatre mots au plus) qui commence par une
-/// majuscule, suivi de deux-points puis d'une espace (« 10:30 » n'en est pas un).
+/// `Name : text` or `Name: text`: a short name (four words at most) starting with a capital
+/// letter, followed by a colon then a space ("10:30" is not one).
 fn name_and_colon(s: &str) -> Option<(String, String)> {
     let (name, rest) = s.split_once(':')?;
     if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
@@ -296,12 +296,12 @@ fn name_and_colon(s: &str) -> Option<(String, String)> {
     (name.starts_with(char::is_uppercase) && short && name.chars().all(allowed)).then(|| (name.to_string(), rest.trim().to_string()))
 }
 
-// --- La proposition de la fenêtre d'import ---------------------------------------------------
+// --- The import window's proposal ----------------------------------------------------------
 
-/// Ce que la fenêtre d'import propose pour ces fichiers déposés : le média, la transcription et
-/// le bilan (au plus un de chaque, rangés d'après leur extension), la date (celle de création
-/// inscrite dans le média, sinon celle de modification du fichier) et le titre (celui du bilan,
-/// sinon le nom du média).
+/// What the import window proposes for these dropped files: the media, the transcription and
+/// the summary (at most one of each, sorted by extension), the date (the creation date stored
+/// in the media, otherwise the file's modification date) and the title (the summary's,
+/// otherwise the media's name).
 pub(crate) fn propose(paths: &[PathBuf], to_local_time: impl Fn(SystemTime) -> DateTime) -> Result<Import, String> {
     let (mut media, mut transcriptions, mut summaries) = (vec![], vec![], vec![]);
     for c in paths {
@@ -331,8 +331,8 @@ fn file_name(c: &Path) -> String {
     c.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Le titre d'un bilan : `titre:` ou `title:` de son en-tête, sinon son premier `# Titre`, sans
-/// un « Bilan — » de tête.
+/// A summary's title: `titre:` or `title:` from its header, otherwise its first `# Title`,
+/// without a leading "Bilan —".
 fn summary_title(md: &str) -> Option<String> {
     let md = md.trim_start_matches('\u{feff}');
     let mut body = md;

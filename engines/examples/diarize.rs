@@ -1,9 +1,9 @@
-//! Sépare les locuteurs d'un média avec pyannote dans le Python privé du dossier de l'app, sans
-//! fenêtre : la vérification à la main de l'adaptateur pyannote.
+//! Diarizes a medium with pyannote in the app folder's private Python, without a window: the
+//! hands-on check of the pyannote adapter.
 //!
-//!     cargo run --release -p greffier-moteurs --example separer -- <média> [--locuteurs N]
+//!     cargo run --release -p greffier-engines --example diarize -- <media> [--speakers N]
 //!
-//! Affiche les tours de parole (début, fin, locuteur) puis la durée.
+//! Prints the speaker turns (start, end, speaker) then the duration.
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -18,11 +18,11 @@ fn main() {
     let mut speaker_count = None;
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--locuteurs" => speaker_count = Some(args.next().and_then(|n| n.parse().ok()).expect("--locuteurs <nombre>")),
+            "--speakers" => speaker_count = Some(args.next().and_then(|n| n.parse().ok()).expect("--speakers <number>")),
             _ => media = Some(PathBuf::from(a)),
         }
     }
-    let media = media.expect("usage : separer <média> [--locuteurs N]");
+    let media = media.expect("usage: diarize <media> [--speakers N]");
     let engine = PyannoteDiarizer::from_app(&greffier_core::resources::app_folder());
     let request = DiarizationRequest { audio: media, duration: 0.0, speaker_count };
     let t = Instant::now();
@@ -35,11 +35,11 @@ fn main() {
                 last = pc;
             }
         })
-        .unwrap_or_else(|e| panic!("séparation : {e}"));
+        .unwrap_or_else(|e| panic!("diarization: {e}"));
     let mut speakers: Vec<&str> = turns.iter().map(|t| t.speaker.as_str()).collect();
     speakers.sort_unstable();
     speakers.dedup();
-    eprintln!("séparation : {} locuteurs, {} tours de parole en {:.1} s", speakers.len(), turns.len(), t.elapsed().as_secs_f64());
+    eprintln!("diarization: {} speakers, {} speaker turns in {:.1} s", speakers.len(), turns.len(), t.elapsed().as_secs_f64());
     for t in &turns {
         println!("{:8.2} {:8.2} {}", t.start, t.end, t.speaker);
     }

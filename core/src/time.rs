@@ -1,6 +1,6 @@
-//! Dates et heures des réunions, sans fuseau : l'heure locale telle que la donne l'horloge.
+//! Meeting dates and times, without a time zone: local time as the clock gives it.
 
-/// Un instant à la minute près, en heure locale.
+/// An instant to the nearest minute, in local time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DateTime {
     pub year: i32,
@@ -17,7 +17,7 @@ impl DateTime {
         DateTime { year, month, day, hour, minute }
     }
 
-    /// Jours depuis le 1er janvier 1970 (algorithme « days from civil »).
+    /// Days since January 1, 1970 (the "days from civil" algorithm).
     fn days(&self) -> i64 {
         let m = i64::from(self.month);
         let y = i64::from(self.year) - i64::from(m <= 2);
@@ -28,8 +28,8 @@ impl DateTime {
         era * 146_097 + doe - 719_468
     }
 
-    /// L'instant `secondes` après le 1er janvier 1970 à minuit, en temps universel (algorithme
-    /// « civil from days »).
+    /// The instant `seconds` after January 1, 1970 at midnight, in universal time (the
+    /// "civil from days" algorithm).
     pub fn from_unix(seconds: i64) -> DateTime {
         let (days, s) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
         let z = days + 719_468;
@@ -44,38 +44,38 @@ impl DateTime {
         DateTime::new(year, month, day, (s / 3600) as u8, ((s / 60) % 60) as u8)
     }
 
-    /// Nombre de jours du calendrier entre cette date et `plus_tard` (0 le même jour).
+    /// Number of calendar days between this date and `later` (0 on the same day).
     pub fn days_until(&self, later: DateTime) -> i64 {
         later.days() - self.days()
     }
 
-    /// 0 pour lundi, 6 pour dimanche.
+    /// 0 for Monday, 6 for Sunday.
     pub fn weekday(&self) -> usize {
         (self.days() + 3).rem_euclid(7) as usize
     }
 
-    /// « sam. 21/11 »
+    /// "sam. 21/11"
     pub fn short_day(&self) -> String {
         format!("{} {:02}/{:02}", DAYS[self.weekday()], self.day, self.month)
     }
 
-    /// « 14h02 »
+    /// "14h02"
     pub fn short_time(&self) -> String {
         format!("{:02}h{:02}", self.hour, self.minute)
     }
 
-    /// « 2026-11-21 14h02 », le début du nom du dossier d'une réunion.
+    /// "2026-11-21 14h02", the start of a meeting's folder name.
     pub fn timestamp(&self) -> String {
         format!("{:04}-{:02}-{:02} {}", self.year, self.month, self.day, self.short_time())
     }
 }
 
-/// Secondes depuis le début de la réunion.
+/// Seconds since the start of the meeting.
 pub fn hms(h: u32, m: u32, s: u32) -> f64 {
     f64::from(h * 3600 + m * 60 + s)
 }
 
-/// « 0:44:12 », la forme des horodatages du bilan et de la transcription.
+/// "0:44:12", the form of the summary's and transcription's timestamps.
 pub fn playback_timestamp(t: f64) -> String {
     let t = t.max(0.0) as u64;
     format!("{}:{:02}:{:02}", t / 3600, (t / 60) % 60, t % 60)

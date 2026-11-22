@@ -1,8 +1,8 @@
-//! Ce que l'interface sait des réglages retenus : le dossier de réunions (que
-//! `GREFFIER_DOSSIER=/chemin` remplace le temps d'un lancement, sans toucher aux réglages : essais
-//! sur une copie, réunions d'exemple), les vrais adaptateurs et l'heure du Mac. Le fichier des
-//! réglages et le lexique sont lus et écrits par le cœur ([`greffier_coeur::reglages`],
-//! [`greffier_coeur::Greffier::lexique`]).
+//! What the UI knows of the remembered settings: the meetings folder (which
+//! `GREFFIER_FOLDER=/path` replaces for a single launch, without touching the settings: trials
+//! on a copy, sample meetings), the real adapters and the Mac's clock. The settings file and the
+//! lexicon are read and written by the core ([`greffier_core::settings`],
+//! [`greffier_core::Greffier::lexicon`]).
 
 use std::path::{Path, PathBuf};
 
@@ -10,29 +10,29 @@ use greffier_core::settings::{self, PersistedSettings};
 
 pub use greffier_core::settings::{app_folder, suggested_folder};
 
-/// Les réglages retenus dans le dossier de l'app.
+/// The settings remembered in the app folder.
 pub fn remembered() -> PersistedSettings {
     PersistedSettings::read(&app_folder())
 }
 
-/// Le dossier de réunions choisi, s'il l'a été.
+/// The chosen meetings folder, if one was chosen.
 pub fn meetings_folder() -> Option<PathBuf> {
-    match std::env::var_os("GREFFIER_DOSSIER") {
+    match std::env::var_os("GREFFIER_FOLDER") {
         Some(d) => Some(PathBuf::from(d)),
         None => remembered().meetings_folder,
     }
 }
 
-/// Retient le dossier de réunions (et le crée s'il n'existe pas) ; avec `GREFFIER_DOSSIER`, le
-/// crée seulement.
+/// Remembers the meetings folder (and creates it if it does not exist); with `GREFFIER_FOLDER`,
+/// only creates it.
 pub fn choose_meetings_folder(folder: &Path) -> Result<(), String> {
-    if std::env::var_os("GREFFIER_DOSSIER").is_some() {
+    if std::env::var_os("GREFFIER_FOLDER").is_some() {
         return settings::create_meetings_folder(folder);
     }
     settings::choose_meetings_folder(&app_folder(), folder)
 }
 
-/// Retient les réglages d'enregistrement du cœur et le raccourci global (vide : aucun).
+/// Remembers the core's recording settings and the global shortcut (empty: none).
 pub fn remember_recording_settings(r: &greffier_core::Settings, shortcut: &str) -> Result<(), String> {
     let mut remembered = remembered();
     remembered.from_meeting(r);
@@ -40,7 +40,7 @@ pub fn remember_recording_settings(r: &greffier_core::Settings, shortcut: &str) 
     remembered.remember(&app_folder())
 }
 
-/// Un chemin à afficher : `~` pour le dossier personnel.
+/// A path for display: `~` for the home folder.
 pub fn display(path: &Path) -> String {
     match path.strip_prefix(settings::home()) {
         Ok(rest) => format!("~/{}", rest.display()),
@@ -48,7 +48,7 @@ pub fn display(path: &Path) -> String {
     }
 }
 
-/// L'heure locale du Mac, pour dater les enregistrements et savoir quel jour on est.
+/// The Mac's local time, to date recordings and know what day it is.
 pub struct MacClock;
 
 impl greffier_core::adapters::Clock for MacClock {
@@ -64,10 +64,10 @@ impl greffier_core::adapters::Clock for MacClock {
     }
 }
 
-/// Les adaptateurs de l'app : la vraie transcription (whisper.cpp, modèles du dossier de l'app),
-/// la vraie séparation des locuteurs (pyannote dans le Python privé), la relecture et le bilan
-/// par la CLI `claude` (réécoute par whisper.cpp), la vraie capture (ScreenCaptureKit), l'heure
-/// du Mac, les vraies ressources et la corbeille du Mac.
+/// The app's adapters: real transcription (whisper.cpp, models from the app folder), real
+/// diarization (pyannote in the private Python), review and summary through the `claude` CLI
+/// (relisten through whisper.cpp), real capture (ScreenCaptureKit), the Mac's clock, the real
+/// resources and the Mac's trash.
 pub fn adapters() -> greffier_core::adapters::Adapters {
     use greffier_core::adapters::Adapters;
     use greffier_tools::claude::{AgentClaude, MacClaude};
@@ -87,13 +87,12 @@ pub fn adapters() -> greffier_core::adapters::Adapters {
     }
 }
 
-/// Le cache de recherche, dans le dossier de l'app.
+/// The search cache, in the app folder.
 pub fn search_cache() -> PathBuf {
     settings::search_cache(&app_folder())
 }
 
-/// Les personnes du lexique, proposées pour nommer les locuteurs ; sans fenêtre, celles des
-/// données fictives.
+/// The lexicon's people, offered to name speakers; headless, those of the fake data.
 pub fn people(core: &greffier_core::Greffier) -> Vec<String> {
     if rune::is_headless() {
         return greffier_core::demo::PEOPLE.map(String::from).to_vec();
@@ -101,7 +100,7 @@ pub fn people(core: &greffier_core::Greffier) -> Vec<String> {
     core.people()
 }
 
-/// Le chemin du lexique du dossier de l'app (le lexique livré y est écrit s'il manque).
+/// The path of the app folder's lexicon (the bundled lexicon is written there if missing).
 pub fn lexicon_path() -> Option<PathBuf> {
-    greffier_core::lexicon::install(&app_folder()).map_err(|e| eprintln!("greffier : lexique : {e}")).ok()
+    greffier_core::lexicon::install(&app_folder()).map_err(|e| eprintln!("greffier: lexicon: {e}")).ok()
 }

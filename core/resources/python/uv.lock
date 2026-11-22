@@ -1378,7 +1378,7 @@ wheels = [
 ]
 
 [[package]]
-name = "reunions-locuteurs"
+name = "greffier-diarization"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

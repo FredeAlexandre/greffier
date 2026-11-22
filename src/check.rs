@@ -1,7 +1,7 @@
-//! L'onglet « À vérifier » et les corrections à la main : on parcourt les passages à vérifier au
-//! clavier, on écoute leur extrait, on les tranche ; dans l'onglet Transcription, on corrige le
-//! texte d'une réplique. Tout passe par les commandes `Trancher` et `CorrigerReplique` du cœur, qui
-//! réécrit les deux transcriptions.
+//! The « À vérifier » tab and manual corrections: step through the passages to check with the
+//! keyboard, listen to their excerpt, settle them; in the Transcript tab, correct an utterance's
+//! text. Everything goes through the core's `Resolve` and `CorrectUtterance` commands, which
+//! rewrite both transcriptions.
 
 use rune::{El, Key, KeyEvent, TextEdit, Tx, col, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit, Progress, TextArea};
@@ -12,30 +12,30 @@ use crate::meeting::{speaker_name, utterance_text};
 use crate::ui::{self, card, dot, eyebrow, glyph, muted, tnum, ts_chip};
 use crate::{App, Page, Tab, Toast};
 
-/// Ce qu'on est en train de corriger à la main.
+/// What is being corrected by hand.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
-    /// Un passage à vérifier (index dans `Reunion::passages`) : la correction le tranche.
+    /// A passage to check (index into `Meeting::passages`): the correction settles it.
     Passage(usize),
-    /// Le texte d'une réplique (index dans `Reunion::repliques`).
+    /// An utterance's text (index into `Meeting::utterances`).
     Utterance(usize),
 }
 
 pub struct Correction {
     pub target: Target,
     pub edit: TextEdit,
-    /// Pourquoi le cœur a refusé la correction, affiché sous le champ.
+    /// Why the core refused the correction, shown under the field.
     pub error: Option<String>,
 }
 
-/// Le passage sélectionné au clavier : `s.doubt` s'il est encore en attente, sinon le suivant en
-/// attente (ou le premier).
+/// The passage selected with the keyboard: `s.doubt` if it is still pending, otherwise the next
+/// pending one (or the first).
 pub fn selected(s: &App, m: &Meeting) -> Option<usize> {
     let pending = |i: &usize| m.passages[*i].status == PassageStatus::Pending;
     (s.doubt..m.passages.len()).find(pending).or_else(|| (0..m.passages.len()).find(pending))
 }
 
-/// La correction en cours est visible : son onglet est ouvert sur la page de sa réunion.
+/// The correction in progress is visible: its tab is open on its meeting's page.
 pub fn correction_shown(s: &App) -> bool {
     let Some(c) = &s.correction else { return false };
     let Some(m) = s.meeting() else { return false };
@@ -53,8 +53,8 @@ impl App {
         }
     }
 
-    /// Envoie une commande de correction. Un refus s'affiche sous le champ de correction ouvert,
-    /// sinon dans le bandeau.
+    /// Sends a correction command. A refusal shows under the open correction field, otherwise in
+    /// the toast.
     fn correct(&mut self, c: Command) -> bool {
         let Err(rejection) = self.try_command(c) else { return true };
         let message = match rejection {
@@ -73,12 +73,12 @@ impl App {
         let reopen = resolution == Resolution::Reopen;
         if self.correct(Command::Resolve { meeting, passage, resolution }) {
             self.correction = None;
-            // On reste sur un passage rouvert ; sinon la sélection passe au suivant en attente.
+            // Stay on a reopened passage; otherwise the selection moves to the next pending one.
             self.doubt = if reopen { passage } else { passage + 1 };
         }
     }
 
-    /// Lit l'extrait du passage (celui de la réécoute) et s'arrête à sa fin.
+    /// Plays the passage's excerpt (the relistened one) and stops at its end.
     pub fn listen_doubt(&mut self, passage: usize) {
         let Some(window) = self.meeting().and_then(|m| m.excerpt_to_listen(passage)) else { return };
         self.doubt = passage;
@@ -99,7 +99,7 @@ impl App {
             }
         };
         let mut edit = TextEdit::new(text.clone());
-        // Un passage se retape en entier ; une réplique se corrige depuis la fin.
+        // A passage is retyped in full; an utterance is corrected from the end.
         edit.set_selection(if all { 0 } else { text.len() }, text.len());
         edit.focused = true;
         if let Target::Passage(i) = target {
@@ -125,7 +125,7 @@ impl App {
         self.correction = None;
     }
 
-    /// Passe au passage en attente suivant (`+1`) ou précédent (`-1`).
+    /// Moves to the next (`+1`) or previous (`-1`) pending passage.
     fn step_doubt(&mut self, delta: isize, tx: &mut Tx) {
         let Some(m) = self.meeting() else { return };
         let Some(cur) = selected(self, m) else { return };
@@ -137,8 +137,8 @@ impl App {
     }
 }
 
-/// Les touches de l'onglet À vérifier : ↑ ↓ (ou K J) d'un passage à l'autre, E écouter,
-/// A accepter l'hypothèse, G garder l'original, C corriger.
+/// The « À vérifier » tab's keys: ↑ ↓ (or K J) from one passage to another, E listen,
+/// A accept the hypothesis, G keep the original, C correct.
 pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(cur) = s.meeting().and_then(|m| selected(s, m)) else { return false };
     let letter = |c: &str| matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case(c));
@@ -160,14 +160,14 @@ pub fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// Le champ de correction : Entrée enregistre, Échap annule.
+/// The correction field: Return saves, Escape cancels.
 pub fn editor(s: &App, k: &Kit, key: &str) -> El {
     let Some(c) = &s.correction else { return rune::el() };
     let area = TextArea::new(&c.edit)
         .width(None)
         .auto_grow(1, 6)
         .placeholder("Texte corrigé")
-        .on_edit(|s: &mut App| &mut s.correction.as_mut().expect("correction ouverte").edit)
+        .on_edit(|s: &mut App| &mut s.correction.as_mut().expect("correction open").edit)
         .on_key(|s: &mut App, ev, _| match ev.key {
             Key::Enter if !ev.mods.shift => {
                 s.submit_correction();
@@ -199,8 +199,8 @@ pub fn editor(s: &App, k: &Kit, key: &str) -> El {
         )
 }
 
-/// L'onglet À vérifier : le nombre restant, puis chaque passage avec sa réplique, l'hypothèse de
-/// l'agent et la réécoute.
+/// The « À vérifier » tab: the remaining count, then each passage with its utterance, the agent's
+/// hypothesis and the relisten.
 pub fn tab(s: &App, m: &Meeting, k: &Kit) -> El {
     let total = m.passages.len();
     let left = m.pending_passages();

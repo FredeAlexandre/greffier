@@ -1,5 +1,5 @@
-//! L'enregistrement par la fausse capture : règle de la minute, repères dans la fiche,
-//! démarrage automatique du traitement, autorisations, récupération d'un enregistrement coupé.
+//! Recording through the fake capture: the one-minute rule, markers in the sheet, automatic start
+//! of processing, permissions, recovery of a cut recording.
 
 mod bench;
 
@@ -76,7 +76,7 @@ fn bench_with_permissions(permissions: Permissions) -> Bench {
 fn rejection(bench: &mut Bench, command: Command) -> String {
     match bench.greffier.execute(command) {
         Err(Rejection::Impossible(m)) => m,
-        other => panic!("refus attendu, obtenu {other:?}"),
+        other => panic!("rejection expected, got {other:?}"),
     }
 }
 
@@ -101,7 +101,7 @@ fn a_disabled_source_does_not_need_its_permission() {
     settings.sources.micro = false;
     bench.execute(Command::ChangeSettings(settings));
     bench.execute(Command::StartRecording);
-    assert_eq!(bench.greffier.recording().expect("en cours").sources, Sources { screen: true, mac_audio: true, micro: false });
+    assert_eq!(bench.greffier.recording().expect("in progress").sources, Sources { screen: true, mac_audio: true, micro: false });
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn a_never_requested_permission_is_requested_at_startup() {
     let mut bench = bench_with_permissions(Permissions { micro: PermissionState::ToRequest, ..Permissions::GRANTED });
     let message = rejection(&mut bench, Command::StartRecording);
     assert!(message.contains("micro"), "{message}");
-    // La fausse capture accepte toute demande, comme l'utilisateur qui clique « Autoriser ».
+    // The fake capture accepts every request, like the user clicking « Autoriser ».
     assert_eq!(bench.greffier.permissions(), Permissions::GRANTED);
     bench.execute(Command::StartRecording);
     assert!(bench.greffier.recording().is_some());
@@ -136,12 +136,12 @@ fn a_cut_recording_keeps_the_duration_already_written_in_its_fragments() {
     bench.advance(90.0);
     bench.execute(Command::AddMarker);
     bench.advance(4.0);
-    // L'app s'arrête net : pas d'ArreterEnregistrement.
+    // The app stops dead: no `StopRecording`.
     bench.reopen();
 
     let r = bench.named_meeting("2026-11-21 14h02 - Réunion");
     assert_eq!(r.status, Status::RecordingInterrupted);
-    assert!((r.duration - 94.0).abs() < 0.05, "durée {}", r.duration);
+    assert!((r.duration - 94.0).abs() < 0.05, "duration {}", r.duration);
 }
 
 #[test]
@@ -170,14 +170,14 @@ fn an_interrupted_recording_is_read_and_processed_up_to_the_summary() {
 
     let r = bench.named_meeting("2026-11-21 14h02 - Réunion");
     assert!(r.files.contains(&Role::Recording), "{:?}", r.files);
-    assert!((r.duration - 75.0).abs() < 0.05, "durée {}", r.duration);
+    assert!((r.duration - 75.0).abs() < 0.05, "duration {}", r.duration);
     let id = r.id;
     bench.execute(Command::Process(id));
     assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
     assert_eq!(bench.meeting(id).utterances.len(), 2);
 
-    // Et elle n'est plus interrompue au lancement suivant.
-    // Le titre du bilan a renommé le dossier.
+    // And it is no longer interrupted at the next launch.
+    // The summary title renamed the folder.
     bench.reopen();
     assert_eq!(bench.named_meeting("2026-11-21 14h02 - Point d'équipe - démo").status, Status::Done);
 }
@@ -201,16 +201,16 @@ fn a_capture_stopped_by_macos_keeps_the_meeting_interrupted_with_what_was_captur
     let id = r.id;
     assert_eq!(events, [Event::RecordingInterrupted { meeting: id, message: "L'écran a été débranché.".into() }]);
     assert_eq!(r.status, Status::RecordingInterrupted);
-    assert!((r.duration - 80.0).abs() < 0.15, "durée {}", r.duration);
+    assert!((r.duration - 80.0).abs() < 0.15, "duration {}", r.duration);
     assert_eq!(r.markers.len(), 1);
     assert!(r.files.contains(&Role::Recording));
-    // Pas de traitement d'office : on le lance quand on veut.
+    // No automatic processing: it is started whenever we want.
     bench.advance(2.0);
     assert_eq!(bench.meeting(id).status, Status::RecordingInterrupted);
     bench.execute(Command::Process(id));
     bench.advance_until(id, |s| *s == Status::Done);
 
-    // Le titre du bilan a renommé le dossier.
+    // The summary title renamed the folder.
     bench.reopen();
     assert_eq!(bench.named_meeting("2026-11-21 14h02 - Point d'équipe - démo").status, Status::Done);
 }
@@ -226,7 +226,7 @@ fn a_failed_stop_keeps_the_meeting_interrupted_with_its_fragments_duration() {
     let r = &bench.greffier.meetings()[0];
     assert_eq!(events, [Event::RecordingInterrupted { meeting: r.id, message: "Le fichier n'a pas pu être fini.".into() }]);
     assert_eq!(r.status, Status::RecordingInterrupted);
-    assert!((r.duration - 70.0).abs() < 0.15, "durée {}", r.duration);
+    assert!((r.duration - 70.0).abs() < 0.15, "duration {}", r.duration);
     bench.reopen();
     assert_eq!(bench.named_meeting("2026-11-21 14h02 - Réunion").status, Status::RecordingInterrupted);
 }
@@ -237,16 +237,16 @@ fn fake_capture_writes_an_mp4_whose_duration_is_read() {
     let id = bench.record(75.0);
     let name = bench.meeting(id).folder_name.clone();
     let file = bench.greffier.folder().file(&name, Role::Recording);
-    let duration = greffier_core::folder::mp4_duration(&file).expect("durée du mp4");
+    let duration = greffier_core::folder::mp4_duration(&file).expect("mp4 duration");
     assert!((duration - 75.0).abs() < 0.05, "{duration}");
 }
 
 #[test]
 fn an_avassetwriter_mp4_cut_mid_recording_keeps_its_duration() {
-    // Écrit par la vraie capture (essai_ecrivain --couper) : 2 s dans le moov, puis des fragments
-    // sans tfdt ; ffprobe y lit 6,04 s.
+    // Written by the real capture (the `try_writer` example, quitting before finishing the file):
+    // 2 s in the moov, then fragments without tfdt; ffprobe reads 6.04 s.
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/avassetwriter-cut.mp4");
-    let duration = greffier_core::folder::mp4_duration(&file).expect("durée");
+    let duration = greffier_core::folder::mp4_duration(&file).expect("duration");
     assert!((duration - 6.04).abs() < 0.01, "{duration}");
 }
 

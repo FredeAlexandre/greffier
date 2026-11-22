@@ -1,23 +1,23 @@
-//! Le lexique : un fichier Markdown du dossier de l'app, à quatre sections.
+//! The lexicon: a Markdown file in the app's folder, with four sections.
 //!
-//! - **Personnes** : une puce par personne (`- Nom : rôle`) ;
-//! - **Mots justes** : un paragraphe de mots séparés par des virgules ;
-//! - **Erreurs connues** : un tableau `| Entendu | Correct |`, enrichi par la relecture ;
-//! - **Vocabulaire** : la phrase donnée à Whisper avant la transcription (il n'en lit
-//!   qu'environ 220 tokens).
+//! - **Personnes** (people): one bullet per person (`- Name : role`);
+//! - **Mots justes** (correct words): a paragraph of comma-separated words;
+//! - **Erreurs connues** (known errors): a `| Entendu | Correct |` table, extended by the review;
+//! - **Vocabulaire** (vocabulary): the sentence given to Whisper before transcription (it only
+//!   reads about 220 tokens of it).
 //!
-//! Une ligne en italique (`_…_`) est une indication du modèle, pas une entrée.
+//! A line in italics (`_…_`) is a hint from the template, not an entry.
 //!
-//! L'app est livrée avec un lexique modèle, vide ; elle l'écrit dans son dossier au premier
-//! lancement et n'y touche plus ensuite : il appartient à l'utilisateur.
+//! The app ships with an empty template lexicon; it writes it into its folder on first launch
+//! and never touches it afterwards: it belongs to the user.
 
 use std::path::{Path, PathBuf};
 
-/// Le lexique livré avec l'app.
+/// The lexicon shipped with the app.
 pub const INITIAL_LEXICON: &str = include_str!("../resources/lexicon.md");
 
-/// Où est la section `## titre` : le début de son corps (après le titre) et sa fin (le titre
-/// suivant, ou la fin du texte).
+/// Where the `## title` section is: the start of its body (after the heading) and its end (the
+/// next heading, or the end of the text).
 fn bounds(md: &str, title: &str) -> Option<(usize, usize)> {
     let header = format!("## {title}");
     let mut start = None;
@@ -36,18 +36,18 @@ fn bounds(md: &str, title: &str) -> Option<(usize, usize)> {
     start.map(|d| (d, md.len()))
 }
 
-/// Le corps d'une section `## titre`, jusqu'à la section suivante.
+/// The body of a `## title` section, up to the next section.
 fn section<'a>(md: &'a str, title: &str) -> &'a str {
     bounds(md, title).map_or("", |(d, f)| &md[d..f])
 }
 
-/// La section Vocabulaire, sur une ligne : le prompt de Whisper (vide : pas de prompt).
+/// The Vocabulaire section, on one line: Whisper's prompt (empty: no prompt).
 pub fn vocabulary(md: &str) -> String {
     section(md, "Vocabulaire").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Les noms de la section Personnes (`- Nom : rôle`, `- **Nom** — rôle`), dans l'ordre : ceux
-/// qu'on propose pour nommer un locuteur.
+/// The names in the Personnes section (`- Name : role`, `- **Name** — role`), in order: those
+/// offered to name a speaker.
 pub fn people(md: &str) -> Vec<String> {
     section(md, "Personnes")
         .lines()
@@ -57,7 +57,7 @@ pub fn people(md: &str) -> Vec<String> {
         .collect()
 }
 
-/// Ce que compte le lexique, pour les réglages.
+/// What the lexicon counts, for the settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Overview {
     pub people: usize,
@@ -82,7 +82,7 @@ pub fn preview(md: &str) -> Overview {
     Overview { people, correct_words, known_errors }
 }
 
-/// Écrit le lexique livré dans le dossier de l'app s'il n'y en a pas encore ; rend son chemin.
+/// Writes the shipped lexicon into the app's folder if there is none yet; returns its path.
 pub fn install(app_folder: &Path) -> std::io::Result<PathBuf> {
     let path = app_folder.join("lexique.md");
     if !path.exists() {
@@ -92,7 +92,7 @@ pub fn install(app_folder: &Path) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Une erreur de transcription apprise : ce que Whisper a entendu, et ce qu'il fallait écrire.
+/// A learned transcription error: what Whisper heard, and what should have been written.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LexiconAddition {
     pub heard: String,
@@ -101,7 +101,7 @@ pub struct LexiconAddition {
 
 const TABLE: &str = "| Entendu | Correct |\n|---|---|\n";
 
-/// Les cellules d'une ligne de tableau (`\|` est une barre dans une cellule).
+/// The cells of a table row (`\|` is a pipe inside a cell).
 fn cells(line: &str) -> Vec<String> {
     let line = line.trim().trim_start_matches('|');
     let mut cells = vec![String::new()];
@@ -124,8 +124,8 @@ fn is_separator(line: &str) -> bool {
     line.trim().starts_with('|') && line.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t' | '\r' | '\n'))
 }
 
-/// Ce qui est déjà entendu dans les erreurs connues, en minuscules (chaque variante de la première
-/// colonne, séparées par des virgules).
+/// What is already heard in the known errors, in lowercase (each variant of the first column,
+/// comma-separated).
 fn already_heard(md: &str) -> Vec<String> {
     let lines: Vec<&str> = section(md, "Erreurs connues").lines().filter(|l| l.trim_start().starts_with('|')).collect();
     let body = match lines.iter().position(|l| is_separator(l)) {
@@ -135,10 +135,10 @@ fn already_heard(md: &str) -> Vec<String> {
     body.iter().filter_map(|l| cells(l).into_iter().next()).flat_map(|c| c.split(',').map(|v| v.trim().to_lowercase()).collect::<Vec<_>>()).filter(|v| !v.is_empty()).collect()
 }
 
-/// Ajoute au tableau des erreurs connues celles qui n'y sont pas encore. Sont écartées : les
-/// entrées vides, celles qui ne changent que la casse, et celles dont la forme entendue est déjà
-/// connue (une des variantes de la première colonne). Le tableau, ou la section, est créé s'il
-/// manque. Rend le lexique et les erreurs vraiment ajoutées.
+/// Adds to the known errors table those not in it yet. Skipped: empty entries, those that only
+/// change case, and those whose heard form is already known (one of the first column's
+/// variants). The table, or the section, is created if missing. Returns the lexicon and the
+/// errors actually added.
 pub fn add_errors(md: &str, additions: &[LexiconAddition]) -> (String, Vec<LexiconAddition>) {
     let mut known = already_heard(md);
     let mut added = Vec::new();
@@ -166,7 +166,7 @@ pub fn add_errors(md: &str, additions: &[LexiconAddition]) -> (String, Vec<Lexic
         }
         Some((start, end)) => {
             let body = &md[start..end];
-            // Après la dernière ligne du tableau.
+            // After the table's last row.
             let mut position = None;
             let mut p = start;
             for line in body.split_inclusive('\n') {
@@ -192,8 +192,8 @@ pub fn add_errors(md: &str, additions: &[LexiconAddition]) -> (String, Vec<Lexic
     (md, added)
 }
 
-/// Réécrit le lexique d'un coup (fichier temporaire à côté, puis renommage) : un éditeur qui le
-/// lit au même moment ne le voit jamais à moitié écrit.
+/// Rewrites the lexicon in one go (temporary file alongside, then rename): an editor reading it
+/// at the same moment never sees it half-written.
 pub fn write(path: &Path, md: &str) -> std::io::Result<()> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let temp = path.with_file_name(format!(".{name}.greffier"));

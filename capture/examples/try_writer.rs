@@ -1,7 +1,7 @@
-//! Écrit un enregistrement synthétique (un carré qui avance, un la au micro, un mi au son du Mac
-//! avec des silences) par le vrai écrivain, sans ScreenCaptureKit ni autorisation :
-//! `cargo run -p greffier-capture --example essai_ecrivain -- sortie.mp4 [secondes] [--couper]`.
-//! `--couper` quitte sans finir le fichier, comme un plantage, pour vérifier qu'il reste lisible.
+//! Writes a synthetic recording (a moving square, an A on the microphone, an E on the Mac audio
+//! with silences) through the real writer, without ScreenCaptureKit or permissions:
+//! `cargo run -p greffier-capture --example try_writer -- output.mp4 [seconds] [--cut]`.
+//! `--cut` quits without finishing the file, like a crash, to check that it stays readable.
 
 use std::ptr::{self, NonNull};
 
@@ -13,13 +13,13 @@ use objc2_core_video::{kCVPixelFormatType_32BGRA, CVPixelBuffer, CVPixelBufferCr
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let output = std::path::PathBuf::from(args.get(1).expect("sortie.mp4"));
+    let output = std::path::PathBuf::from(args.get(1).expect("output.mp4"));
     let seconds: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(6.0);
-    let cut = args.iter().any(|a| a == "--couper");
+    let cut = args.iter().any(|a| a == "--cut");
     let (l, h) = (1280usize, 720usize);
-    let mut e = Writer::new(&output, Some((l, h))).expect("écrivain");
+    let mut e = Writer::new(&output, Some((l, h))).expect("writer");
     let mut m = Mixer::new(true, true);
-    let base = 1_000_000_000_000i64; // un horodatage d'horloge quelconque, en ns
+    let base = 1_000_000_000_000i64; // an arbitrary clock timestamp, in ns
     let packet = 1024usize;
     let mut audio_frame = 0usize;
     let images = (seconds * 30.0) as usize;
@@ -27,12 +27,12 @@ fn main() {
         let t = i as f64 / 30.0;
         let pts = unsafe { CMTime::new(base + (t * 1e9) as i64, 1_000_000_000) };
         e.image(&image(l, h, i), pts);
-        // L'audio jusqu'à cette image, par paquets de 1024 trames.
+        // The audio up to this frame, in packets of 1024 frames.
         while (audio_frame as f64) / f64::from(SAMPLE_RATE) < t + 1.0 / 30.0 {
             let tone = |f: f64, k: usize| ((2.0 * std::f64::consts::PI * f * (audio_frame + k) as f64 / f64::from(SAMPLE_RATE)).sin() * 0.3) as f32;
             let micro: Vec<f32> = (0..packet).flat_map(|k| [tone(440.0, k); CHANNELS]).collect();
             m.push(Source::Micro, audio_frame as i64, &micro);
-            // Le son du Mac se tait une seconde sur deux.
+            // The Mac audio goes quiet every other second.
             if (audio_frame / SAMPLE_RATE as usize).is_multiple_of(2) {
                 let mac: Vec<f32> = (0..packet).flat_map(|k| [tone(660.0, k); CHANNELS]).collect();
                 m.push(Source::MacAudio, audio_frame as i64, &mac);
@@ -44,7 +44,7 @@ fn main() {
         }
         std::thread::sleep(std::time::Duration::from_millis(33));
         if cut && t >= seconds - 1.0 {
-            eprintln!("coupé à {t:.1} s sans finir");
+            eprintln!("cut at {t:.1} s without finishing");
             std::process::exit(0);
         }
     }
@@ -52,8 +52,8 @@ fn main() {
         e.audio(&b);
     }
     let lost = e.lost;
-    let duration = e.finish().expect("finir");
-    println!("durée écrite {duration:.2} s, échantillons perdus {lost}");
+    let duration = e.finish().expect("finish");
+    println!("duration written {duration:.2} s, samples lost {lost}");
 }
 
 fn image(l: usize, h: usize, i: usize) -> CFRetained<CVPixelBuffer> {

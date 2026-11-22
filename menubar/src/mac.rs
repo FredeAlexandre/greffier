@@ -1,5 +1,5 @@
-//! L'icône dans la barre des menus de macOS : un `NSStatusItem` et son `NSMenu`, construits et
-//! changés depuis le thread principal. Tout `unsafe` de la barre est ici.
+//! The icon in the macOS menu bar: an `NSStatusItem` and its `NSMenu`, built and changed from the
+//! main thread. All of the menu bar's `unsafe` is here.
 
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
@@ -14,18 +14,18 @@ use crate::{Choice, State, Icon, Line, menu, duration_text};
 
 const CHOICES: [Choice; 4] = [Choice::Start, Choice::Stop, Choice::Open, Choice::Quit];
 
-/// La cible des lignes du menu et de la minuterie de la durée.
+/// The target of the menu lines and of the duration timer.
 struct Target {
     choose: Box<dyn Fn(Choice)>,
-    /// La ligne de la durée et l'instant où l'enregistrement a commencé, tant qu'il tourne.
+    /// The duration line and the time the recording started, while it is running.
     duration: RefCell<Option<(Retained<NSMenuItem>, Instant)>>,
 }
 
 define_class!(
-    // SAFETY : NSObject n'a pas d'exigence de sous-classe ; la classe ne surcharge pas dealloc.
+    // SAFETY: NSObject has no subclassing requirements; the class doesn't override dealloc.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "GreffierCibleDeLaBarre"]
+    #[name = "GreffierMenubarTarget"]
     #[ivars = Target]
     struct MenubarTarget;
 
@@ -37,7 +37,7 @@ define_class!(
             }
         }
 
-        /// La durée avance même quand l'app ne la redonne pas (menu ouvert, fenêtre fermée).
+        /// The duration moves on even when the app doesn't send it again (menu open, window closed).
         #[unsafe(method(heartbeat:))]
         fn heartbeat(&self, _timer: &NSTimer) {
             if let Some((line, start)) = &*self.ivars().duration.borrow() {
@@ -47,20 +47,20 @@ define_class!(
     }
 );
 
-/// L'icône de Greffier dans la barre des menus. Elle disparaît quand on la lâche.
+/// Greffier's icon in the menu bar. It disappears when dropped.
 pub struct MenubarIcon {
     mtm: MainThreadMarker,
     item: Retained<NSStatusItem>,
     menu: Retained<NSMenu>,
     target: Retained<MenubarTarget>,
     timer: Option<Retained<NSTimer>>,
-    /// La forme du menu affiché (l'état sans la durée) : on ne le reconstruit que si elle change.
+    /// The shape of the menu shown (the state without the duration): it is rebuilt only when this changes.
     shape: Option<Option<bool>>,
 }
 
 impl MenubarIcon {
-    /// Pose l'icône. `choisir` reçoit les choix du menu, sur le thread principal. `None` hors du
-    /// thread principal.
+    /// Puts up the icon. `choose` receives the menu choices, on the main thread. `None` off the
+    /// main thread.
     pub fn new(choose: impl Fn(Choice) + 'static) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
         let item = NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
@@ -68,12 +68,12 @@ impl MenubarIcon {
         menu.setAutoenablesItems(false);
         item.setMenu(Some(&menu));
         let target = MenubarTarget::alloc(mtm).set_ivars(Target { choose: Box::new(choose), duration: RefCell::new(None) });
-        // SAFETY : `init` de NSObject, sur une instance tout juste allouée.
+        // SAFETY: NSObject's `init`, on a freshly allocated instance.
         let target: Retained<MenubarTarget> = unsafe { msg_send![super(target), init] };
         Some(MenubarIcon { mtm, item, menu, target, timer: None, shape: None })
     }
 
-    /// Montre l'état de l'app : l'aspect de l'icône, les lignes du menu, la durée.
+    /// Shows the app's state: the icon's look, the menu lines, the duration.
     pub fn show(&mut self, state: State) {
         let shape = match state {
             State::Ready { possible } => Some(possible),
@@ -139,25 +139,25 @@ impl MenubarIcon {
 
     fn line(&self, text: &str, choice: Option<Choice>) -> Retained<NSMenuItem> {
         let action = choice.map(|_| sel!(choose:));
-        // SAFETY : `choisir:` existe sur la cible et prend l'NSMenuItem qui l'envoie.
+        // SAFETY: `choose:` exists on the target and takes the NSMenuItem that sends it.
         let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(self.mtm), &NSString::from_str(text), action, &NSString::new()) };
         if let Some(c) = choice {
             item.setTag(CHOICES.iter().position(|&x| x == c).unwrap_or(0) as isize);
-            // SAFETY : la cible vit autant que l'icône, qui garde le menu.
+            // SAFETY: the target lives as long as the icon, which holds the menu.
             unsafe { item.setTarget(Some(&self.target as &AnyObject)) };
         }
         item
     }
 
-    /// Une minuterie, dans tous les modes de la boucle (aussi quand le menu est ouvert), le temps
-    /// de l'enregistrement.
+    /// A timer, in all run loop modes (also while the menu is open), for the length of the
+    /// recording.
     fn schedule_timer(&mut self, recording: bool) {
         match (recording, &self.timer) {
             (true, None) => {
-                // SAFETY : `battre:` existe sur la cible et prend la minuterie ; elle tourne sur
-                // la boucle du thread principal, celle de la cible.
+                // SAFETY: `heartbeat:` exists on the target and takes the timer; it runs on the
+                // main thread's run loop, the target's.
                 let t = unsafe { NSTimer::timerWithTimeInterval_target_selector_userInfo_repeats(0.5, &self.target, sel!(heartbeat:), None, true) };
-                // SAFETY : ajoutée à la boucle principale, depuis le thread principal.
+                // SAFETY: added to the main run loop, from the main thread.
                 unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&t, NSRunLoopCommonModes) };
                 self.timer = Some(t);
             }

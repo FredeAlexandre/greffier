@@ -1,14 +1,14 @@
-//! Une réunion et tout ce qui en est tiré : locuteurs, répliques, passages à vérifier, repères,
-//! bilan, et son statut dans le traitement. Le cœur seul les modifie ; l'interface les lit.
+//! A meeting and everything derived from it: speakers, utterances, passages to check, markers,
+//! summary, and its status in processing. Only the core modifies them; the interface reads them.
 
 use crate::adapters::{LexiconAddition, SpeakerChange, ConfidentCorrection, CorrectedPassage};
 use crate::folder::Role;
 use crate::time::DateTime;
 
-/// L'identifiant d'une réunion dans le cœur, stable tant que l'app tourne.
+/// A meeting's id in the core, stable while the app runs.
 pub type MeetingId = u32;
 
-/// Un maillon du traitement, dans l'ordre.
+/// A link in the processing chain, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Stage {
     Transcription,
@@ -35,7 +35,7 @@ impl Stage {
         }
     }
 
-    /// Part relative de l'étape dans la durée d'un traitement, pour estimer le temps restant.
+    /// The stage's relative share of a processing run's duration, to estimate the time remaining.
     pub fn weight(self) -> f64 {
         match self {
             Stage::Transcription => 6.0,
@@ -45,16 +45,16 @@ impl Stage {
     }
 }
 
-/// Où en est une réunion.
+/// Where a meeting stands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Status {
     Recording,
     RecordingInterrupted,
-    /// Enregistrée (ou importée), le traitement n'est pas lancé.
+    /// Recorded (or imported), processing has not started.
     ToProcess,
-    /// Dans la file, en attente de son tour ; le traitement commencera à cette étape.
+    /// In the queue, waiting for its turn; processing will start at this stage.
     Pending(Stage),
-    /// L'étape tourne ; `progres` va de 0 à 1.
+    /// The stage is running; `progress` goes from 0 to 1.
     Running { stage: Stage, progress: f64 },
     Failed { stage: Stage, message: String },
     Done,
@@ -76,19 +76,19 @@ impl Status {
     }
 }
 
-/// Un mot transcrit, horodaté, avec sa confiance (0 à 1).
+/// A transcribed word, timestamped, with its confidence (0 to 1).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
     pub start: f64,
     pub end: f64,
     pub text: String,
     pub confidence: f32,
-    /// L'index de son locuteur dans [`Reunion::locuteurs`], une fois attribué (le transcripteur
-    /// rend des mots sans locuteur).
+    /// The index of its speaker in [`Meeting::speakers`], once attributed (the transcriber
+    /// returns words without a speaker).
     pub speaker: Option<usize>,
 }
 
-/// Un tour de parole rendu par le séparateur : un seul locuteur à la fois.
+/// A speaker turn returned by diarization: one speaker at a time.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpeakerTurn {
     pub start: f64,
@@ -99,23 +99,23 @@ pub struct SpeakerTurn {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Speaker {
-    /// « SPEAKER_00 », tel que le séparateur l'a nommé.
+    /// "SPEAKER_00", as diarization named it.
     pub label: String,
-    /// Le nom confirmé ou donné par l'utilisateur.
+    /// The name confirmed or given by the user.
     pub name: Option<String>,
-    /// Le nom proposé par l'agent, et pourquoi.
+    /// The name proposed by the agent, and why.
     pub proposal: Option<String>,
     pub justification: String,
-    /// Teinte de sa couleur dans l'interface (oklch).
+    /// The hue of its color in the interface (oklch).
     pub tint: f32,
-    /// Fusionné dans un autre locuteur (index), qui le remplace partout.
+    /// Merged into another speaker (index), which replaces it everywhere.
     pub merged_into: Option<usize>,
-    /// L'agent pense que c'est la même voix qu'un autre locuteur (index).
+    /// The agent thinks it is the same voice as another speaker (index).
     pub suggested_merge: Option<usize>,
 }
 
 impl Speaker {
-    /// L'étiquette du n-ième locuteur : « SPEAKER_00 », « SPEAKER_01 »…
+    /// The n-th speaker's label: "SPEAKER_00", "SPEAKER_01"…
     pub fn numbered_label(n: usize) -> String {
         format!("SPEAKER_{n:02}")
     }
@@ -124,7 +124,7 @@ impl Speaker {
         Speaker { label: label.into(), name: None, proposal: None, justification: String::new(), tint, merged_into: None, suggested_merge: None }
     }
 
-    /// Le nom à afficher : confirmé, sinon proposé (« Khalid ? »), sinon l'étiquette.
+    /// The name to display: confirmed, otherwise proposed ("Khalid ?"), otherwise the label.
     pub fn display_name(&self) -> String {
         match (&self.name, &self.proposal) {
             (Some(n), _) => n.clone(),
@@ -134,17 +134,17 @@ impl Speaker {
     }
 }
 
-/// Teintes données aux locuteurs détectés, dans l'ordre.
+/// Hues given to detected speakers, in order.
 pub const HUES: [f32; 8] = [160.0, 255.0, 320.0, 200.0, 35.0, 80.0, 120.0, 280.0];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Utterance {
-    /// Index dans `Reunion::locuteurs` (avant fusion : voir `Reunion::locuteur_affiche`).
+    /// Index in `Meeting::speakers` (before merging: see `Meeting::displayed_speaker`).
     pub speaker: usize,
     pub start: f64,
     pub end: f64,
     pub text: String,
-    /// Les passages à vérifier de cette réplique (index dans `Reunion::passages`, dans l'ordre).
+    /// This utterance's passages to check (indexes in `Meeting::passages`, in order).
     pub passages: Vec<usize>,
 }
 
@@ -161,18 +161,19 @@ pub struct PassageToCheck {
     pub utterance: usize,
     pub excerpt: String,
     pub hypothesis: Option<String>,
-    /// Ce que la réécoute a entendu.
+    /// What the relisten heard.
     pub relisten: String,
     pub status: PassageStatus,
 }
 
-/// Marge de la réécoute autour de la réplique, et longueur maximale d'un extrait (Whisper entend
-/// 30 s d'un coup), en secondes.
+/// The relisten's margin around the utterance, and the maximum length of an excerpt (Whisper
+/// hears 30 s at once), in seconds.
 const MARGIN: f64 = 1.5;
 const MAX_EXCERPT: f64 = 28.0;
 
-/// L'extrait à réécouter (ou à écouter pour trancher) d'un passage d'une réplique : ±1,5 s autour
-/// de la réplique ; au-delà de 28 s, 26 s centrées sur l'endroit du passage dans la réplique.
+/// The excerpt to relisten to (or to listen to in order to decide) for a passage of an
+/// utterance: ±1.5 s around the utterance; beyond 28 s, 26 s centered on where the passage sits
+/// in the utterance.
 pub fn excerpt_to_relisten(start: f64, end: f64, text: &str, passage: &str) -> (f64, f64) {
     let (mut from, mut a) = (start - MARGIN, end + MARGIN);
     if a - from > MAX_EXCERPT {
@@ -184,8 +185,8 @@ pub fn excerpt_to_relisten(start: f64, end: f64, text: &str, passage: &str) -> (
 }
 
 impl PassageToCheck {
-    /// Ce que le passage met dans sa réplique avec ce statut : l'extrait tant qu'il est en attente
-    /// ou gardé, sinon l'hypothèse acceptée ou la correction.
+    /// What the passage puts into its utterance with this status: the excerpt while pending or
+    /// kept, otherwise the accepted hypothesis or the correction.
     pub fn text<'a>(&'a self, status: &'a PassageStatus) -> &'a str {
         match status {
             PassageStatus::HypothesisAccepted => self.hypothesis.as_deref().unwrap_or(&self.excerpt),
@@ -201,33 +202,33 @@ pub struct Marker {
     pub label: String,
 }
 
-/// Un sujet du bilan : un chapitre de la timeline.
+/// A topic of the summary: a chapter of the timeline.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Topic {
     pub start: f64,
     pub title: String,
 }
 
-/// Une décision horodatée du bilan.
+/// A timestamped decision of the summary.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Decision {
     pub instant: f64,
     pub text: String,
 }
 
-/// Ce que la relecture a changé, gardé dans la transcription structurée.
+/// What the review changed, kept in the structured transcription.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ReviewLog {
-    /// Les corrections sûres appliquées.
+    /// The confident corrections applied.
     pub corrections: Vec<ConfidentCorrection>,
     pub speaker_changes: Vec<SpeakerChange>,
-    /// Les passages douteux corrigés après la réécoute.
+    /// The doubtful passages corrected after the relisten.
     pub corrected_passages: Vec<CorrectedPassage>,
-    /// Les erreurs écrites dans le lexique.
+    /// The errors written into the lexicon.
     pub lexicon_additions: Vec<LexiconAddition>,
 }
 
-/// Une correction faite à la main dans la transcription : `avant` devient `apres`.
+/// A correction made by hand in the transcription: `before` becomes `after`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ManualCorrection {
     pub utterance: usize,
@@ -244,13 +245,13 @@ pub struct Sessions {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Meeting {
     pub id: MeetingId,
-    /// Le nom du dossier de la réunion dans le dossier de réunions.
+    /// The name of the meeting's folder in the meetings folder.
     pub folder_name: String,
     pub start: DateTime,
     pub duration: f64,
     pub title: String,
     pub status: Status,
-    /// La dernière étape menée à bien : le traitement reprend à la suivante.
+    /// The last stage completed: processing resumes at the next one.
     pub completed_stage: Option<Stage>,
     pub speaker_count: Option<u8>,
     pub markers: Vec<Marker>,
@@ -259,29 +260,29 @@ pub struct Meeting {
     pub speakers: Vec<Speaker>,
     pub utterances: Vec<Utterance>,
     pub passages: Vec<PassageToCheck>,
-    /// Corrections sûres appliquées par la relecture.
+    /// Confident corrections applied by the review.
     pub corrections: u32,
-    /// Les répliques d'avant la relecture (vide tant qu'elle n'est pas faite).
+    /// The utterances from before the review (empty until it is done).
     pub raw: Vec<Utterance>,
-    /// Le journal de la relecture, quand elle est faite.
+    /// The review log, once it is done.
     pub review: Option<ReviewLog>,
     pub manual_corrections: Vec<ManualCorrection>,
-    /// Le bilan en Markdown, tel que l'agent l'a écrit (cases cochées comprises).
+    /// The summary in Markdown, as the agent wrote it (ticked checkboxes included).
     pub summary: String,
-    /// Tirés du bilan : chapitres et décisions de la timeline.
+    /// Taken from the summary: the timeline's chapters and decisions.
     pub topics: Vec<Topic>,
     pub decisions: Vec<Decision>,
     pub brief: String,
     pub key_actions: Vec<String>,
     pub sessions: Sessions,
-    /// Le bilan est prêt et la réunion n'a pas encore été ouverte.
+    /// The summary is ready and the meeting has not been opened yet.
     pub is_new: bool,
-    /// Les fichiers présents dans son dossier, au dernier passage du cœur.
+    /// The files present in its folder, at the core's last pass.
     pub files: Vec<Role>,
 }
 
 impl Meeting {
-    /// Une réunion vide, à traiter.
+    /// An empty meeting, to process.
     pub fn new(id: MeetingId, folder_name: String, start: DateTime, duration: f64) -> Meeting {
         Meeting {
             id,
@@ -313,27 +314,27 @@ impl Meeting {
         }
     }
 
-    /// Remplace le bilan et en tire les sujets et les décisions.
+    /// Replaces the summary and derives the topics and decisions from it.
     pub(crate) fn set_summary(&mut self, md: String) {
         self.topics = crate::summary::topics(&md);
         self.decisions = crate::summary::decisions(&md);
         self.summary = md;
     }
 
-    /// Construit une réunion déjà traitée (données d'exemple, fixtures).
+    /// Builds an already processed meeting (sample data, fixtures).
     pub fn with_summary(mut self, md: impl Into<String>) -> Meeting {
         self.set_summary(md.into());
         self
     }
 
-    /// Si `etape` peut être refaite ([`crate::Commande::Refaire`]) : la réunion n'est ni dans la
-    /// file ni en enregistrement, et les étapes d'avant sont faites.
+    /// Whether `stage` can be redone ([`crate::Command::Redo`]): the meeting is neither in the
+    /// queue nor recording, and the previous stages are done.
     pub fn can_redo(&self, stage: Stage) -> bool {
         !self.status.in_queue() && self.status != Status::Recording && stage.previous().is_none_or(|p| self.completed_stage >= Some(p))
     }
 
-    /// Le début et la fin de l'extrait à écouter pour trancher ce passage : le même que la
-    /// réécoute de la relecture.
+    /// The start and end of the excerpt to listen to in order to decide this passage: the same
+    /// as the review's relisten.
     pub fn excerpt_to_listen(&self, passage: usize) -> Option<(f64, f64)> {
         let p = self.passages.get(passage)?;
         let x = self.utterances.get(p.utterance)?;
@@ -344,7 +345,7 @@ impl Meeting {
         self.passages.iter().filter(|p| p.status == PassageStatus::Pending).count()
     }
 
-    /// Le locuteur affiché pour un index brut, en suivant les fusions.
+    /// The displayed speaker for a raw index, following merges.
     pub fn displayed_speaker(&self, mut i: usize) -> usize {
         while let Some(j) = self.speakers[i].merged_into {
             i = j;
@@ -352,13 +353,13 @@ impl Meeting {
         i
     }
 
-    /// Le nom donné au locuteur affiché pour un index brut (fusions suivies).
+    /// The name given to the displayed speaker for a raw index (merges followed).
     pub fn speaker_name(&self, i: usize) -> Option<&str> {
         self.speakers[self.displayed_speaker(i)].name.as_deref()
     }
 
-    /// Après avoir relu noms et fusions : un locuteur fusionné n'a pas de nom à lui (les fichiers
-    /// lui donnent celui de la voix qui le remplace).
+    /// After reading back names and merges: a merged speaker has no name of its own (the files
+    /// give it the name of the voice that replaces it).
     pub(crate) fn forget_merged_names(&mut self) {
         for l in &mut self.speakers {
             if l.merged_into.is_some() {
@@ -367,9 +368,9 @@ impl Meeting {
         }
     }
 
-    /// Fusionne le locuteur `i` dans `j` : celui qu'affiche `i` est désormais remplacé partout par
-    /// celui qu'affiche `j` (les fusions déjà faites suivent). Rend `false`, sans rien changer, si
-    /// c'est déjà la même voix ou si un index est inconnu : une fusion ne fait jamais de boucle.
+    /// Merges speaker `i` into `j`: the one `i` displays is from now on replaced everywhere by
+    /// the one `j` displays (merges already made follow). Returns `false`, changing nothing, if it
+    /// is already the same voice or if an index is unknown: a merge never makes a loop.
     pub fn merge(&mut self, i: usize, j: usize) -> bool {
         if i >= self.speakers.len() || j >= self.speakers.len() {
             return false;
@@ -382,15 +383,15 @@ impl Meeting {
         true
     }
 
-    /// Relit une fusion écrite (fiche, transcription structurée) telle quelle : `i` pointe sur `j`,
-    /// sauf si `i` est déjà fusionné ou si cela ferait une boucle.
+    /// Reads back a written merge (sheet, structured transcription) as is: `i` points to `j`,
+    /// unless `i` is already merged or it would make a loop.
     pub(crate) fn restore_merge(&mut self, i: usize, j: usize) {
         if i < self.speakers.len() && j < self.speakers.len() && self.speakers[i].merged_into.is_none() && self.displayed_speaker(j) != i {
             self.speakers[i].merged_into = Some(j);
         }
     }
 
-    /// Les locuteurs qui n'ont pas été fusionnés dans un autre.
+    /// The speakers not merged into another.
     pub fn active_speakers(&self) -> impl Iterator<Item = usize> + '_ {
         (0..self.speakers.len()).filter(|&i| self.speakers[i].merged_into.is_none())
     }
@@ -405,16 +406,15 @@ impl Meeting {
         if i == 0 { None } else { Some(i - 1) }
     }
 
-    /// Part du temps de parole d'un locuteur (fusions comprises), de 0 à 1.
+    /// A speaker's share of speaking time (merges included), from 0 to 1.
     pub fn speaking_time(&self, speaker: usize) -> f64 {
         let total: f64 = self.utterances.iter().map(|u| u.end - u.start).sum();
         let own: f64 = self.utterances.iter().filter(|u| self.displayed_speaker(u.speaker) == speaker).map(|u| u.end - u.start).sum();
         if total > 0.0 { own / total } else { 0.0 }
     }
 
-    /// Estimation du temps de traitement restant, en secondes, pour une réunion dans la file.
-    /// Environ 90 s par tranche de 10 min de réunion, plus 4 min fixes, réparties selon le poids
-    /// des étapes.
+    /// Estimated processing time remaining, in seconds, for a meeting in the queue. About 90 s
+    /// per 10 min of meeting, plus a fixed 4 min, split according to the stages' weights.
     pub fn estimated_time_remaining(&self) -> Option<f64> {
         let (from_meeting, progress) = match &self.status {
             Status::Running { stage, progress } => (*stage, *progress),

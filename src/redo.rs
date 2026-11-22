@@ -1,7 +1,6 @@
-//! Refaire une étape (et les suivantes) : « Refaire le bilan » dans l'onglet Bilan, « Refaire
-//! la relecture » et « Refaire la transcription… » dans l'onglet Transcription et dans le menu de
-//! la barre latérale. Refaire la transcription ouvre une fenêtre pour changer d'abord le nombre
-//! de locuteurs.
+//! Redoing a stage (and the following ones): « Refaire le bilan » in the Summary tab, « Refaire
+//! la relecture » and « Refaire la transcription… » in the Transcript tab and in the sidebar menu.
+//! Redoing the transcription opens a window to change the speaker count first.
 
 use greffier_core::{Command, Stage, MeetingId, Meeting, Status};
 use rune::{El, col, row, text};
@@ -10,20 +9,20 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, Kit, Menu, MenuItem};
 use crate::App;
 use crate::ui::{self, muted};
 
-/// La fenêtre « Refaire la transcription », ouverte.
+/// The « Refaire la transcription » window, open.
 pub struct RedoTranscription {
     pub meeting: MeetingId,
-    /// Le nombre de locuteurs choisi (`None` : détecté).
+    /// The chosen speaker count (`None`: detected).
     pub number: Option<u8>,
 }
 
-/// L'étape est faite et peut être refaite maintenant (pas dans la file).
+/// The stage is done and can be redone now (not in the queue).
 pub fn can_redo(m: &Meeting, stage: Stage) -> bool {
     m.can_redo(stage) && m.completed_stage >= Some(stage)
 }
 
 impl App {
-    /// Remet la réunion dans la file à partir de cette étape.
+    /// Puts the meeting back in the queue from this stage.
     pub fn redo(&mut self, id: MeetingId, stage: Stage) {
         self.menu = None;
         self.redo_menu = false;
@@ -37,18 +36,18 @@ impl App {
         self.redo_transcription = Some(RedoTranscription { meeting: id, number: m.speaker_count });
     }
 
-    /// Le nombre de locuteurs n'est changé que si la transcription peut être refaite.
+    /// The speaker count is only changed if the transcription can be redone.
     pub fn confirm_redo_transcription(&mut self) {
         let Some(r) = self.redo_transcription.take() else { return };
         let redo = Command::Redo { meeting: r.meeting, stage: Stage::Transcription };
         match self.try_command(redo) {
             Ok(()) => self.command(Command::SpeakerCount { meeting: r.meeting, number: r.number }),
-            Err(e) => eprintln!("greffier : {e}"),
+            Err(e) => eprintln!("greffier: {e}"),
         }
     }
 }
 
-/// Le bouton « Refaire… » de l'onglet Transcription et son menu (relecture, transcription).
+/// The Transcript tab's « Refaire… » button and its menu (review, transcription).
 pub fn transcript_menu(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> Option<El> {
     let (review, transcription) = (can_redo(m, Stage::Review), can_redo(m, Stage::Transcription));
     if !review && !transcription {

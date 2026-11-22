@@ -1,12 +1,12 @@
-//! L'audio donné aux moteurs : la piste de mixage d'un média en PCM mono 16 kHz sur 16 bits (ce
-//! qu'en tirait `ffmpeg -vn -ac 1 -ar 16000 -c:a pcm_s16le` dans le vault).
+//! The audio given to the engines: a medium's mix track as 16-bit mono PCM at 16 kHz (what
+//! `ffmpeg -vn -ac 1 -ar 16000 -c:a pcm_s16le` produced from it in the vault).
 //!
-//! AVFoundation décode la piste en flottants, à sa fréquence et avec ses canaux d'origine ; les
-//! canaux sont moyennés, puis le signal passe à 16 kHz par [`crate::reechantillonnage`] (le
-//! convertisseur de fréquence d'AVFoundation ne rend pas deux fois le même signal).
+//! AVFoundation decodes the track as floats, at its original sample rate and channels; the
+//! channels are averaged, then the signal goes to 16 kHz through [`crate::resampling`]
+//! (AVFoundation's sample rate converter doesn't return the same signal twice).
 //!
-//! La piste de mixage est la première piste audio : l'enregistrement de Greffier porte le
-//! mixage, puis le micro seul, puis le son du Mac seul ; un média importé n'en a souvent qu'une.
+//! The mix track is the first audio track: Greffier's recording carries the mix, then the
+//! microphone only, then the Mac audio only; an imported medium often has just one.
 
 use std::ffi::c_void;
 use std::path::Path;
@@ -21,16 +21,16 @@ use objc2_foundation::{NSDictionary, NSNumber, NSString, NSURL};
 
 use crate::resampling::{to_16_bit, resample};
 
-/// La fréquence d'échantillonnage donnée à whisper.cpp et à pyannote.
+/// The sample rate given to whisper.cpp and to pyannote.
 pub const SAMPLE_RATE: u32 = 16_000;
 
-/// Les clés d'AVAudioSettings.h (leurs valeurs sont leurs noms).
+/// The keys from AVAudioSettings.h (their values are their names).
 const AV_FORMAT_ID: &str = "AVFormatIDKey";
 const AV_LINEAR_PCM_BIT_DEPTH: &str = "AVLinearPCMBitDepthKey";
 const AV_LINEAR_PCM_IS_FLOAT: &str = "AVLinearPCMIsFloatKey";
 const AV_LINEAR_PCM_IS_BIG_ENDIAN: &str = "AVLinearPCMIsBigEndianKey";
 const AV_LINEAR_PCM_IS_NON_INTERLEAVED: &str = "AVLinearPCMIsNonInterleaved";
-/// kAudioFormatLinearPCM, « lpcm ».
+/// kAudioFormatLinearPCM, "lpcm".
 const LINEAR_PCM: u32 = u32::from_be_bytes(*b"lpcm");
 
 /// AudioStreamBasicDescription (CoreAudioTypes.h).
@@ -52,21 +52,21 @@ unsafe extern "C" {
     fn CMAudioFormatDescriptionGetStreamBasicDescription(description: *const c_void) -> *const StreamDescription;
 }
 
-/// La piste de mixage de `media`, en PCM mono 16 kHz sur 16 bits. `progres` reçoit la part lue
-/// (0 à 1) ; `arret` interrompt la lecture (rend `Err("arrêté")`).
+/// The mix track of `media`, as 16-bit mono PCM at 16 kHz. `progress` receives the share read
+/// (0 to 1); `stop` interrupts the reading (returns `Err("arrêté")`).
 pub fn mixing(media: &Path, stop: &AtomicBool, mut progress: impl FnMut(f64)) -> Result<Vec<i16>, String> {
     let (mono, sample_rate) = decode(media, stop, &mut progress)?;
     Ok(to_16_bit(&resample(&mono, sample_rate, SAMPLE_RATE)))
 }
 
-/// La première piste audio, décodée et moyennée en mono, à sa fréquence d'origine.
+/// The first audio track, decoded and averaged to mono, at its original sample rate.
 fn decode(media: &Path, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<(Vec<f32>, u32), String> {
     if !media.exists() {
         return Err(format!("L'enregistrement est introuvable ({}).", media.display()));
     }
-    // SAFETY : appels AVFoundation et CoreMedia documentés, sur des objets créés ici et gardés en
-    // vie par leurs `Retained` ; le tampon de destination de `copy_data_bytes` a la taille
-    // demandée ; la description du flux appartient au tampon, lu tant qu'il est vivant.
+    // SAFETY: documented AVFoundation and CoreMedia calls, on objects created here and kept alive
+    // by their `Retained`; the destination buffer of `copy_data_bytes` has the requested size;
+    // the stream description belongs to the buffer, read while it is alive.
     unsafe {
         let url = NSURL::fileURLWithPath(&NSString::from_str(&media.to_string_lossy()));
         let asset = AVURLAsset::URLAssetWithURL_options(&url, None);
@@ -79,7 +79,7 @@ fn decode(media: &Path, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Res
             if d.timescale > 0 { d.value as f64 / d.timescale as f64 } else { 0.0 }
         };
 
-        // Flottants 32 bits entrelacés ; fréquence et canaux d'origine (non précisés).
+        // Interleaved 32-bit floats; original sample rate and channels (left unspecified).
         let keys = [AV_FORMAT_ID, AV_LINEAR_PCM_BIT_DEPTH, AV_LINEAR_PCM_IS_FLOAT, AV_LINEAR_PCM_IS_BIG_ENDIAN, AV_LINEAR_PCM_IS_NON_INTERLEAVED].map(NSString::from_str);
         let values: [Retained<NSNumber>; 5] = [NSNumber::new_u32(LINEAR_PCM), NSNumber::new_u32(32), NSNumber::new_bool(true), NSNumber::new_bool(false), NSNumber::new_bool(false)];
         let key_refs: Vec<&NSString> = keys.iter().map(|c| &**c).collect();
@@ -115,13 +115,13 @@ fn decode(media: &Path, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Res
                 format = Some((d.sample_rate.round() as u32, d.channels as usize));
                 mono.reserve((duration * d.sample_rate) as usize + 1);
             }
-            let (sample_rate, channels) = format.expect("format lu");
+            let (sample_rate, channels) = format.expect("format read");
             let Some(block) = buffer.data_buffer() else { continue };
             let n = block.data_length() / 4;
             frames.clear();
             frames.resize(n, 0.0);
             if n > 0 {
-                let status = block.copy_data_bytes(0, n * 4, NonNull::new(frames.as_mut_ptr().cast()).expect("tampon"));
+                let status = block.copy_data_bytes(0, n * 4, NonNull::new(frames.as_mut_ptr().cast()).expect("buffer"));
                 if status != 0 {
                     return Err(format!("Lecture du son impossible (CoreMedia {status})."));
                 }
@@ -140,8 +140,8 @@ fn decode(media: &Path, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Res
     }
 }
 
-/// Écrit des échantillons PCM mono 16 kHz sur 16 bits en WAV (pour pyannote, ou pour comparer
-/// avec ffmpeg).
+/// Writes 16-bit mono PCM samples at 16 kHz as WAV (for pyannote, or to compare with
+/// ffmpeg).
 pub fn write_wav(path: &Path, samples: &[i16]) -> std::io::Result<()> {
     let data = (samples.len() * 2) as u32;
     let mut w = Vec::with_capacity(44 + data as usize);

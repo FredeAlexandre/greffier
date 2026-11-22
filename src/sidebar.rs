@@ -1,4 +1,4 @@
-//! Barre latérale : bouton d'enregistrement, navigation, réunions par période, menu du clic droit.
+//! Sidebar: record button, navigation, meetings by period, right-click menu.
 
 use rune::{El, col, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
@@ -142,7 +142,7 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("nav-search"),
         )
         .footer(nav("Réglages", &ui::SLIDERS, Page::Settings).build(k).key("nav-settings"));
-    // Les semaines commencent le lundi : « Cette semaine » s'arrête au lundi d'aujourd'hui.
+    // Weeks start on Monday: « Cette semaine » stops at today's Monday.
     let today = s.core.today();
     let monday = today.weekday() as i64;
     let groups: [(&str, Box<dyn Fn(i64) -> bool>); 5] = [

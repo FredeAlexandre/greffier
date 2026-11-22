@@ -1,6 +1,6 @@
-//! Ce que les vrais adaptateurs partagent pour un travail long : le faire tourner sur un fil
-//! ([`sur_un_fil`], une [`Tache`] que le cœur sonde) et attendre un programme lancé qu'on peut
-//! arrêter ([`attendre`]).
+//! What the real adapters share for a long job: running it on a thread ([`on_thread`], a
+//! [`Task`] that the core polls) and waiting for a launched program that can be stopped
+//! ([`wait`]).
 
 use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,36 +9,35 @@ use std::time::{Duration, Instant};
 
 use greffier_core::adapters::{TaskProgress, Task, BoxedTask};
 
-/// Comment l'avancement d'un travail sur un fil se lit.
+/// How the progress of a job on a thread is read.
 #[derive(Clone, Copy, Debug)]
 pub enum Progression {
-    /// Le travail donne lui-même son avancement, de 0 à 1.
+    /// The job reports its own progress, from 0 to 1.
     Exact,
-    /// Le travail annonce des paliers (Claude ne dit pas où il en est) : l'avancement glisse
-    /// lentement vers le palier suivant (1 après le dernier) en attendant.
+    /// The job announces milestones (Claude does not say how far along it is): meanwhile, the
+    /// progress slowly glides toward the next milestone (1 after the last one).
     Milestones(&'static [f64]),
 }
 
-/// Constante de temps du glissement vers le palier suivant, en secondes.
+/// Time constant of the glide toward the next milestone, in seconds.
 const GLIDE_TIME: f64 = 120.0;
 
 struct State<T> {
-    /// L'avancement annoncé, et quand.
+    /// The announced progress, and when.
     progress: f64,
     from_meeting: Instant,
     result: Option<Result<T, String>>,
 }
 
-/// Un travail sur un fil ; `sonder` lit son état.
+/// A job on a thread; `poll` reads its state.
 struct OnThread<T> {
     state: Arc<Mutex<State<T>>>,
     stop: Arc<AtomicBool>,
     progression: Progression,
 }
 
-/// Lance `travail` sur un fil nommé `nom`. Il reçoit le drapeau d'arrêt (levé par `arreter()` ou
-/// quand la tâche est lâchée) et de quoi annoncer son avancement. Un travail qui panique finit en
-/// échec.
+/// Runs `job` on a thread named `name`. It receives the stop flag (raised by `stop()` or when the
+/// task is dropped) and a way to announce its progress. A job that panics ends in failure.
 pub fn on_thread<T: Send + 'static>(name: &str, progression: Progression, job: impl FnOnce(&AtomicBool, &mut dyn FnMut(f64)) -> Result<T, String> + Send + 'static) -> BoxedTask<T> {
     let state = Arc::new(Mutex::new(State { progress: 0.0, from_meeting: Instant::now(), result: None }));
     let stop = Arc::new(AtomicBool::new(false));
@@ -86,19 +85,19 @@ impl<T> Drop for OnThread<T> {
     }
 }
 
-/// Pourquoi un programme attendu n'est pas allé jusqu'au bout.
+/// Why a waited-for program did not run to the end.
 #[derive(Debug)]
 pub enum Interruption {
-    /// Le drapeau d'arrêt s'est levé : le programme a été tué.
+    /// The stop flag was raised: the program was killed.
     Stopped,
-    /// Le délai est dépassé : le programme a été tué.
+    /// The timeout was exceeded: the program was killed.
     Timeout,
-    /// Son état n'a pas pu être lu.
+    /// Its state could not be read.
     Error(std::io::Error),
 }
 
-/// Attend la fin de `enfant` en regardant toutes les `pas` ; le tue si `arret` se lève ou si
-/// `delai` est dépassé. `pendant` est appelé à chaque tour (pour relire un avancement).
+/// Waits for `child` to finish, checking every `step`; kills it if `stop` is raised or if
+/// `timeout` is exceeded. `during` is called on each round (to read a progress again).
 pub fn wait(child: &mut Child, stop: &AtomicBool, timeout: Option<Duration>, step: Duration, mut during: impl FnMut()) -> Result<ExitStatus, Interruption> {
     let start = Instant::now();
     loop {
@@ -136,20 +135,20 @@ mod tests {
                 on_done => return on_done,
             }
         }
-        panic!("la tâche ne finit pas");
+        panic!("the task does not finish");
     }
 
     #[test]
     fn a_job_on_a_thread_returns_its_result_its_failure_or_a_panic_failure() {
-        assert!(matches!(poll_to_completion(&mut on_thread("essai", Progression::Exact, |_, _| Ok(3))), TaskProgress::Done(3)));
-        assert!(matches!(poll_to_completion(&mut on_thread::<()>("essai", Progression::Exact, |_, _| Err("non".into()))), TaskProgress::Failed(m) if m == "non"));
-        assert!(matches!(poll_to_completion(&mut on_thread::<()>("essai", Progression::Exact, |_, _| panic!("boum"))), TaskProgress::Failed(_)));
+        assert!(matches!(poll_to_completion(&mut on_thread("test", Progression::Exact, |_, _| Ok(3))), TaskProgress::Done(3)));
+        assert!(matches!(poll_to_completion(&mut on_thread::<()>("test", Progression::Exact, |_, _| Err("no".into()))), TaskProgress::Failed(m) if m == "no"));
+        assert!(matches!(poll_to_completion(&mut on_thread::<()>("test", Progression::Exact, |_, _| panic!("boom"))), TaskProgress::Failed(_)));
     }
 
     #[test]
     fn progress_follows_the_work_or_glides_toward_the_next_milestone() {
         let (signal, waiting) = std::sync::mpsc::channel::<()>();
-        let mut exact = on_thread("essai", Progression::Exact, move |_, progress| {
+        let mut exact = on_thread("test", Progression::Exact, move |_, progress| {
             progress(0.25);
             let _ = signal.send(());
             std::thread::sleep(Duration::from_millis(300));
@@ -159,7 +158,7 @@ mod tests {
         assert!(matches!(exact.poll(0.0), TaskProgress::Running(p) if p == 0.25));
 
         let (signal, waiting) = std::sync::mpsc::channel::<()>();
-        let mut milestones = on_thread("essai", Progression::Milestones(&[0.5]), move |_, progress| {
+        let mut milestones = on_thread("test", Progression::Milestones(&[0.5]), move |_, progress| {
             progress(0.1);
             let _ = signal.send(());
             std::thread::sleep(Duration::from_millis(300));
@@ -172,7 +171,7 @@ mod tests {
 
     #[test]
     fn stop_raises_the_work_flag() {
-        let mut t = on_thread::<()>("essai", Progression::Exact, |stop, _| {
+        let mut t = on_thread::<()>("test", Progression::Exact, |stop, _| {
             while !stop.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(5));
             }

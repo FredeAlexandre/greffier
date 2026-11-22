@@ -1,5 +1,5 @@
-//! Changer le titre d'une réunion : un clic sur le titre (ou « Changer le titre… » du menu de la
-//! barre latérale) ouvre une fenêtre ; le cœur renomme le dossier et ses fichiers.
+//! Changing a meeting's title: a click on the title (or « Changer le titre… » in the sidebar
+//! menu) opens a window; the core renames the folder and its files.
 
 use rune::{TextEdit, col, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
@@ -7,7 +7,7 @@ use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
 use crate::ui::{self, muted};
 use crate::{App, Command, El, MeetingId};
 
-/// La fenêtre du titre, ouverte.
+/// The title window, open.
 pub struct Renaming {
     pub meeting: MeetingId,
     pub edit: TextEdit,
@@ -40,7 +40,7 @@ impl App {
 pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(r) = &s.rename else { return };
     let Some(m) = s.core.meeting(r.meeting) else { return };
-    let input = TextInput::new(&r.edit).width(None).on_edit(|s: &mut App| &mut s.rename.as_mut().expect("fenêtre du titre ouverte").edit).on_submit(|s: &mut App, _| s.confirm_rename()).build(k).key("rename-input").label("Titre de la réunion").w_full();
+    let input = TextInput::new(&r.edit).width(None).on_edit(|s: &mut App| &mut s.rename.as_mut().expect("title window open").edit).on_submit(|s: &mut App, _| s.confirm_rename()).build(k).key("rename-input").label("Titre de la réunion").w_full();
     let mut body = col()
         .w_full()
         .px(16.0)

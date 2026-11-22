@@ -1,5 +1,5 @@
-//! Les commandes sur une réunion : enregistrement, repères, locuteurs, passages à vérifier,
-//! actions du bilan, suppression.
+//! Commands on a meeting: recording, markers, speakers, passages to check, summary actions,
+//! deletion.
 
 mod bench;
 
@@ -23,7 +23,7 @@ fn a_recording_creates_the_meeting_folder_with_its_markers() {
     bench.advance(2.0);
     bench.execute(Command::AddMarker);
     bench.advance(1.0);
-    assert!((bench.greffier.recording().expect("en cours").duration - 3.0).abs() < 1e-9);
+    assert!((bench.greffier.recording().expect("in progress").duration - 3.0).abs() < 1e-9);
     let id = bench.finish_recording();
 
     let r = bench.meeting(id);
@@ -79,7 +79,7 @@ fn name_a_speaker_then_merge_another_into_it() {
     assert_eq!(r.speaking_time(0), 1.0);
 
     let rejection = bench.greffier.execute(Command::MergeSpeakers { meeting: id, speaker: 0, into: 1 });
-    assert!(rejection.is_err(), "fusionner un locuteur dans celui qu'il a absorbé");
+    assert!(rejection.is_err(), "merging a speaker into the one it absorbed");
 }
 
 #[test]

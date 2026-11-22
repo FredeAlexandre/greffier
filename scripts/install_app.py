@@ -1,4 +1,4 @@
-"""Construit Greffier.app, la signe « Greffier Dev » et l'installe dans /Applications."""
+"""Builds Greffier.app, signs it as "Greffier Dev" and installs it in /Applications."""
 import argparse
 import hashlib
 import json
@@ -18,11 +18,11 @@ import urllib.request
 
 NAME = "Greffier"
 EXE = "greffier"
-# Ne change jamais : macOS rattache les autorisations à cet identifiant et à l'identité de signature.
+# Never changes: macOS ties permissions to this identifier and to the signing identity.
 BUNDLE_ID = "io.github.fredealexandre.greffier"
 IDENTITY = "Greffier Dev"
-# L'uv embarqué, qui installe le Python privé de pyannote (ADR 0003). Même version que
-# `VERSION_D_UV` dans outils/src/mac.rs, qui le cherche à côté de l'exécutable.
+# The bundled uv, which installs pyannote's private Python (ADR 0003). Same version as
+# `UV_VERSION` in tools/src/mac.rs, which looks for it next to the executable.
 UV_VERSION = "0.13.7"
 UV_ARCHIVE = "uv-aarch64-apple-darwin.tar.gz"
 UV_SHA256 = "81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731"
@@ -55,28 +55,28 @@ def info_plist(version):
 
 
 def write_entitlements(path):
-    # La capture d'écran et du son du système n'a pas d'entitlement : seule l'autorisation macOS
-    # compte. Le micro, lui, est refusé en silence par le runtime durci sans celui-ci. Pas de bac à
-    # sable : Greffier lance whisper, uv et la CLI `claude`, et écrit dans le dossier de réunions.
+    # Screen and system audio capture have no entitlement: only the macOS permission counts. The
+    # microphone, though, is silently denied by the hardened runtime without this one. No sandbox:
+    # Greffier runs whisper, uv and the `claude` CLI, and writes into the meetings folder.
     with path.open("wb") as file:
         plistlib.dump({"com.apple.security.device.audio-input": True}, file)
 
 
 def uv_version_in_core(mac_rs):
-    """La version d'uv que le cœur attend (`VERSION_D_UV` de outils/src/mac.rs)."""
-    found = re.search(r'VERSION_D_UV: &str = "([^"]+)"', mac_rs)
+    """The uv version the core expects (`UV_VERSION` in tools/src/mac.rs)."""
+    found = re.search(r'UV_VERSION: &str = "([^"]+)"', mac_rs)
     return found[1] if found else None
 
 
 def unpack_uv(archive, sha256, dest):
-    """Vérifie le sha256 de l'archive d'uv et en extrait l'exécutable `uv` dans `dest`."""
+    """Checks the sha256 of the uv archive and extracts the `uv` executable from it into `dest`."""
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if digest != sha256:
-        raise Failure(f"sha256 inattendu pour {archive.name} : {digest} (attendu {sha256}).")
+        raise Failure(f"unexpected sha256 for {archive.name}: {digest} (expected {sha256}).")
     with tarfile.open(archive) as tar:
         member = next((m for m in tar.getmembers() if m.isfile() and Path(m.name).name == "uv"), None)
         if member is None:
-            raise Failure(f"pas d'exécutable uv dans {archive.name}.")
+            raise Failure(f"no uv executable in {archive.name}.")
         with tar.extractfile(member) as source, open(dest, "wb") as out:
             shutil.copyfileobj(source, out)
     dest.chmod(0o755)
@@ -84,12 +84,12 @@ def unpack_uv(archive, sha256, dest):
 
 
 def fetch_uv(target):
-    """L'uv embarqué, téléchargé une fois dans target/uv-<version>/ (où `cargo run` le trouve aussi)."""
+    """The bundled uv, downloaded once into target/uv-<version>/ (where `cargo run` finds it too)."""
     folder = target / f"uv-{UV_VERSION}"
     uv = folder / "uv"
     if uv.is_file():
         return uv
-    step(f"Téléchargement d'uv {UV_VERSION}")
+    step(f"Downloading uv {UV_VERSION}")
     folder.mkdir(parents=True, exist_ok=True)
     archive = folder / UV_ARCHIVE
     with urllib.request.urlopen(UV_URL) as response, archive.open("wb") as out:
@@ -101,7 +101,7 @@ def fetch_uv(target):
 
 
 def write_bundle(app, binary, cargo_toml, uv=None):
-    """Écrit le bundle non signé `app` autour de l'exécutable `binary` (et de l'uv embarqué)."""
+    """Writes the unsigned bundle `app` around the executable `binary` (and the bundled uv)."""
     macos = app / "Contents/MacOS"
     macos.mkdir(parents=True)
     (app / "Contents/Resources").mkdir()
@@ -112,7 +112,7 @@ def write_bundle(app, binary, cargo_toml, uv=None):
         plistlib.dump(info_plist(project_version(cargo_toml)), file)
 
 
-# --- Construire, signer, installer -------------------------------------------------------------
+# --- Build, sign, install -----------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE = Path("/Applications") / f"{NAME}.app"
@@ -123,13 +123,13 @@ LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
 
 
 class Failure(Exception):
-    """Une étape a échoué ; le message dit quoi faire."""
+    """A step failed; the message says what to do."""
 
 
 def run(*args, check=True, **kwargs):
     result = subprocess.run([str(arg) for arg in args], capture_output=True, text=True, **kwargs)
     if check and result.returncode:
-        raise Failure(f"{args[0]} a échoué :\n{result.stderr.strip() or result.stdout.strip()}")
+        raise Failure(f"{args[0]} failed:\n{result.stderr.strip() or result.stdout.strip()}")
     return result
 
 
@@ -138,29 +138,29 @@ def step(text):
 
 
 def signing_identity(listing):
-    """L'empreinte SHA-1 de « Greffier Dev » dans une sortie de `security find-identity`, ou None."""
+    """The SHA-1 hash of "Greffier Dev" in a `security find-identity` output, or None."""
     pattern = re.compile(rf'^\s*\d+\) ([0-9A-F]{{40}}) "{re.escape(IDENTITY)}"( |$)')
     hashes = sorted({m[1] for line in listing.splitlines() if (m := pattern.match(line))})
     if len(hashes) > 1:
-        raise Failure(f"plusieurs identités « {IDENTITY} » dans le trousseau ({', '.join(hashes)}) : "
-                      "gardez celle qui a signé l'app installée, supprimez les autres dans Trousseaux d'accès.")
+        raise Failure(f"several \"{IDENTITY}\" identities in the keychain ({', '.join(hashes)}): "
+                      "keep the one that signed the installed app, delete the others in Keychain Access.")
     return hashes[0] if hashes else None
 
 
 def identity_hash():
-    # Sans -v : l'identité n'a pas à être approuvée pour signer ; la désignation de l'app retient
-    # l'empreinte du certificat, qui suffit à macOS pour reconnaître l'app d'une version à l'autre.
+    # No -v: the identity does not need to be trusted to sign; the app's designated requirement
+    # keeps the certificate hash, which is enough for macOS to recognize the app across versions.
     return signing_identity(run("security", "find-identity", "-p", "codesigning", KEYCHAIN).stdout)
 
 
 def create_identity():
-    """Crée un certificat autosigné de signature de code et l'importe dans le trousseau de session."""
-    step(f"Création de l'identité de signature « {IDENTITY} » dans le trousseau de session")
-    print("    Si le trousseau est verrouillé, macOS demandera votre mot de passe de session.")
+    """Creates a self-signed code signing certificate and imports it into the login keychain."""
+    step(f"Creating the signing identity \"{IDENTITY}\" in the login keychain")
+    print("    If the keychain is locked, macOS will ask for your login password.")
     with tempfile.TemporaryDirectory() as tmp:
         key, cert, p12 = (Path(tmp) / name for name in ("key.pem", "cert.pem", "id.p12"))
         password = secrets.token_hex(16)
-        # L'openssl du système (LibreSSL) écrit un .p12 que `security import` sait lire.
+        # The system openssl (LibreSSL) writes a .p12 that `security import` can read.
         run("/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
             "-keyout", key, "-out", cert, "-subj", f"/CN={IDENTITY}",
             "-addext", "basicConstraints=critical,CA:FALSE",
@@ -168,19 +168,19 @@ def create_identity():
             "-addext", "extendedKeyUsage=critical,codeSigning")
         run("/usr/bin/openssl", "pkcs12", "-export", "-inkey", key, "-in", cert, "-out", p12,
             "-name", IDENTITY, "-passout", f"pass:{password}")
-        # -T : codesign peut se servir de la clé sans demander l'accès à chaque signature.
+        # -T: codesign can use the key without asking for access at every signature.
         imported = run("security", "import", p12, "-k", KEYCHAIN, "-P", password,
                        "-T", "/usr/bin/codesign", check=False)
     if imported.returncode:
         raise Failure(
-            f"macOS a refusé d'importer l'identité « {IDENTITY} » ({imported.stderr.strip()}).\n"
-            "Le trousseau de session est sans doute verrouillé. Déverrouillez-le (mot de passe de session) :\n"
+            f"macOS refused to import the identity \"{IDENTITY}\" ({imported.stderr.strip()}).\n"
+            "The login keychain is probably locked. Unlock it (login password):\n"
             f"    security unlock-keychain {KEYCHAIN}\n"
-            "puis relancez : scripts/installer-app")
+            "then run again: scripts/install-app")
     found = identity_hash()
     if not found:
-        raise Failure(f"l'identité « {IDENTITY} » a été importée mais codesign ne la voit pas.")
-    print(f"    Identité créée : {found}")
+        raise Failure(f"the identity \"{IDENTITY}\" was imported but codesign does not see it.")
+    print(f"    Identity created: {found}")
     return found
 
 
@@ -189,15 +189,15 @@ def cargo():
 
 
 def build_binary():
-    step("Compilation en release (cargo build --release)")
+    step("Building in release (cargo build --release)")
     if subprocess.run([cargo(), "build", "--release"], cwd=ROOT).returncode:
-        raise Failure("la compilation a échoué.")
+        raise Failure("the build failed.")
     return ROOT / "target/release" / EXE
 
 
 def sign(app, entitlements, identity):
-    step(f"Signature avec « {IDENTITY} » ({identity})")
-    # Le code imbriqué d'abord : codesign refuse de signer une app dont un exécutable ne l'est pas.
+    step(f"Signing with \"{IDENTITY}\" ({identity})")
+    # Nested code first: codesign refuses to sign an app with an unsigned executable inside.
     helper = app / "Contents/MacOS/uv"
     if helper.exists():
         run("codesign", "--force", "--options", "runtime", "--timestamp=none", "--sign", identity, helper)
@@ -216,19 +216,19 @@ def running_pids():
 def quit_running_app():
     if not running_pids():
         return
-    step("Greffier est ouvert : demande de fermeture")
+    step("Greffier is open: asking it to quit")
     run("osascript", "-e", f'tell application id "{BUNDLE_ID}" to quit', check=False)
     deadline = time.monotonic() + 15
     while running_pids():
         if time.monotonic() > deadline:
-            raise Failure("Greffier ne s'est pas fermé (un enregistrement en cours ?). "
-                          "Fermez-le puis relancez scripts/installer-app.")
+            raise Failure("Greffier did not quit (a recording in progress?). "
+                          "Quit it, then run scripts/install-app again.")
         time.sleep(0.2)
 
 
 def install(app):
-    """Remplace /Applications/Greffier.app par `app`, sans laisser de moment sans app installée."""
-    step(f"Installation dans {LIVE}")
+    """Replaces /Applications/Greffier.app with `app`, never leaving a moment with no app installed."""
+    step(f"Installing into {LIVE}")
     quit_running_app()
     stage = Path(tempfile.mkdtemp(prefix=f".{NAME}.app.install-", dir=LIVE.parent))
     try:
@@ -248,8 +248,8 @@ def install(app):
 
 
 def launch():
-    """Ouvre l'app comme le Finder et attend que Rune signale sa première fenêtre prête."""
-    step("Lancement de l'app installée")
+    """Opens the app like the Finder does and waits for Rune to report its first window ready."""
+    step("Launching the installed app")
     with tempfile.TemporaryDirectory() as ready:
         run("open", "--env", f"RUNE_READY_DIR={ready}", LIVE)
         deadline = time.monotonic() + 20
@@ -259,40 +259,40 @@ def launch():
                     data = json.loads(receipt.read_text())
                 except (OSError, ValueError):
                     continue
-                print(f"    Fenêtre prête en {data.get('ready_ms', '?')} ms (pid {data.get('pid')}).")
+                print(f"    Window ready in {data.get('ready_ms', '?')} ms (pid {data.get('pid')}).")
                 return
             time.sleep(0.2)
-    raise Failure("l'app installée n'a pas affiché sa fenêtre en 20 s. "
-                  f"Essayez de l'ouvrir depuis le Finder ; journal : Console.app, processus « {EXE} ».")
+    raise Failure("the installed app did not show its window within 20 s. "
+                  f"Try opening it from the Finder; log: Console.app, process \"{EXE}\".")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binaire", type=Path, help="empaqueter cet exécutable au lieu de compiler")
-    parser.add_argument("--sans-lancer", action="store_true", help="ne pas ouvrir l'app installée")
+    parser.add_argument("--binary", type=Path, help="package this executable instead of building")
+    parser.add_argument("--no-launch", action="store_true", help="do not open the installed app")
     args = parser.parse_args(argv)
     try:
         identity = identity_hash() or create_identity()
-        binary = args.binaire or build_binary()
+        binary = args.binary or build_binary()
         if not os.access(binary, os.X_OK):
-            raise Failure(f"pas d'exécutable à {binary}")
+            raise Failure(f"no executable at {binary}")
         target = ROOT / "target"
-        if uv_version_in_core((ROOT / "outils/src/mac.rs").read_text()) != UV_VERSION:
-            raise Failure(f"outils/src/mac.rs n'attend pas uv {UV_VERSION} : aligner VERSION_D_UV et UV_VERSION.")
+        if uv_version_in_core((ROOT / "tools/src/mac.rs").read_text()) != UV_VERSION:
+            raise Failure(f"tools/src/mac.rs does not expect uv {UV_VERSION}: align UV_VERSION in both files.")
         uv = fetch_uv(target)
-        step("Construction du bundle")
+        step("Building the bundle")
         app, entitlements = target / f"{NAME}.app", target / f"{NAME}.entitlements"
         shutil.rmtree(app, ignore_errors=True)
         write_bundle(app, binary, (ROOT / "Cargo.toml").read_text(), uv)
         write_entitlements(entitlements)
         sign(app, entitlements, identity)
         install(app)
-        if not args.sans_lancer:
+        if not args.no_launch:
             launch()
     except Failure as error:
-        print(f"installer-app : {error}", file=sys.stderr)
+        print(f"install-app: {error}", file=sys.stderr)
         return 1
-    print(f"{LIVE} installée ({identity}).")
+    print(f"{LIVE} installed ({identity}).")
     return 0
 
 

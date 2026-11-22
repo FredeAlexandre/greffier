@@ -1,19 +1,19 @@
-//! Le renommage d'une réunion quand son titre change : le dossier et chacun de ses fichiers
-//! (`<nom> - <rôle>`) prennent le nouveau nom, et les liens internes des fichiers Markdown qui
-//! portaient l'ancien nom sont réécrits.
+//! Renaming a meeting when its title changes: the folder and each of its files
+//! (`<name> - <role>`) take the new name, and the internal links of Markdown files that carried
+//! the old name are rewritten.
 
 use super::{MeetingsFolder, folder_name};
 use crate::time::DateTime;
 
 impl MeetingsFolder {
-    /// Renomme le dossier `ancien` et ses fichiers d'après le nouveau titre ; rend le nouveau
-    /// nom (l'ancien si le titre donne le même nom). Les caractères interdits deviennent des
-    /// tirets, et un nom déjà pris reçoit « (2) », « (3) »…
+    /// Renames the `old` folder and its files after the new title; returns the new name (the
+    /// old one if the title gives the same name). Forbidden characters become dashes, and a name
+    /// already taken gets "(2)", "(3)"…
     ///
-    /// Les fichiers sont renommés un à un puis le dossier ; au premier échec, ce qui a été fait
-    /// est défait et rien n'a changé. Les fichiers Markdown (bilan, transcription lisible) qui
-    /// nomment l'ancien `<nom> - …` sont ensuite réécrits avec le nouveau nom ; la fiche, elle,
-    /// est réécrite par le cœur.
+    /// The files are renamed one by one, then the folder; on the first failure, what was done is
+    /// undone and nothing has changed. The Markdown files (summary, readable transcription) that
+    /// name the old `<name> - …` are then rewritten with the new name; the sheet is rewritten by
+    /// the core.
     pub fn rename(&self, old: &str, start: DateTime, title: &str) -> Result<String, String> {
         let base = folder_name(start, title);
         if old == base || collision_suffix(old, &base) {
@@ -23,7 +23,7 @@ impl MeetingsFolder {
         if !source.is_dir() {
             return Err(format!("{} : le dossier de la réunion n'existe plus", source.display()));
         }
-        // Le disque du Mac ignore la casse : « réunion » → « Réunion » est le même dossier.
+        // The Mac's disk is case-insensitive: "réunion" → "Réunion" is the same folder.
         let available = |name: &str| !self.folder(name).exists() || name.to_lowercase() == old.to_lowercase();
         let mut new = base.clone();
         let mut n = 2;
@@ -54,7 +54,7 @@ impl MeetingsFolder {
             return Err(format!("{} : {e}", source.display()));
         }
 
-        // Les liens vers les fichiers renommés (`[[<nom> - réunion]]`, `<nom> - transcription.md`).
+        // Links to the renamed files (`[[<name> - réunion]]`, `<name> - transcription.md`).
         let new_prefix = format!("{new} - ");
         for (_, file) in &done {
             let path = self.folder(&new).join(file);
@@ -71,7 +71,7 @@ impl MeetingsFolder {
     }
 }
 
-/// `nom` est `base (n)` : le même titre, avec le numéro d'une collision.
+/// `name` is `base (n)`: the same title, with a collision's number.
 fn collision_suffix(name: &str, base: &str) -> bool {
     name.strip_prefix(base).and_then(|r| r.strip_prefix(" (")).and_then(|r| r.strip_suffix(')')).is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
 }

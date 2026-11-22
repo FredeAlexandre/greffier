@@ -1,6 +1,6 @@
-//! La page d'une réunion : en-tête, vidéo pleine largeur et ses contrôles, timeline, puis les
-//! onglets Bilan / Transcription / À vérifier / Locuteurs / Infos. Avant le bilan, la page
-//! montre le traitement, et dessous ce qui existe déjà (enregistrement, transcription).
+//! A meeting's page: header, full-width video and its controls, timeline, then the tabs Bilan /
+//! Transcription / À vérifier / Locuteurs / Infos. Before the summary, the page shows the
+//! processing, and below it what already exists (recording, transcription).
 
 use std::rc::Rc;
 
@@ -13,7 +13,7 @@ use crate::ui::{self, card, dot, glyph, heading, muted, spk_color, title_style, 
 use crate::check::{self, Target};
 use crate::{App, TABS, Tab, speakers, redo, settings, timeline};
 
-/// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
+/// There is something to review: a recording, a transcription, or a finished meeting.
 pub fn playable(m: &Meeting) -> bool {
     m.status == Status::Done || m.files.contains(&Role::Recording) || !m.utterances.is_empty()
 }
@@ -40,7 +40,7 @@ pub fn page(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>
     col().key("meeting").w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(inner)
 }
 
-/// Le titre affiché : celui du bilan, sinon « Réunion du sam. 21/11 · 14h02 ».
+/// The displayed title: the summary's, otherwise « Réunion du sam. 21/11 · 14h02 ».
 pub fn display_title(m: &Meeting, with_time: bool) -> String {
     match m.title.as_str() {
         "Réunion" | "" if with_time => format!("Réunion du {} · {}", m.start.short_day(), m.start.short_time()),
@@ -64,7 +64,7 @@ fn header(m: &Meeting, k: &Kit) -> El {
         .child(text(meta).font(k.ty.small).color(k.c.text_muted))
 }
 
-/// L'image simulée de la vidéo, à la taille donnée : locuteur en cours, bouton lecture, sous-titres.
+/// The simulated video picture, at the given size: current speaker, play button, captions.
 fn picture(s: &App, m: &Meeting, k: &Kit, w: f32, h: f32, big: bool) -> El {
     let cur = s.current.map(|i| &m.utterances[i]);
     let spk = cur.map(|u| &m.speakers[m.displayed_speaker(u.speaker)]);
@@ -74,7 +74,7 @@ fn picture(s: &App, m: &Meeting, k: &Kit, w: f32, h: f32, big: bool) -> El {
     let white = rune::Color::WHITE;
     let play = if big { 84.0 } else { 56.0 };
     let frame = col().key("video").w(w).h(h);
-    // La vraie vidéo, sinon (données fictives) une image simulée.
+    // The real video, otherwise (fake data) a simulated picture.
     let frame = match s.player() {
         Some(p) => frame.fill(rune::Color::BLACK).video(p, SurfaceFit::Fit),
         None => frame.gradient(rune::oklch(0.3, 0.03, 260.0), rune::oklch(0.17, 0.02, 260.0)),
@@ -83,7 +83,7 @@ fn picture(s: &App, m: &Meeting, k: &Kit, w: f32, h: f32, big: bool) -> El {
         .padding(if big { 28.0 } else { 16.0 })
         .justify_between()
         .child(if m.utterances.is_empty() {
-            // Pas encore de transcription : personne à nommer.
+            // No transcription yet: nobody to name.
             row().h(24.0)
         } else {
             row().gap(6.0).center_y().child(
@@ -109,7 +109,7 @@ fn picture(s: &App, m: &Meeting, k: &Kit, w: f32, h: f32, big: bool) -> El {
         )
 }
 
-/// La barre de contrôle sous la vidéo (ou en bas du plein écran).
+/// The control bar under the video (or at the bottom in full screen).
 fn controls(s: &App, m: &Meeting, k: &Kit, full: bool) -> El {
     let cur = s.current.map(|i| &m.utterances[i]);
     let spk = cur.map(|u| &m.speakers[m.displayed_speaker(u.speaker)]);
@@ -157,8 +157,8 @@ fn controls(s: &App, m: &Meeting, k: &Kit, full: bool) -> El {
 }
 
 fn player(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>, view_h: f32) -> El {
-    // La vidéo prend toute la largeur, sans dépasser un peu plus de la moitié de la hauteur
-    // visible : au-delà, l'image garde son format 16:9 avec des bandes noires.
+    // The video takes the full width, up to a little more than half the visible height: beyond
+    // that, the picture keeps its 16:9 ratio with black bars.
     let frame_w = cx.layout_size("video-frame").map_or(960.0, |v| v[0]);
     let h = (frame_w * 9.0 / 16.0).min(view_h * 0.58).max(220.0);
     let pic_w = (h * 16.0 / 9.0).min(frame_w);
@@ -175,8 +175,8 @@ fn player(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>, view_h: f32) -> El {
     col().w_full().radius(k.radius.lg).clip_rounded(k.radius.lg).border(1.0, k.c.border_muted).child(frame).child(controls(s, m, k, false))
 }
 
-/// Le plein écran : la vidéo sur toute la fenêtre, une barre de progression découpée par
-/// sujet, et les contrôles en bas.
+/// Full screen: the video over the whole window, a progress bar split by topic, and the controls
+/// at the bottom.
 pub fn fullscreen(s: &App, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) {
     if !s.fullscreen {
         return;
@@ -259,11 +259,11 @@ fn tabs_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
     row().w_full().pt(8.0).gap(12.0).center_y().justify_between().flex_wrap().child(tabs).child(trailing)
 }
 
-/// Le bilan est le Markdown de l'agent, rendu tel quel. Les horodatages deviennent des liens qui
-/// lancent la lecture, et les cases des actions se cochent.
+/// The summary is the agent's Markdown, rendered as is. Timestamps become links that start
+/// playback, and the actions' checkboxes can be ticked.
 fn summary(m: &Meeting, k: &Kit) -> El {
     if m.summary.trim().is_empty() {
-        return col().key("bilan").w_full().pt(4.0).child(muted(k, "Pas encore de bilan."));
+        return col().key("summary").w_full().pt(4.0).child(muted(k, "Pas encore de bilan."));
     }
     let src = Rc::new(summary::with_playback_links(&m.summary));
     let tasks = src.clone();
@@ -276,11 +276,11 @@ fn summary(m: &Meeting, k: &Kit) -> El {
         })
         .on_task(move |s: &mut App, _block: &str, offset: usize, done: bool| {
             let action = summary::checkbox_index(&tasks, offset);
-            s.command(Command::CheckAction { meeting: id, action, done: done });
+            s.command(Command::CheckAction { meeting: id, action, done });
         })
         .build(k)
-        .key("bilan-md");
-    col().key("bilan").w_full().pt(4.0).child(md)
+        .key("summary-md");
+    col().key("summary").w_full().pt(4.0).child(md)
 }
 
 pub fn speaker_name(m: &Meeting, i: usize) -> (String, rune::Color, bool) {
@@ -288,8 +288,8 @@ pub fn speaker_name(m: &Meeting, i: usize) -> (String, rune::Color, bool) {
     (p.display_name(), spk_color(p.tint), p.name.is_some())
 }
 
-/// Le texte d'une réplique. Le cœur y a déjà mis ce que ses passages à vérifier sont devenus :
-/// surlignés tant qu'ils sont en attente, soulignés une fois remplacés.
+/// An utterance's text. The core has already put in it what its passages to check became:
+/// highlighted while pending, underlined once replaced.
 pub fn utterance_text(m: &Meeting, i: usize, k: &Kit) -> El {
     let u = &m.utterances[i];
     let ink = k.c.text_base;
@@ -350,7 +350,7 @@ fn transcript(s: &App, m: &Meeting, k: &Kit, view_h: f32) -> El {
                 }),
         );
     }
-    // Sa propre zone de défilement, pour suivre la lecture sans faire défiler la vidéo.
+    // Its own scroll area, to follow playback without scrolling the video away.
     col()
         .key("transcript-scroll")
         .w_full()
@@ -394,7 +394,7 @@ fn info(s: &App, m: &Meeting, k: &Kit) -> El {
 
 fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
     let id = m.id;
-    // Une transcription importée : le traitement reprend à la relecture (#5).
+    // An imported transcription: processing resumes at the review (#5).
     if m.status == Status::ToProcess && m.completed_stage == Some(Stage::Transcription) {
         return card(k)
             .gap(14.0)

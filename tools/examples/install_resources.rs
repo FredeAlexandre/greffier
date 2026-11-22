@@ -1,10 +1,10 @@
-//! Installe les vraies ressources sans fenêtre, par le cœur, et affiche leur état :
+//! Installs the real resources without a window, through the core, and prints their state:
 //!
-//!     cargo run -p greffier-outils --example installer_ressources [-- --verifier]
+//!     cargo run -p greffier-tools --example install_resources [-- --check]
 //!
-//! Le dossier est celui de l'app (`~/Library/Application Support/Greffier`). L'uv embarqué est
-//! pris dans `target/uv-<version>/uv`, où `scripts/installer-app` le dépose. `--verifier` ne fait
-//! que les vérifications, sans rien télécharger.
+//! The folder is the app's (`~/Library/Application Support/Greffier`). The bundled uv is taken
+//! from `target/uv-<version>/uv`, where `scripts/install-app` puts it. `--check` only runs the
+//! checks, without downloading anything.
 
 use std::time::{Duration, Instant};
 
@@ -19,9 +19,9 @@ fn main() {
     let folder = app_folder();
     let adapters = Adapters { resources: Box::new(AppResources::new(&folder, Catalogue::for_greffier(), tools)), ..demo::adapters() };
     let mut greffier = Greffier::open(std::env::temp_dir().join("greffier-install-resources"), adapters);
-    let command = if std::env::args().any(|a| a == "--verifier") { Command::CheckResources } else { Command::InstallResources };
-    greffier.execute(command).expect("commande");
-    println!("Dossier : {}", folder.display());
+    let command = if std::env::args().any(|a| a == "--check") { Command::CheckResources } else { Command::InstallResources };
+    greffier.execute(command).expect("command");
+    println!("Folder: {}", folder.display());
     let start = Instant::now();
     let mut last = String::new();
     let mut failure = false;
@@ -29,10 +29,10 @@ fn main() {
         std::thread::sleep(Duration::from_millis(500));
         for e in greffier.advance(0.5) {
             match e {
-                Event::ResourcesInstalled => println!("Ressources installées."),
+                Event::ResourcesInstalled => println!("Resources installed."),
                 Event::InstallationFailed(m) => {
                     failure = true;
-                    println!("Échec de l'installation :\n{m}");
+                    println!("Installation failed:\n{m}");
                 }
                 _ => {}
             }
@@ -43,9 +43,9 @@ fn main() {
             last = state;
         }
     }
-    println!("\nFin après {} s :", start.elapsed().as_secs());
+    println!("\nDone after {} s:", start.elapsed().as_secs());
     for r in greffier.resources() {
-        println!("  {:<22} {:?} · {} octets · {}{}", r.name, r.state, r.size, r.detail, r.help.as_deref().map(|a| format!("\n      aide : {a}")).unwrap_or_default());
+        println!("  {:<22} {:?} · {} bytes · {}{}", r.name, r.state, r.size, r.detail, r.help.as_deref().map(|a| format!("\n      help: {a}")).unwrap_or_default());
     }
     std::process::exit(i32::from(failure));
 }

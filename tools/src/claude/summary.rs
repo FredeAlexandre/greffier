@@ -1,9 +1,9 @@
-//! Le bilan par Claude : le prompt livré avec l'app (`ressources/prompt-summary.md`), rempli pour la
-//! réunion ; l'agent démarre dans le dossier de réunions, les dossiers de contexte lui sont
-//! ouverts en lecture (`--add-dir`), il peut lire et écrire mais ni lancer de commandes ni aller
-//! sur le web.
-//! Il écrit le fichier du bilan lui-même et renvoie titre, résumé, 3 actions au plus et ses
-//! propositions de noms pour les locuteurs.
+//! The summary by Claude: the prompt shipped with the app (`resources/prompt-summary.md`), filled
+//! in for the meeting; the agent starts in the meetings folder, the context folders are open to
+//! it for reading (`--add-dir`), it can read and write but can neither run commands nor go on
+//! the web.
+//! It writes the summary file itself and returns the title, brief, 3 actions at most and its
+//! proposed names for the speakers.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -13,70 +13,69 @@ use super::{ClaudeCall, Claude, Session};
 use greffier_core::adapters::{SummaryRequest, SummarySpeaker, SummaryResult};
 use greffier_core::playback_timestamp;
 
-/// Le prompt du bilan, livré avec l'app.
+/// The summary prompt, shipped with the app.
 pub const SUMMARY_PROMPT: &str = include_str!("../../resources/prompt-summary.md");
 
-/// Lecture et écriture ; ni commandes, ni web, ni sous-agents.
+/// Read and write; no commands, no web, no subagents.
 pub const ALLOWED_TOOLS: [&str; 5] = ["Read", "Glob", "Grep", "Write", "Edit"];
 pub const FORBIDDEN_TOOLS: [&str; 4] = ["Bash", "WebFetch", "WebSearch", "Task"];
 
-/// La réponse structurée demandée à l'agent.
+/// The structured answer asked of the agent.
 pub const SCHEMA: &str = r#"{"type":"object","properties":{"title":{"type":"string","description":"Meeting title in a few words, in French"},"brief":{"type":"string","description":"3 to 5 line summary in French, with no title or list"},"actions":{"type":"array","items":{"type":"string"},"maxItems":3,"description":"The 3 most important actions, in French: Who — what — due date"},"participants":{"type":"array","items":{"type":"object","properties":{"speaker":{"type":"string"},"name":{"type":"string"},"justification":{"type":"string"},"same_voice_as":{"type":"string"}},"required":["speaker","name","justification","same_voice_as"],"additionalProperties":false}}},"required":["title","brief","actions","participants"],"additionalProperties":false}"#;
 
-/// Le prompt rempli pour cette réunion (chemins relatifs au dossier de réunions).
+/// The prompt filled in for this meeting (paths relative to the meetings folder).
 pub fn prompt(d: &SummaryRequest) -> String {
     let body = SUMMARY_PROMPT.strip_prefix("---\n").and_then(|r| r.split_once("\n---\n")).map_or(SUMMARY_PROMPT, |(_, body)| body).trim();
     let relative = |p: &Path| p.strip_prefix(&d.meetings_folder).unwrap_or(p).display().to_string();
     let folder = d.summary_file.parent().map(relative).unwrap_or_default();
-    let or_none = |lines: Vec<String>| if lines.is_empty() { "(aucun)".to_string() } else { lines.join("\n") };
+    let or_none = |lines: Vec<String>| if lines.is_empty() { "(none)".to_string() } else { lines.join("\n") };
     let speakers = or_none(
         d.speakers
             .iter()
             .map(|l| match (&l.merged_into, &l.name, &l.proposal) {
-                (Some(into), ..) => format!("- {} : même voix que {into} (fusionné par l'utilisateur : ses répliques sont sous {into} dans la transcription)", l.label),
-                (None, Some(name), _) => format!("- {} : nommé « {name} » par l'utilisateur (sûr)", l.label),
-                (None, None, Some(p)) => format!("- {} : sans nom (proposé au bilan précédent : « {p} »)", l.label),
-                (None, None, None) => format!("- {} : sans nom", l.label),
+                (Some(into), ..) => format!("- {}: same voice as {into} (merged by the user: their utterances are under {into} in the transcription)", l.label),
+                (None, Some(name), _) => format!("- {}: named \"{name}\" by the user (certain)", l.label),
+                (None, None, Some(p)) => format!("- {}: no name (proposed in the previous summary: \"{p}\")", l.label),
+                (None, None, None) => format!("- {}: no name", l.label),
             })
             .collect(),
     );
     let markers = or_none(d.markers.iter().map(|r| format!("- ({}) {}", playback_timestamp(r.instant), r.label)).collect());
     let context = or_none(d.context_folders.iter().map(|c| format!("- `{}`", c.display())).collect());
     let current_summary = if d.current_summary.is_some() {
-        "Un bilan existe déjà pour cette réunion : on le refait, sans doute après des corrections de la transcription ou des noms donnés aux locuteurs. Remplace-le entièrement, d'après la fiche et la transcription actuelles."
+        "A summary already exists for this meeting: it is being redone, probably after corrections to the transcription or to the names given to the speakers. Replace it entirely, based on the current sheet and transcription."
     } else {
         ""
     };
     let start = d.start;
     let values = [
-        ("DOSSIER", folder),
+        ("FOLDER", folder),
         ("TRANSCRIPTION", relative(&d.transcription)),
-        ("FICHE", relative(&d.sheet)),
-        ("BILAN", relative(&d.summary_file)),
+        ("SHEET", relative(&d.sheet)),
+        ("SUMMARY", relative(&d.summary_file)),
         ("DATE", format!("{:04}-{:02}-{:02}", start.year, start.month, start.day)),
-        ("DEBUT", format!("{:02}:{:02}", start.hour, start.minute)),
-        ("DUREE", playback_timestamp(d.duration)),
-        ("LOCUTEURS", speakers),
-        ("REPERES", markers),
-        ("CONTEXTE", context),
-        ("BILAN_ACTUEL", current_summary.to_string()),
+        ("START", format!("{:02}:{:02}", start.hour, start.minute)),
+        ("DURATION", playback_timestamp(d.duration)),
+        ("SPEAKERS", speakers),
+        ("MARKERS", markers),
+        ("CONTEXT", context),
+        ("CURRENT_SUMMARY", current_summary.to_string()),
     ];
     let mut text = body.to_string();
     for (key, value) in values {
         text = text.replace(&format!("{{{{{key}}}}}"), &value);
     }
-    // Un remplacement vide (pas de bilan actuel) ne laisse pas de trou de plusieurs lignes.
+    // An empty replacement (no current summary) leaves no gap of several lines.
     while text.contains("\n\n\n") {
         text = text.replace("\n\n\n", "\n\n");
     }
     text
 }
 
-/// L'appel à la CLI pour ce bilan : une nouvelle session dans le dossier de réunions, les
-/// dossiers de contexte ouverts en plus, l'écriture permise sauf dans les dossiers de contexte
-/// (ils se lisent : règles `Write(//chemin/**)` et `Edit(//chemin/**)` de la CLI, `//` = chemin
-/// absolu). Un dossier de contexte qui contient le dossier de réunions reste ouvert à l'écriture,
-/// le bilan s'y écrit.
+/// The CLI call for this summary: a new session in the meetings folder, the context folders
+/// opened as well, writing allowed except in the context folders (they are read only: the CLI's
+/// `Write(//path/**)` and `Edit(//path/**)` rules, `//` = absolute path). A context folder that
+/// contains the meetings folder stays open for writing, since the summary is written there.
 pub fn call(d: &SummaryRequest, session: &str) -> ClaudeCall {
     let mut forbidden_tools: Vec<String> = FORBIDDEN_TOOLS.map(String::from).to_vec();
     for folder in d.context_folders.iter().filter(|c| !d.meetings_folder.starts_with(c)) {
@@ -96,7 +95,7 @@ pub fn call(d: &SummaryRequest, session: &str) -> ClaudeCall {
     }
 }
 
-/// Lit la réponse structurée de l'agent.
+/// Reads the agent's structured answer.
 pub fn result(response: &serde_json::Value, session: &str) -> Result<SummaryResult, String> {
     let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(serde_json::Value::as_str).map(str::trim).unwrap_or_default().to_string();
     let title = text(response, "title");
@@ -117,8 +116,8 @@ fn modified(file: &Path) -> Option<SystemTime> {
     std::fs::metadata(file).and_then(|m| m.modified()).ok()
 }
 
-/// Fait le bilan : l'agent écrit le fichier, puis rend sa réponse. Échoue si le fichier du bilan
-/// n'a pas été (ré)écrit.
+/// Makes the summary: the agent writes the file, then returns its answer. Fails if the summary
+/// file was not (re)written.
 pub fn run(claude: &dyn Claude, d: &SummaryRequest, stop: &AtomicBool) -> Result<SummaryResult, String> {
     let session = super::new_session();
     let before = modified(&d.summary_file);
@@ -166,24 +165,24 @@ mod tests {
     fn prompt_is_filled_in_for_the_meeting() {
         let p = prompt(&request());
         assert!(!p.contains("{{"), "{p}");
-        assert!(!p.starts_with("---"), "le frontmatter du fichier n'est pas envoyé");
-        assert!(p.contains("Dossier de la réunion : `2026-11-21 14h02 - Réunion`"), "{p}");
-        assert!(p.contains("- Transcription : `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - transcription.md`"), "{p}");
-        assert!(p.contains("Crée `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - bilan.md`"), "{p}");
-        assert!(p.contains("- Date : 2026-11-21, début 14:02, durée 1:02:03"), "{p}");
+        assert!(!p.starts_with("---"), "the file's front matter is not sent");
+        assert!(p.contains("Meeting folder: `2026-11-21 14h02 - Réunion`"), "{p}");
+        assert!(p.contains("- Transcription: `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - transcription.md`"), "{p}");
+        assert!(p.contains("Create `2026-11-21 14h02 - Réunion/2026-11-21 14h02 - Réunion - bilan.md`"), "{p}");
+        assert!(p.contains("- Date: 2026-11-21, start 14:02, duration 1:02:03"), "{p}");
         assert!(
-            p.contains("- SPEAKER_00 : nommé « Odile » par l'utilisateur (sûr)\n- SPEAKER_01 : sans nom (proposé au bilan précédent : « Bastien »)\n- SPEAKER_02 : même voix que SPEAKER_00 (fusionné par l'utilisateur : ses répliques sont sous SPEAKER_00 dans la transcription)"),
+            p.contains("- SPEAKER_00: named \"Odile\" by the user (certain)\n- SPEAKER_01: no name (proposed in the previous summary: \"Bastien\")\n- SPEAKER_02: same voice as SPEAKER_00 (merged by the user: their utterances are under SPEAKER_00 in the transcription)"),
             "{p}"
         );
-        assert!(p.contains("`participants` : pour chaque locuteur de la liste qui n'est pas fusionné"), "une proposition par locuteur : {p}");
+        assert!(p.contains("`participants`: for each speaker in the list that is not merged"), "one proposal per speaker: {p}");
         assert!(p.contains("- (0:05:12) Repère 1"), "{p}");
         assert!(p.contains("- `/Users/odile/Notes`"), "{p}");
-        assert!(!p.contains("Un bilan existe déjà"));
+        assert!(!p.contains("A summary already exists"));
         assert!(!p.contains("\n\n\n"));
 
         let redone = prompt(&SummaryRequest { current_summary: Some("## En bref".into()), context_folders: vec![], markers: vec![], ..request() });
-        assert!(redone.contains("Un bilan existe déjà pour cette réunion"));
-        assert!(redone.contains("si un nom, un projet ou un sigle n'est pas clair :\n(aucun)"), "{redone}");
+        assert!(redone.contains("A summary already exists for this meeting"));
+        assert!(redone.contains("if a name, a project or an acronym is unclear:\n(none)"), "{redone}");
     }
 
     #[test]
@@ -198,7 +197,7 @@ mod tests {
         assert_eq!(after("--add-dir"), Some("/Users/odile/Notes"));
         let i = a.iter().position(|x| x == "--allowedTools").unwrap();
         assert_eq!(a[i + 1..i + 6], ["Read", "Glob", "Grep", "Write", "Edit"]);
-        // Les dossiers de contexte se lisent, ne s'écrivent pas.
+        // The context folders are read, not written.
         let i = a.iter().position(|x| x == "--disallowedTools").unwrap();
         assert_eq!(a[i + 1..], ["Bash", "WebFetch", "WebSearch", "Task", "Write(//Users/odile/Notes/**)", "Edit(//Users/odile/Notes/**)"]);
         assert!(serde_json::from_str::<serde_json::Value>(SCHEMA).is_ok());
@@ -207,13 +206,13 @@ mod tests {
         let without_context = call(&SummaryRequest { context_folders: vec![], ..request() }, "s").arguments();
         assert!(!without_context.contains(&"--add-dir".to_string()));
 
-        // Un dossier de contexte qui contient le dossier de réunions n'est pas fermé à l'écriture :
-        // le bilan s'y écrit.
+        // A context folder that contains the meetings folder is not closed to writing: the summary
+        // is written there.
         let parent = call(&SummaryRequest { context_folders: vec![PathBuf::from("/Users/odile")], ..request() }, "s");
         assert_eq!(parent.forbidden_tools, ["Bash", "WebFetch", "WebSearch", "Task"]);
     }
 
-    /// Une fausse CLI : écrit (ou non) le fichier du bilan, et rend la réponse donnée.
+    /// A fake CLI: writes the summary file (or not), and returns the given answer.
     struct FakeCli {
         write: bool,
         response: serde_json::Value,
@@ -222,7 +221,7 @@ mod tests {
     impl Claude for FakeCli {
         fn ask(&self, call: &ClaudeCall, _: &AtomicBool) -> Result<serde_json::Value, String> {
             if self.write {
-                let file = call.prompt.split("Crée `").nth(1).and_then(|r| r.split('`').next()).expect("le fichier du bilan dans le prompt");
+                let file = call.prompt.split("Create `").nth(1).and_then(|r| r.split('`').next()).expect("the summary file in the prompt");
                 std::fs::write(call.directory.join(file), "## En bref\n").map_err(|e| e.to_string())?;
             }
             Ok(self.response.clone())
@@ -243,7 +242,7 @@ mod tests {
 
         let r = run(&FakeCli { write: true, response }, &d, &stop).unwrap();
         assert_eq!(r.title, "Budget");
-        assert_eq!(r.session.as_deref().map(str::len), Some(36), "la session donnée à la CLI");
+        assert_eq!(r.session.as_deref().map(str::len), Some(36), "the session given to the CLI");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -267,7 +266,7 @@ mod tests {
         assert_eq!(r.actions, ["Odile — envoyer le devis — lundi", "Bastien — relire", "C"]);
         assert_eq!(r.speakers[0].same_voice_as, None);
         assert_eq!(r.speakers[1].same_voice_as.as_deref(), Some("SPEAKER_01"));
-        assert_eq!(r.speakers.len(), 3, "un locuteur sans nom proposé garde sa justification");
+        assert_eq!(r.speakers.len(), 3, "a speaker without a proposed name keeps its justification");
         assert_eq!((r.speakers[2].proposed_name.as_str(), r.speakers[2].justification.as_str()), ("", "Personne ne le nomme."));
         assert!(result(&serde_json::json!({"title": " ", "brief": "", "actions": [], "participants": []}), "s").is_err());
     }

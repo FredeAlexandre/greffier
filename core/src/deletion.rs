@@ -1,16 +1,16 @@
-//! Supprimer une réunion : son dossier entier part à la corbeille du Mac (adaptateur
-//! [`Corbeille`](crate::adaptateurs::Corbeille)), pour qu'on puisse s'en rattraper.
+//! Deleting a meeting: its whole folder goes to the Mac's trash (adapter
+//! [`Trash`](crate::adapters::Trash)), so the deletion can be undone.
 
 use crate::{Greffier, MeetingId, Rejection};
 
 impl Greffier {
-    /// Arrête le traitement de la réunion (l'adaptateur écrit dans son dossier), met son dossier
-    /// à la corbeille et l'oublie : elle quitte la liste, l'index de recherche et les empreintes
-    /// (la surveillance ne la voit pas disparaître). Un dossier déjà parti (supprimé dans le
-    /// Finder avant que l'app le voie) n'a rien à jeter.
+    /// Stops the meeting's processing (the adapter writes into its folder), moves its folder to
+    /// the trash and forgets it: it leaves the list, the search index and the fingerprints (the
+    /// watch does not see it disappear). A folder already gone (deleted in the Finder before the
+    /// app saw it) has nothing to throw away.
     ///
-    /// Si la corbeille refuse, la réunion reste, avec son dossier ; son traitement, lui, est
-    /// arrêté (elle redevient à traiter).
+    /// If the trash refuses, the meeting stays, with its folder; its processing, though, is
+    /// stopped (it goes back to to-process).
     pub(crate) fn delete(&mut self, id: MeetingId) -> Result<(), Rejection> {
         let name = self.meeting(id).ok_or(Rejection::UnknownMeeting(id))?.folder_name.clone();
         if self.meeting(id).is_some_and(|r| r.status.in_queue()) {

@@ -1,6 +1,6 @@
-//! Le Mac ne se met pas en veille pendant un enregistrement ou un traitement : le cœur dit quand
-//! il faut le garder éveillé (l'interface en fait une assertion de non-veille de macOS). Pendant
-//! un enregistrement, l'écran reste allumé aussi : éteint, il n'est plus capturé.
+//! The Mac does not sleep during a recording or a processing: the core says when it must be kept
+//! awake (the UI turns that into a macOS sleep-prevention assertion). During a recording, the
+//! screen stays on too: once off, it is no longer captured.
 
 mod bench;
 
@@ -30,7 +30,7 @@ fn mac_stays_awake_from_start_to_end_of_processing() {
     let mut bench = Bench::new();
     let id = bench.meeting_to_process();
     bench.execute(Command::Process(id));
-    // Dans la file, l'étape démarre au prochain pas : la veille est déjà empêchée.
+    // In the queue, the stage starts on the next step: sleep is already prevented.
     assert_eq!(bench.greffier.keep_mac_awake(), PROCESSING);
 
     bench.advance_until(id, |s| matches!(s, Status::Running { .. }));

@@ -1,7 +1,7 @@
-//! L'étape Transcription : le vocabulaire du lexique donné au transcripteur, les bruits entre
-//! crochets retirés, un seul locuteur tant que la séparation n'est pas branchée, le découpage en
-//! répliques, les fichiers écrits, la file (rang, avancement, temps restant), l'arrêt, l'échec et
-//! le nouvel essai. Les noms sont inventés.
+//! The Transcription stage: the lexicon vocabulary given to the transcriber, bracketed noises
+//! removed, a single speaker as long as diarization is not plugged in, splitting into utterances,
+//! the files written, the queue (rank, progress, remaining time), stopping, failure and retry. The
+//! names are made up.
 
 mod bench;
 
@@ -15,12 +15,12 @@ use greffier_core::folder::Import;
 use greffier_core::fake::{FakeDiarizer, FakeTranscriber};
 use greffier_core::{Command, DateTime, Stage, Event, MeetingId, Word, Settings, Role, Status};
 
-/// La vidéo des fixtures (12 s).
+/// The fixtures' video (12 s).
 fn video() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings-folder/2026-11-19 15h30 - Réunion/2026-11-19 15h30 - Réunion - enregistrement.mp4")
 }
 
-/// Les adaptateurs du banc, avec ce transcripteur et sans séparation des locuteurs.
+/// The bench adapters, with this transcriber and without diarization.
 fn with_transcriber(t: FakeTranscriber) -> Adapters {
     let mut a = bench::adapters();
     a.transcriber = Box::new(t);
@@ -31,7 +31,7 @@ fn with_transcriber(t: FakeTranscriber) -> Adapters {
 fn import_media(bench: &mut Bench) -> MeetingId {
     let import = Import { recording: video(), transcription: None, summary: None, start: DateTime::new(2026, 10, 2, 9, 30), title: "Point Ormeau".into() };
     let ev = bench.execute(Command::Import(import));
-    ev.iter().find_map(|e| if let Event::MeetingImported(id) = e { Some(*id) } else { None }).expect("réunion importée")
+    ev.iter().find_map(|e| if let Event::MeetingImported(id) = e { Some(*id) } else { None }).expect("imported meeting")
 }
 
 fn texts(bench: &Bench, id: MeetingId) -> Vec<String> {
@@ -45,10 +45,10 @@ fn file(bench: &Bench, id: MeetingId, role: Role) -> String {
 
 fn write_lexicon(bench: &Bench, vocabulary: &str) -> PathBuf {
     let app = bench.folder.with_extension("app");
-    std::fs::create_dir_all(&app).expect("dossier de l'app");
+    std::fs::create_dir_all(&app).expect("app folder");
     let path = app.join("lexique.md");
     let md = format!("# Lexique\n\n## Personnes\n\n- Bérénice Ormeau : cheffe de projet\n\n## Mots justes\n\nLumion\n\n## Erreurs connues\n\n| Entendu | Correct |\n|---|---|\n| lumi on | Lumion |\n\n## Vocabulaire\n\n{vocabulary}\n");
-    std::fs::write(&path, md).expect("lexique");
+    std::fs::write(&path, md).expect("lexicon");
     path
 }
 
@@ -57,7 +57,7 @@ fn process_transcription(bench: &mut Bench, id: MeetingId) {
     bench.advance_until(id, |s| matches!(s, Status::Running { stage: Stage::Review, .. } | Status::Failed { .. } | Status::Done));
 }
 
-// --- Vocabulaire ---------------------------------------------------------------------------
+// --- Vocabulary ----------------------------------------------------------------------------
 
 #[test]
 fn lexicon_vocabulary_section_is_given_to_the_transcriber_on_every_transcription() {
@@ -74,7 +74,7 @@ fn lexicon_vocabulary_section_is_given_to_the_transcriber_on_every_transcription
     process_transcription(&mut bench, id);
     assert_eq!(*seen.borrow(), ["Réunion Ormeau avec Bérénice et Gaspard. Projet Lumion."]);
 
-    // Le lexique est relu : une modification vaut pour la transcription suivante.
+    // The lexicon is reread: a change applies to the next transcription.
     bench.advance_until(id, |s| *s == Status::Done);
     write_lexicon(&bench, "Réunion Ormeau avec Gaspard.");
     bench.execute(Command::Redo { meeting: id, stage: Stage::Transcription });
@@ -109,11 +109,11 @@ fn transcriber_receives_the_imported_media_and_its_duration() {
     let name = bench.meeting(id).folder_name.clone();
     process_transcription(&mut bench, id);
     let (audio, duration) = seen.borrow()[0].clone();
-    assert_eq!(audio, bench.greffier.folder().recording(&name).expect("enregistrement importé"));
+    assert_eq!(audio, bench.greffier.folder().recording(&name).expect("imported recording"));
     assert!((duration - 12.0).abs() < 0.1, "{duration}");
 }
 
-// --- Mots et répliques ---------------------------------------------------------------------
+// --- Words and utterances ------------------------------------------------------------------
 
 #[test]
 fn bracketed_noises_and_empty_words_are_removed() {
@@ -128,7 +128,7 @@ fn bracketed_noises_and_empty_words_are_removed() {
         word(2.4, 2.6, "fond]"),
         word(2.6, 2.9, "On"),
         word(2.9, 3.3, "commence."),
-        // Une parenthèse qui ne se ferme pas dans les 7 mots n'est pas un bruit.
+        // A parenthesis that does not close within 7 words is not a noise.
         word(3.4, 3.6, "(enfin"),
         word(3.6, 3.8, "si"),
         word(3.8, 4.0, "tout"),
@@ -136,7 +136,7 @@ fn bracketed_noises_and_empty_words_are_removed() {
         word(4.2, 4.4, "monde"),
         word(4.4, 4.6, "est"),
         word(4.6, 4.8, "là."),
-        // Pas plus qu'une parenthèse ouverte à la fin.
+        // Nor is one left open at the end.
         word(4.9, 5.0, "[applaudissements"),
     ];
     let mut bench = Bench::with(with_transcriber(FakeTranscriber::fixed(1.0, words)));
@@ -168,9 +168,9 @@ fn an_utterance_starts_after_a_2_s_pause() {
     let words = vec![
         word(0.0, 0.5, "On"),
         word(0.5, 1.0, "démarre."),
-        word(2.9, 3.2, "Lumion"), // 1,9 s de pause : même réplique
+        word(2.9, 3.2, "Lumion"), // 1.9 s pause: same utterance
         word(3.2, 3.5, "avance."),
-        word(5.5, 6.0, "Ensuite"), // 2 s de pause : nouvelle réplique
+        word(5.5, 6.0, "Ensuite"), // 2 s pause: new utterance
         word(6.0, 6.5, "Ormeau."),
     ];
     let mut bench = Bench::with(with_transcriber(FakeTranscriber::fixed(1.0, words)));
@@ -185,7 +185,7 @@ fn an_utterance_starts_after_a_2_s_pause() {
 
 #[test]
 fn an_utterance_stops_at_the_first_sentence_end_past_220_characters() {
-    // « Bérénice » + 25 × « explique » = 233 caractères, sans fin de phrase.
+    // « Bérénice » + 25 × « explique » = 233 characters, without a sentence end.
     let mut words = vec![word(0.0, 0.2, "Bérénice")];
     let mut t = 0.2;
     let mut say = |text: &str, words: &mut Vec<Word>| {
@@ -195,9 +195,9 @@ fn an_utterance_stops_at_the_first_sentence_end_past_220_characters() {
     for _ in 0..25 {
         say("explique", &mut words);
     }
-    say("tout.", &mut words); // fin de phrase après 220 caractères : la réplique s'arrête après
+    say("tout.", &mut words); // sentence end past 220 characters: the utterance stops after it
     say("Gaspard", &mut words);
-    say("répond.", &mut words); // fin de phrase, mais réplique courte : on continue
+    say("répond.", &mut words); // sentence end, but short utterance: keep going
     say("Puis", &mut words);
     say("Lumion.", &mut words);
     let mut bench = Bench::with(with_transcriber(FakeTranscriber::fixed(1.0, words)));
@@ -222,7 +222,7 @@ fn lone_punctuation_stays_in_the_previous_utterance() {
     assert_eq!(texts(&bench, id), ["Ça va ?", "Oui."]);
 }
 
-// --- Fichiers ------------------------------------------------------------------------------
+// --- Files ---------------------------------------------------------------------------------
 
 #[test]
 fn a_media_imported_alone_produces_both_transcriptions_and_the_sheet_tells_its_progress() {
@@ -240,7 +240,7 @@ fn a_media_imported_alone_produces_both_transcriptions_and_the_sheet_tells_its_p
     assert_eq!(json["words"].as_array().map(Vec::len), Some(4));
     assert_eq!(json["utterances"][0]["text"], "Bonjour Bérénice.");
     assert_eq!(json["utterances"][1]["text"], "Lumion démarre.");
-    assert!(json.get("review").is_none(), "pas encore relue");
+    assert!(json.get("review").is_none(), "not reviewed yet");
 
     let md = file(&bench, id, Role::ReadableTranscription);
     assert!(md.contains("[0:00:00] SPEAKER_00 : Bonjour Bérénice."), "{md}");
@@ -262,7 +262,7 @@ fn during_transcription_the_sheet_says_transcription_running() {
     assert!(sheet.contains("statut: en_cours\netape: transcription\n"), "{sheet}");
 }
 
-// --- File, arrêt, échec --------------------------------------------------------------------
+// --- Queue, stop, failure ------------------------------------------------------------------
 
 #[test]
 fn transcription_progress_is_that_of_the_slowest_half() {
@@ -286,8 +286,8 @@ fn remaining_time_counts_meetings_ahead_in_line() {
     bench.advance(0.1);
 
     assert_eq!((bench.greffier.rank(first), bench.greffier.rank(second)), (Some(0), Some(1)));
-    let own = |id| bench.meeting(id).estimated_time_remaining().expect("dans la file");
-    let (a, b) = (bench.greffier.time_remaining(first).expect("en cours"), bench.greffier.time_remaining(second).expect("en attente"));
+    let own = |id| bench.meeting(id).estimated_time_remaining().expect("in the queue");
+    let (a, b) = (bench.greffier.time_remaining(first).expect("in progress"), bench.greffier.time_remaining(second).expect("waiting"));
     assert_eq!(a, own(first));
     assert!((b - (a + own(second))).abs() < 1e-9, "{b} ≠ {a} + {}", own(second));
 }
@@ -299,15 +299,15 @@ fn a_meeting_waiting_at_a_later_stage_has_less_to_wait() {
     bench.execute(Command::Process(done));
     bench.advance_until(done, |s| *s == Status::Done);
     let fresh = bench.meeting_to_process();
-    // Pendant un enregistrement, la file attend : les deux restent en attente.
+    // During a recording, the queue waits: both stay waiting.
     bench.execute(Command::StartRecording);
     bench.execute(Command::Redo { meeting: done, stage: Stage::Summary });
     bench.execute(Command::Process(fresh));
     assert_eq!(bench.meeting(done).status, Status::Pending(Stage::Summary));
     assert_eq!(bench.meeting(fresh).status, Status::Pending(Stage::Transcription));
 
-    let summary_only = bench.meeting(done).estimated_time_remaining().expect("en attente");
-    let all = bench.meeting(fresh).estimated_time_remaining().expect("en attente");
+    let summary_only = bench.meeting(done).estimated_time_remaining().expect("waiting");
+    let all = bench.meeting(fresh).estimated_time_remaining().expect("waiting");
     assert!(summary_only < all / 2.0, "{summary_only} / {all}");
 }
 

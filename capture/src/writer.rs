@@ -1,11 +1,10 @@
-//! L'écriture de l'enregistrement par AVAssetWriter, au fil de l'eau, en MP4 fragmenté (un
-//! fragment toutes les [`INTERVALLE_DES_FRAGMENTS`] secondes : un arrêt brutal ne perd que le
-//! dernier).
+//! Writing the recording with AVAssetWriter, as it goes, as fragmented MP4 (one fragment every
+//! [`FRAGMENT_INTERVAL`] seconds: a crash loses only the last one).
 //!
-//! Format repris du vault : vidéo H.264 à 30 i/s, ~1200 kbps ; trois pistes audio AAC 160 kbps à
-//! 48 kHz, dans cet ordre : mixage (celle que lit la transcription, la première), micro seul, son
-//! du Mac seul. Les trois pistes audio forment un groupe dont le mixage est la piste par défaut :
-//! un lecteur ne joue que lui, au lieu d'additionner les trois.
+//! Format taken from the vault: H.264 video at 30 fps, ~1200 kbps; three AAC audio tracks at
+//! 160 kbps, 48 kHz, in this order: mix (the one transcription reads, first), microphone only, Mac
+//! audio only. The three audio tracks form a group whose default track is the mix: a player plays
+//! only that one instead of adding up all three.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -34,7 +33,7 @@ pub const FRAMES_PER_SECOND: i32 = 30;
 pub const VIDEO_BITRATE: i32 = 1_200_000;
 pub const AUDIO_BITRATE: i32 = 160_000;
 pub const FRAGMENT_INTERVAL: f64 = 2.0;
-/// Au plus 4 images (133 ms) attendent l'audio ; ScreenCaptureKit en a 8 en réserve.
+/// At most 4 frames (133 ms) wait for the audio; ScreenCaptureKit keeps 8 in reserve.
 pub const PENDING_FRAMES: usize = 4;
 /// 'aac '
 const AAC_FORMAT: u32 = 0x6161_6320;
@@ -42,27 +41,27 @@ const AAC_FORMAT: u32 = 0x6161_6320;
 pub struct Writer {
     writer: Retained<AVAssetWriter>,
     video: Option<(Retained<AVAssetWriterInput>, Retained<AVAssetWriterInputPixelBufferAdaptor>)>,
-    /// Mixage, micro, son du Mac.
+    /// Mix, microphone, Mac audio.
     audio: [Retained<AVAssetWriterInput>; 3],
     audio_format: CFRetained<CMFormatDescription>,
-    /// L'horodatage du premier échantillon : le début de l'enregistrement.
+    /// The timestamp of the first sample: the start of the recording.
     origin: Option<CMTime>,
-    /// Secondes écrites depuis l'origine.
+    /// Seconds written since the origin.
     duration: f64,
-    /// Échantillons refusés faute de place (l'encodeur ne suit pas).
+    /// Samples rejected for lack of room (the encoder can't keep up).
     pub lost: u64,
-    /// Le premier échec de l'écrivain.
+    /// The writer's first failure.
     failure: Option<String>,
-    /// Les images qui attendent l'audio, et les trames audio déjà écrites.
-    /// (instants en 1/90 000 s)
+    /// The frames waiting for the audio, and the audio frames already written.
+    /// (times in 1/90,000 s)
     pending: VecDeque<(CFRetained<CVPixelBuffer>, i64)>,
     audio_written: u64,
-    /// La dernière image, pour la répéter quand l'écran ne change pas.
+    /// The last frame, to repeat it when the screen doesn't change.
     last_frame: Option<(CFRetained<CVPixelBuffer>, i64)>,
 }
 
-// AVAssetWriter peut être utilisé depuis n'importe quel fil, pourvu que ce soit un à la fois :
-// l'écrivain vit derrière un Mutex.
+// AVAssetWriter can be used from any thread, as long as it is one at a time: the writer lives
+// behind a Mutex.
 unsafe impl Send for Writer {}
 
 fn key(s: &str) -> Retained<NSString> {
@@ -84,11 +83,11 @@ fn integer(n: i64) -> Retained<AnyObject> {
 }
 
 fn object<T: objc2::Message>(o: &T) -> Retained<AnyObject> {
-    // SAFETY : tout objet Objective-C est un AnyObject.
-    unsafe { Retained::retain(o as *const T as *mut AnyObject) }.expect("objet")
+    // SAFETY: every Objective-C object is an AnyObject.
+    unsafe { Retained::retain(o as *const T as *mut AnyObject) }.expect("object")
 }
 
-/// Le message d'une erreur, avec son domaine, son code et l'erreur sous-jacente.
+/// An error's message, with its domain, its code and the underlying error.
 pub fn error(e: &objc2_foundation::NSError) -> String {
     let mut m = format!("{} ({} {})", e.localizedDescription(), e.domain(), e.code());
     let info = e.userInfo();
@@ -101,10 +100,10 @@ pub fn error(e: &objc2_foundation::NSError) -> String {
 }
 
 impl Writer {
-    /// Prépare le fichier. `video` : la taille des images, s'il y a une piste vidéo. Les images
-    /// attendent l'audio : sans source audio, il faut écrire du silence ([`Mixeur::silence_jusqu_a`]).
+    /// Prepares the file. `video`: the frame size, if there is a video track. Frames wait for the
+    /// audio: with no audio source, silence must be written ([`Mixer::silence_until`]).
     ///
-    /// [`Mixeur::silence_jusqu_a`]: crate::mixage::Mixeur::silence_jusqu_a
+    /// [`Mixer::silence_until`]: crate::mixing::Mixer::silence_until
     pub fn new(file: &Path, video: Option<(usize, usize)>) -> Result<Writer, String> {
         let url = NSURL::from_file_path(file).ok_or("chemin de l'enregistrement invalide")?;
         let _ = std::fs::remove_file(file);
@@ -116,18 +115,18 @@ impl Writer {
             let video = match video {
                 Some((width, height)) => {
                     let compression = dictionary(&[
-                        (AVVideoAverageBitRateKey.expect("clé"), integer(i64::from(VIDEO_BITRATE))),
-                        (AVVideoExpectedSourceFrameRateKey.expect("clé"), integer(i64::from(FRAMES_PER_SECOND))),
-                        (AVVideoMaxKeyFrameIntervalKey.expect("clé"), integer(i64::from(2 * FRAMES_PER_SECOND))),
-                        (AVVideoProfileLevelKey.expect("clé"), object(AVVideoProfileLevelH264HighAutoLevel.expect("clé"))),
+                        (AVVideoAverageBitRateKey.expect("key"), integer(i64::from(VIDEO_BITRATE))),
+                        (AVVideoExpectedSourceFrameRateKey.expect("key"), integer(i64::from(FRAMES_PER_SECOND))),
+                        (AVVideoMaxKeyFrameIntervalKey.expect("key"), integer(i64::from(2 * FRAMES_PER_SECOND))),
+                        (AVVideoProfileLevelKey.expect("key"), object(AVVideoProfileLevelH264HighAutoLevel.expect("key"))),
                     ]);
                     let settings = dictionary(&[
-                        (AVVideoCodecKey.expect("clé"), object(AVVideoCodecTypeH264.expect("clé"))),
-                        (AVVideoWidthKey.expect("clé"), integer(width as i64)),
-                        (AVVideoHeightKey.expect("clé"), integer(height as i64)),
-                        (AVVideoCompressionPropertiesKey.expect("clé"), object(&*compression)),
+                        (AVVideoCodecKey.expect("key"), object(AVVideoCodecTypeH264.expect("key"))),
+                        (AVVideoWidthKey.expect("key"), integer(width as i64)),
+                        (AVVideoHeightKey.expect("key"), integer(height as i64)),
+                        (AVVideoCompressionPropertiesKey.expect("key"), object(&*compression)),
                     ]);
-                    let input = AVAssetWriterInput::initWithMediaType_outputSettings(AVAssetWriterInput::alloc(), AVMediaTypeVideo.expect("vidéo"), Some(&settings));
+                    let input = AVAssetWriterInput::initWithMediaType_outputSettings(AVAssetWriterInput::alloc(), AVMediaTypeVideo.expect("video"), Some(&settings));
                     input.setExpectsMediaDataInRealTime(true);
                     if !writer.canAddInput(&input) {
                         return Err("piste vidéo refusée par AVAssetWriter".into());
@@ -144,7 +143,7 @@ impl Writer {
                 (&key("AVSampleRateKey"), number(f64::from(SAMPLE_RATE))),
                 (&key("AVNumberOfChannelsKey"), integer(CHANNELS as i64)),
                 (&key("AVEncoderBitRateKey"), integer(i64::from(AUDIO_BITRATE))),
-                // Débit constant, comme l'AAC d'OBS dans le vault.
+                // Constant bitrate, like OBS's AAC in the vault.
                 (&key("AVEncoderBitRateStrategyKey"), object(&*key("AVAudioBitRateStrategy_Constant"))),
             ]);
             let track = || -> Result<Retained<AVAssetWriterInput>, String> {
@@ -187,7 +186,7 @@ impl Writer {
         }
     }
 
-    /// L'origine de l'enregistrement : fixée par le premier échantillon reçu.
+    /// The origin of the recording: set by the first sample received.
     pub fn origin(&mut self, t: CMTime) -> CMTime {
         let t = video_timescale(t);
         *self.origin.get_or_insert_with(|| {
@@ -209,22 +208,22 @@ impl Writer {
         }
     }
 
-    /// Une image de l'écran, à son horodatage. Deux règles, sans lesquelles AVAssetWriter échoue
-    /// (-11800 / -16341) en écrivant un fragment :
-    /// - la vidéo est à cadence fixe : ScreenCaptureKit n'envoie rien quand l'écran ne change pas,
-    ///   on répète alors la dernière image (comme OBS) ;
-    /// - une image attend que l'audio l'ait rattrapée (au plus [`IMAGES_EN_ATTENTE`] images).
+    /// A screen frame, at its timestamp. Two rules, without which AVAssetWriter fails
+    /// (-11800 / -16341) while writing a fragment:
+    /// - the video has a fixed frame rate: ScreenCaptureKit sends nothing when the screen doesn't
+    ///   change, so the last frame is repeated (like OBS);
+    /// - a frame waits until the audio has caught up with it (at most [`PENDING_FRAMES`] frames).
     pub fn image(&mut self, image: &CVPixelBuffer, t: CMTime) {
         let t = video_timescale(t);
         let origin = self.origin(t);
         if unsafe { t.compare(origin) } < 0 || self.video.is_none() {
             return;
         }
-        // SAFETY : une référence de plus sur le tampon, le temps de l'attente et des répétitions.
+        // SAFETY: one more reference on the buffer, for the wait and the repeats.
         let image = unsafe { CFRetained::retain(NonNull::from(image)) };
         let t = t.value;
         match &mut self.last_frame {
-            // Les répétitions sont déjà passées par là : l'image servira aux suivantes.
+            // The repeats have already covered this time: the frame will be used for the next ones.
             Some((d, td)) if *td >= t - PERIOD / 2 => *d = image,
             _ => {
                 self.fill_gap(t - PERIOD / 2);
@@ -235,7 +234,7 @@ impl Writer {
         self.write_frames(false);
     }
 
-    /// Répète la dernière image, à cadence fixe, jusqu'à `jusqu_a` (en 1/90 000 s).
+    /// Repeats the last frame, at a fixed frame rate, up to `until` (in 1/90,000 s).
     fn fill_gap(&mut self, until: i64) {
         let Some((image, t)) = &mut self.last_frame else { return };
         while *t + PERIOD <= until {
@@ -244,12 +243,12 @@ impl Writer {
         }
     }
 
-    /// L'instant jusqu'où l'audio est écrit, en 1/90 000 s.
+    /// The time up to which the audio is written, in 1/90,000 s.
     fn audio_until(&self) -> Option<i64> {
         self.origin.map(|o| o.value + (self.audio_written as i64) * i64::from(VIDEO_TIMESCALE) / i64::from(SAMPLE_RATE))
     }
 
-    /// Écrit les images que l'audio a rattrapées (toutes si `tout`).
+    /// Writes the frames the audio has caught up with (all of them if `all`).
     fn write_frames(&mut self, all: bool) {
         let audio = self.audio_until();
         while let Some((_, t)) = self.pending.front() {
@@ -269,7 +268,7 @@ impl Writer {
         }
     }
 
-    /// Les trois pistes d'un bloc du mixeur, placé à `origine + debut / 48 kHz`.
+    /// The three tracks of a mixer block, placed at `origin + start / 48 kHz`.
     pub fn audio(&mut self, block: &AudioBlock) {
         let Some(origin) = self.origin else { return };
         let n = block.frames();
@@ -278,7 +277,7 @@ impl Writer {
         }
         let t = unsafe { origin.convert_scale(SAMPLE_RATE as i32, CMTimeRoundingMethod::RoundHalfAwayFromZero).add(CMTime::new(block.start as i64, SAMPLE_RATE as i32)) };
         if crate::mac::trace() {
-            eprintln!("bloc debut={} n={n}", block.start);
+            eprintln!("block start={} n={n}", block.start);
         }
         for (i, data) in [&block.mixing, &block.micro, &block.mac_audio].into_iter().enumerate() {
             let Some(buffer) = samples(&self.audio_format, data, n, t) else {
@@ -293,26 +292,26 @@ impl Writer {
         }
         self.note_end(unsafe { t.add(CMTime::new(n as i64, SAMPLE_RATE as i32)) });
         self.audio_written = block.start + n as u64;
-        // L'écran immobile : la vidéo suit l'audio, avec un peu de retard pour laisser arriver
-        // une vraie image.
+        // Still screen: the video follows the audio, a little behind to let a real frame
+        // arrive.
         if let Some(a) = self.audio_until() {
             self.fill_gap(a - REPEAT_DELAY);
         }
         self.write_frames(false);
     }
 
-    /// Note un échantillon refusé ; dit pourquoi au premier échec de l'écrivain.
+    /// Records a rejected sample; says why on the writer's first failure.
     fn lost(&mut self, what: &str, t: CMTime) {
         self.lost += 1;
         let status = unsafe { self.writer.status() };
         if status == AVAssetWriterStatus::Failed && self.failure.is_none() {
             let m = unsafe { self.writer.error() }.map_or("?".into(), |e| error(&e));
-            eprintln!("greffier-capture : l'écriture a échoué sur {what} à {:.3} s : {m}", unsafe { t.seconds() });
+            eprintln!("greffier-capture: writing failed on {what} at {:.3} s: {m}", unsafe { t.seconds() });
             self.failure = Some(m);
         }
     }
 
-    /// Ferme les pistes et finit le fichier ; rend la durée écrite.
+    /// Closes the tracks and finishes the file; returns the duration written.
     pub fn finish(mut self) -> Result<f64, String> {
         if let Some(a) = self.audio_until() {
             self.fill_gap(a);
@@ -343,8 +342,8 @@ impl Writer {
     }
 }
 
-/// Les horodatages de ScreenCaptureKit sont en nanosecondes : à cette échelle, une durée de piste
-/// dépasse 32 bits après 4,29 s et AVAssetWriter échoue au fragment suivant. On les ramène à 90 kHz.
+/// ScreenCaptureKit timestamps are in nanoseconds: at that timescale, a track duration overflows
+/// 32 bits after 4.29 s and AVAssetWriter fails at the next fragment. Bring them down to 90 kHz.
 fn video_timescale(t: CMTime) -> CMTime {
     if t.timescale == VIDEO_TIMESCALE {
         return t;
@@ -353,12 +352,12 @@ fn video_timescale(t: CMTime) -> CMTime {
 }
 
 const VIDEO_TIMESCALE: i32 = 90_000;
-/// Une image à 30 i/s, en 1/90 000 s.
+/// One frame at 30 fps, in 1/90,000 s.
 const PERIOD: i64 = VIDEO_TIMESCALE as i64 / FRAMES_PER_SECOND as i64;
-/// Les répétitions suivent l'audio à 100 ms.
+/// The repeats follow the audio 100 ms behind.
 const REPEAT_DELAY: i64 = VIDEO_TIMESCALE as i64 / 10;
 
-/// Un tampon CoreMedia de `n` trames stéréo flottantes entrelacées.
+/// A CoreMedia buffer of `n` interleaved floating-point stereo frames.
 fn samples(format: &CMFormatDescription, data: &[f32], n: usize, t: CMTime) -> Option<CFRetained<CMSampleBuffer>> {
     let bytes = std::mem::size_of_val(data);
     unsafe {

@@ -1,15 +1,15 @@
-//! Les ressources de Greffier, toutes dans le dossier de l'app
-//! (`~/Library/Application Support/Greffier/`) et nulle part ailleurs : les modèles, téléchargés et
-//! vérifiés par sha256, l'environnement Python privé de pyannote, installé par uv, et la
-//! vérification de la CLI `claude`, seule dépendance que l'app n'installe pas.
+//! Greffier's resources, all in the app's folder (`~/Library/Application Support/Greffier/`) and
+//! nowhere else: the models, downloaded and verified by sha256, pyannote's private Python
+//! environment, installed by uv, and the check of the `claude` CLI, the only dependency the app
+//! does not install.
 //!
-//! [`RessourcesDeLApp`] est l'adaptateur [`Ressources`] de l'app : il décide quoi télécharger,
-//! reprend les téléchargements interrompus, vérifie les sha256 et range les fichiers. Le travail
-//! lent (télécharger, calculer une empreinte, lancer uv ou `claude`) passe par des [`Outils`] :
-//! ceux du Mac (`greffier_outils::mac::OutilsDuMac`) ou les faux des tests ([`crate::faux::FauxOutils`]).
+//! [`AppResources`] is the app's [`Resources`] adapter: it decides what to download, resumes
+//! interrupted downloads, verifies the sha256s and puts the files in place. The slow work
+//! (downloading, computing a fingerprint, running uv or `claude`) goes through [`Tools`]: the
+//! Mac's (`greffier_tools::mac::MacTools`) or the tests' fakes ([`crate::fake::FakeTools`]).
 //!
-//! Sur le disque, un fichier en cours de téléchargement s'appelle `<nom>.partiel` ; il ne prend
-//! son nom qu'une fois son sha256 vérifié. Un fichier présent à la bonne taille est donc prêt.
+//! On disk, a file being downloaded is called `<name>.partial`; it only takes its name once its
+//! sha256 is verified. A file present at the right size is therefore ready.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -23,21 +23,21 @@ use crate::meeting::Stage;
 
 pub use crate::settings::app_folder;
 
-/// Le modèle de Whisper, dans le dossier de l'app.
-pub const WHISPER_MODEL: &str = "modeles/ggml-large-v3.bin";
-/// Le modèle du VAD Silero, dans le dossier de l'app.
-pub const VAD_MODEL: &str = "modeles/ggml-silero-v5.1.2.bin";
-/// Le dossier du modèle de pyannote, dans le dossier de l'app.
-pub const PYANNOTE_MODEL: &str = "modeles/pyannote-community-1";
+/// The Whisper model, in the app's folder.
+pub const WHISPER_MODEL: &str = "models/ggml-large-v3.bin";
+/// The Silero VAD model, in the app's folder.
+pub const VAD_MODEL: &str = "models/ggml-silero-v5.1.2.bin";
+/// The pyannote model's folder, in the app's folder.
+pub const PYANNOTE_MODEL: &str = "models/pyannote-community-1";
 
-/// Un fichier à télécharger.
+/// A file to download.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResourceFile {
-    /// Relatif au dossier de l'app.
+    /// Relative to the app's folder.
     pub path: String,
     pub url: String,
     pub size: u64,
-    /// En hexadécimal minuscule.
+    /// In lowercase hexadecimal.
     pub sha256: String,
 }
 
@@ -50,13 +50,13 @@ impl ResourceFile {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Content {
     Files(Vec<ResourceFile>),
-    /// L'environnement Python privé, installé par uv à partir de son projet et de son verrou.
+    /// The private Python environment, installed by uv from its project and its lock file.
     Python { pyproject: String, lock: String },
-    /// La CLI `claude`, qu'on ne fait que vérifier.
+    /// The `claude` CLI, which is only checked.
     Claude,
 }
 
-/// Une ligne du catalogue, c'est-à-dire de l'écran du premier lancement.
+/// A row of the catalogue, that is, of the first-launch screen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Element {
     pub name: String,
@@ -77,15 +77,15 @@ impl Element {
     }
 }
 
-/// Tout ce dont le traitement a besoin.
+/// Everything processing needs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Catalogue(pub Vec<Element>);
 
 const RELEASE_PYANNOTE: &str = "https://github.com/FredeAlexandre/greffier/releases/download/pyannote-community-1";
 
 impl Catalogue {
-    /// Les ressources de Greffier, aux sha256 figés (ceux du vault pour whisper et Silero ; ceux de
-    /// la révision 3533c8c de pyannote, republiée en release du dépôt par `scripts/publier-pyannote`).
+    /// Greffier's resources, with pinned sha256s (the vault's for whisper and Silero; those of
+    /// pyannote revision 3533c8c, republished as a release of the repository by `scripts/publish-pyannote`).
     pub fn for_greffier() -> Catalogue {
         let pyannote = |path: &str, asset: &str, size: u64, sha: &str| ResourceFile::new(&format!("{PYANNOTE_MODEL}/{path}"), &format!("{RELEASE_PYANNOTE}/{asset}"), size, sha);
         Catalogue(vec![
@@ -128,7 +128,7 @@ impl Catalogue {
         ])
     }
 
-    /// Ce qu'il reste à télécharger, en octets.
+    /// What is left to download, in bytes.
     pub fn to_download(&self, root: &Path) -> u64 {
         self.0
             .iter()
@@ -142,11 +142,11 @@ impl Catalogue {
     }
 }
 
-/// Le projet Python de pyannote, repris du vault (dépendances figées par `uv.lock`).
+/// pyannote's Python project, taken from the vault (dependencies pinned by `uv.lock`).
 pub const PYPROJECT: &str = include_str!("../resources/python/pyproject.toml");
 pub const LOCKFILE: &str = include_str!("../resources/python/uv.lock");
 
-/// Ce que la vérification de la CLI `claude` a trouvé.
+/// What the check of the `claude` CLI found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClaudeState {
     Connected { version: String, account: String },
@@ -155,19 +155,19 @@ pub enum ClaudeState {
     Failed(String),
 }
 
-/// Le travail lent des ressources, hors du cœur.
+/// The resources' slow work, outside the core.
 pub trait Tools {
-    /// Télécharge `url` dans `partiel`, en reprenant à la fin de ce qu'il contient déjà.
+    /// Downloads `url` into `partial`, resuming at the end of what it already contains.
     fn download(&mut self, url: &str, partial: &Path, size: u64) -> BoxedTask<()>;
-    /// Le sha256 du fichier, en hexadécimal minuscule.
+    /// The file's sha256, in lowercase hexadecimal.
     fn fingerprint(&mut self, file: &Path) -> BoxedTask<String>;
-    /// Installe l'environnement Python décrit par `projet` (`pyproject.toml`, `uv.lock`) dans
-    /// `dossier`, sans rien écrire ailleurs, puis vérifie qu'`import pyannote.audio` y réussit.
+    /// Installs the Python environment described by `project` (`pyproject.toml`, `uv.lock`) into
+    /// `folder`, writing nothing elsewhere, then checks that `import pyannote.audio` succeeds there.
     fn install_python(&mut self, project: &Path, folder: &Path) -> BoxedTask<()>;
     fn check_claude(&mut self) -> BoxedTask<ClaudeState>;
 }
 
-/// Le sha256 d'octets, en hexadécimal minuscule.
+/// The sha256 of bytes, in lowercase hexadecimal.
 pub fn sha256(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
@@ -188,13 +188,13 @@ fn size_on_disk(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
-/// Un fichier est prêt quand il porte son nom à la bonne taille : il n'est renommé qu'une fois
-/// son sha256 vérifié.
+/// A file is ready when it has its name at the right size: it is only renamed once its sha256
+/// is verified.
 fn is_ready(root: &Path, f: &ResourceFile) -> bool {
     std::fs::metadata(final_(root, f)).is_ok_and(|m| m.is_file() && m.len() == f.size)
 }
 
-/// La place prise par un dossier, sans suivre les liens.
+/// The space taken by a folder, without following links.
 fn storage(folder: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(folder) else { return 0 };
     entries
@@ -209,13 +209,13 @@ fn storage(folder: &Path) -> u64 {
 
 const PYTHON_FOLDER: &str = "python";
 
-/// L'empreinte du projet Python : le témoin d'installation la retient, un nouveau verrou
-/// réinstalle l'environnement.
+/// The Python project's fingerprint: the install stamp records it, a new lock file reinstalls
+/// the environment.
 fn project_fingerprint(pyproject: &str, lock: &str) -> String {
     sha256(format!("{pyproject}\0{lock}").as_bytes())
 }
 
-/// Ce qui se passe pour un élément pendant une installation.
+/// What is happening to an element during an installation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     Download,
@@ -230,8 +230,8 @@ struct Shared {
     phases: HashMap<usize, Phase>,
     failures: HashMap<usize, String>,
     claude: Option<ClaudeState>,
-    /// La place prise par le Python, calculée une fois (le dossier compte des dizaines de
-    /// milliers de fichiers).
+    /// The space taken by the Python, computed once (the folder holds tens of thousands of
+    /// files).
     python_disk_usage: Option<u64>,
 }
 
@@ -304,7 +304,7 @@ impl Shared {
     }
 }
 
-/// L'adaptateur de ressources de l'app, sur un dossier de l'app et un catalogue.
+/// The app's resources adapter, over an app folder and a catalogue.
 pub struct AppResources {
     shared: Rc<RefCell<Shared>>,
 }
@@ -342,8 +342,8 @@ struct CurrentFile {
     operation: Operation,
 }
 
-/// Une installation : les fichiers un par un (les plus petits d'abord), le Python en même temps,
-/// et la vérification de `claude`.
+/// An installation: the files one by one (smallest first), the Python at the same time, and the
+/// check of `claude`.
 struct Installation {
     shared: Rc<RefCell<Shared>>,
     remaining: VecDeque<(usize, ResourceFile)>,
@@ -417,7 +417,7 @@ impl Installation {
         self.remaining.retain(|(e, _)| *e != element);
     }
 
-    /// Lance le fichier suivant de la file, s'il n'y en a pas déjà un en cours.
+    /// Starts the next file in the queue, if none is already running.
     fn next(&mut self) {
         while self.running.is_none() {
             let Some((element, file)) = self.remaining.pop_front() else { return };
@@ -426,7 +426,7 @@ impl Installation {
             if is_ready(&p.root, &file) {
                 continue;
             }
-            // Un fichier à la mauvaise taille sous son nom final n'a pas été vérifié : on le jette.
+            // A file at the wrong size under its final name was not verified: throw it away.
             let _ = std::fs::remove_file(&end);
             if size_on_disk(&part) > file.size {
                 let _ = std::fs::remove_file(&part);

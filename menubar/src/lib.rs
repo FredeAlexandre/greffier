@@ -1,21 +1,21 @@
-//! L'icône de Greffier dans la barre des menus. Rune ne la fournit pas encore sur macOS : on
-//! l'écrit en `objc2` (NSStatusItem), depuis le thread principal (ADR 0004).
+//! Greffier's icon in the menu bar. Rune doesn't provide it on macOS yet, so it is written in
+//! `objc2` (NSStatusItem), from the main thread (ADR 0004).
 //!
-//! Ce qu'elle montre se calcule ici, sans AppKit ([`menu`]) ; l'adaptateur macOS
-//! ([`IconeDeLaBarre`]) ne fait que l'afficher et rendre les [`Choix`] de l'utilisateur. Ni
-//! le cœur ni l'interface Rune ne voient `objc2`.
+//! What it shows is computed here, without AppKit ([`menu`]); the macOS adapter
+//! ([`MenubarIcon`]) only displays it and returns the user's [`Choice`]s. Neither the core nor
+//! the Rune UI sees `objc2`.
 
-/// Ce que l'app dit à la barre des menus.
+/// What the app tells the menu bar.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum State {
-    /// Aucun enregistrement. `possible` est faux tant qu'un enregistrement ne peut pas partir
-    /// (dossier de réunions pas encore choisi).
+    /// No recording. `possible` is false as long as a recording can't start (meetings folder not
+    /// chosen yet).
     Ready { possible: bool },
-    /// Un enregistrement tourne depuis `duree` secondes.
+    /// A recording has been running for `duration` seconds.
     Recording { duration: f64 },
 }
 
-/// Ce que l'utilisateur choisit dans le menu.
+/// What the user picks in the menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Start,
@@ -24,7 +24,7 @@ pub enum Choice {
     Quit,
 }
 
-/// L'aspect de l'icône.
+/// The icon's look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Idle,
@@ -33,9 +33,9 @@ pub enum Icon {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Line {
-    /// Une ligne qu'on peut choisir (grisée si `active` est faux).
+    /// A line that can be picked (greyed out if `active` is false).
     Choice { text: String, choice: Choice, active: bool },
-    /// Une ligne d'information, jamais choisie.
+    /// An information line, never picked.
     Info(String),
     Separator,
 }
@@ -46,20 +46,20 @@ pub struct Menu {
     pub lines: Vec<Line>,
 }
 
-/// L'icône et son menu pour un état de l'app.
+/// The icon and its menu for a state of the app.
 pub fn menu(state: State) -> Menu {
     let line = |text: &str, choice, active| Line::Choice { text: text.into(), choice, active };
     let (icon, mut lines) = match state {
         State::Ready { possible } => (Icon::Idle, vec![line("Démarrer l'enregistrement", Choice::Start, possible)]),
         State::Recording { duration } => (Icon::Recording, vec![Line::Info(duration_text(duration)), line("Arrêter l'enregistrement", Choice::Stop, true)]),
     };
-    // Quitter pendant un enregistrement le couperait : on l'arrête d'abord.
+    // Quitting during a recording would cut it off: stop it first.
     let can_quit = matches!(state, State::Ready { .. });
     lines.extend([Line::Separator, line("Ouvrir Greffier", Choice::Open, true), Line::Separator, line("Quitter Greffier", Choice::Quit, can_quit)]);
     Menu { icon, lines }
 }
 
-/// La ligne d'information de l'enregistrement : « Enregistrement en cours · 0:12:34 ».
+/// The recording's information line: "Enregistrement en cours · 0:12:34".
 pub fn duration_text(duration: f64) -> String {
     let t = duration.max(0.0) as u64;
     format!("Enregistrement en cours · {}:{:02}:{:02}", t / 3600, (t / 60) % 60, t % 60)

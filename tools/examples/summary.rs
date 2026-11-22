@@ -1,8 +1,8 @@
-//! Essai à la main du vrai bilan par la CLI `claude` (modèle opus, quelques minutes, payant) sur
-//! une réunion inventée : enregistrement factice, transcription écrite à la main, relecture qui ne
-//! change rien, puis le vrai bilan. Le dossier de réunions donné est créé s'il manque.
+//! Manual trial of the real summary by the `claude` CLI (opus model, a few minutes, paid) on a
+//! made-up meeting: fake recording, hand-written transcription, a review that changes nothing,
+//! then the real summary. The given meetings folder is created if missing.
 //!
-//! `cargo run -p greffier-outils --example bilan -- <dossier de réunions> [<dossier de contexte>…]`
+//! `cargo run -p greffier-tools --example summary -- <meetings folder> [<context folder>…]`
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -12,10 +12,10 @@ use greffier_tools::claude::{AgentClaude, MacClaude, review::Relisten};
 use greffier_core::fake::{FakeCapture, FakeClock, FakeTask, FakeResources, FakeDiarizer, FakeTranscriber};
 use greffier_core::{Command, DateTime, Event, Greffier, Word, Settings, Status, SpeakerTurn};
 
-/// Le vrai bilan, avec une relecture qui ne change rien.
+/// The real summary, with a review that changes nothing.
 struct SummaryOnly(AgentClaude);
 
-/// Pas de réécoute : la relecture n'est pas jouée ici.
+/// No relisten: the review is not run here.
 struct NoRelisten;
 
 impl Relisten for NoRelisten {
@@ -47,11 +47,11 @@ const UTTERANCES: [(&str, &str); 8] = [
 fn main() {
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
     let Some(folder) = args.next() else {
-        eprintln!("usage : bilan <dossier de réunions> [<dossier de contexte>…]");
+        eprintln!("usage: summary <meetings folder> [<context folder>…]");
         std::process::exit(2);
     };
     let context: Vec<PathBuf> = args.collect();
-    std::fs::create_dir_all(&folder).expect("dossier de réunions");
+    std::fs::create_dir_all(&folder).expect("meetings folder");
 
     let (mut words, mut turns) = (Vec::<Word>::new(), Vec::<SpeakerTurn>::new());
     let mut t = 0.0;
@@ -76,29 +76,29 @@ fn main() {
         mp4_muxing: Box::new(greffier_core::fake::FakeMp4Muxer),
     };
     let mut g = Greffier::open(&folder, adapters);
-    g.execute(Command::ChangeSettings(Settings { context_folders: context, ..Settings::default() })).expect("réglages");
-    g.execute(Command::StartRecording).expect("enregistrement");
+    g.execute(Command::ChangeSettings(Settings { context_folders: context, ..Settings::default() })).expect("settings");
+    g.execute(Command::StartRecording).expect("recording");
     while g.recording().is_some_and(|e| e.duration < duration) {
         g.advance(0.1);
     }
-    let id = g.execute(Command::StopRecording).expect("arrêt").iter().find_map(|e| if let Event::MeetingRecorded(id) = e { Some(*id) } else { None }).expect("réunion");
+    let id = g.execute(Command::StopRecording).expect("stop").iter().find_map(|e| if let Event::MeetingRecorded(id) = e { Some(*id) } else { None }).expect("meeting");
 
     let start = Instant::now();
     loop {
         for e in g.advance(0.1) {
             println!("{e:?}");
         }
-        let r = g.meeting(id).expect("réunion");
+        let r = g.meeting(id).expect("meeting");
         match &r.status {
             Status::Done => break,
             Status::Failed { message, .. } => {
-                eprintln!("échec : {message}");
+                eprintln!("failed: {message}");
                 std::process::exit(1);
             }
             _ => std::thread::sleep(Duration::from_millis(100)),
         }
     }
-    let r = g.meeting(id).expect("réunion");
-    println!("\n{} s · dossier : {}", start.elapsed().as_secs(), g.folder().folder(&r.folder_name).display());
-    println!("titre : {}\nrésumé : {}\nactions : {:?}\nsession : {:?}", r.title, r.brief, r.key_actions, r.sessions.summary);
+    let r = g.meeting(id).expect("meeting");
+    println!("\n{} s · folder: {}", start.elapsed().as_secs(), g.folder().folder(&r.folder_name).display());
+    println!("title: {}\nbrief: {}\nactions: {:?}\nsession: {:?}", r.title, r.brief, r.key_actions, r.sessions.summary);
 }

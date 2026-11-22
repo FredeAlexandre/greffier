@@ -1,12 +1,12 @@
-//! Les vrais adaptateurs de Greffier qui pilotent des programmes du Mac. Le cœur ne connaît que
-//! leurs interfaces ([`greffier_coeur::adaptateurs`]) :
+//! Greffier's real adapters that drive Mac programs. The core only knows their interfaces
+//! ([`greffier_core::adapters`]):
 //!
-//! - [`claude`] : l'[`Agent`](greffier_coeur::adaptateurs::Agent) de Greffier, la CLI `claude`
-//!   (relecture en deux passes avec réécoute, bilan écrit par l'agent).
-//! - [`mac`] : les [`Outils`](greffier_coeur::ressources::Outils) des ressources (curl, sha256,
-//!   uv embarqué, vérification de `claude`) et l'environnement du Python privé.
-//! - [`processus`] : ce qu'ils partagent (et `greffier-moteurs` avec eux) pour faire tourner un
-//!   travail sur un fil et attendre un programme qu'on peut arrêter.
+//! - [`claude`]: Greffier's [`Agent`](greffier_core::adapters::Agent), the `claude` CLI
+//!   (two-pass review with relisten, summary written by the agent).
+//! - [`mac`]: the resources' [`Tools`](greffier_core::resources::Tools) (curl, sha256, bundled
+//!   uv, `claude` check) and the private Python's environment.
+//! - [`subprocess`]: what they share (and `greffier-engines` with them) to run a job on a thread
+//!   and wait for a program that can be stopped.
 
 pub mod claude;
 pub mod mac;

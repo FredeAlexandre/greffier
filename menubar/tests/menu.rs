@@ -1,4 +1,4 @@
-//! Ce que montre l'icône de la barre des menus, selon l'état de l'app.
+//! What the menu bar icon shows, depending on the app's state.
 
 use greffier_menubar::{Choice, State, Icon, Line, menu};
 

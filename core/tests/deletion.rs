@@ -1,5 +1,5 @@
-//! Supprimer une réunion : son dossier entier part à la corbeille du Mac, pour pouvoir s'en
-//! rattraper. Le cœur passe par l'adaptateur de corbeille (ici une fausse corbeille).
+//! Deleting a meeting: its whole folder goes to the Mac's trash, so it can be recovered. The
+//! core goes through the trash adapter (here a fake trash).
 
 mod bench;
 
@@ -27,13 +27,13 @@ fn deleting_sends_the_folder_to_the_trash() {
     assert!(bench.greffier.meeting(id).is_none());
     assert!(!bench.folder.join(RELEASE).exists());
     assert_eq!(trash.trashed(), [bench.folder.join(RELEASE)]);
-    // Tout le dossier est dans la corbeille, enregistrement et bilan compris.
+    // The whole folder is in the trash, recording and summary included.
     let trashed = trash.folder().join(RELEASE);
     assert!(trashed.join(format!("{RELEASE} - bilan.md")).is_file());
     assert!(trashed.join(format!("{RELEASE} - enregistrement.mp4")).is_file());
     assert!(bench.greffier.search("prévient").is_empty());
 
-    // Rien ne revient : ni à la relecture du dossier, ni au lancement suivant.
+    // Nothing comes back: neither on folder rescan nor on the next launch.
     assert!(bench.greffier.rescan_folder().is_empty());
     bench.reopen();
     assert!(bench.greffier.meetings().iter().all(|r| r.folder_name != RELEASE));
@@ -69,7 +69,7 @@ fn deleting_a_meeting_being_processed_stops_the_processing() {
 
     assert!(bench.greffier.meeting(id).is_none());
     assert!(!bench.greffier.busy());
-    assert!(!bench.folder.join(&name).exists(), "le dossier ne doit pas être réécrit");
+    assert!(!bench.folder.join(&name).exists(), "the folder must not be rewritten");
     assert_eq!(trash.trashed(), [bench.folder.join(&name)]);
 }
 

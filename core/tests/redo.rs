@@ -1,5 +1,5 @@
-//! Refaire une étape : la réunion repart dans la file à cette étape, et les suivantes sont
-//! refaites aussi.
+//! Redoing a stage: the meeting goes back into the queue at that stage, and the following ones
+//! are redone too.
 
 mod bench;
 
@@ -11,7 +11,7 @@ use greffier_core::adapters::{Adapters, ReviewResult};
 use greffier_core::fake::{FakeAgent, FakeDiarizer};
 use greffier_core::{Command, Stage, MeetingId, Status};
 
-/// Une réunion enregistrée et traitée jusqu'au bout.
+/// A meeting recorded and processed to the end.
 fn done_meeting(bench: &mut Bench) -> MeetingId {
     let id = bench.meeting_to_process();
     bench.execute(Command::Process(id));
@@ -19,7 +19,7 @@ fn done_meeting(bench: &mut Bench) -> MeetingId {
     id
 }
 
-/// Refait `etape` et rend les étapes rejouées jusqu'à la fin du traitement.
+/// Redoes `stage` and returns the stages replayed until processing ends.
 fn redo(bench: &mut Bench, id: MeetingId, stage: Stage) -> Vec<Stage> {
     bench.execute(Command::Redo { meeting: id, stage });
     assert_eq!(bench.meeting(id).status, Status::Pending(stage));
@@ -62,7 +62,7 @@ fn redoing_the_transcription_with_another_speaker_count_passes_it_to_the_diarize
     redo(&mut bench, id, Stage::Transcription);
 
     assert_eq!(*requests.borrow(), [None, Some(3)]);
-    // Le nombre est gardé dans la fiche.
+    // The count is kept in the sheet.
     let name = bench.meeting(id).folder_name.clone();
     bench.reopen();
     assert_eq!(bench.named_meeting(&name).speaker_count, Some(3));
@@ -77,8 +77,8 @@ fn redoing_the_transcription_forgets_the_old_speaker_names() {
     redo(&mut bench, id, Stage::Transcription);
 
     let r = bench.meeting(id);
-    assert!(r.speakers.iter().all(|l| l.name.is_none()), "de nouveaux locuteurs : {:?}", r.speakers);
-    assert!(r.review.is_some(), "la relecture a été refaite");
+    assert!(r.speakers.iter().all(|l| l.name.is_none()), "new speakers: {:?}", r.speakers);
+    assert!(r.review.is_some(), "the review was redone");
 }
 
 #[test]
@@ -155,11 +155,11 @@ fn redo_is_rejected_in_the_queue_or_if_earlier_stages_are_missing() {
     bench.execute(Command::Process(fresh));
     for stage in Stage::ALL {
         assert!(!bench.meeting(fresh).can_redo(stage));
-        assert!(bench.greffier.execute(Command::Redo { meeting: fresh, stage }).is_err(), "{stage:?} pendant le traitement");
+        assert!(bench.greffier.execute(Command::Redo { meeting: fresh, stage }).is_err(), "{stage:?} during processing");
     }
     bench.advance_until(fresh, |s| *s == Status::Done);
     for stage in Stage::ALL {
-        assert!(bench.meeting(fresh).can_redo(stage), "{stage:?} une fois terminée");
+        assert!(bench.meeting(fresh).can_redo(stage), "{stage:?} once done");
     }
 }
 

@@ -1,6 +1,6 @@
-//! Les faux adaptateurs : ils avancent avec le temps qu'on leur donne et rendent des résultats
-//! écrits à la main. Ils servent aux tests du cœur et au prototype (avec les données fictives de
-//! [`crate::fictif`]).
+//! The fake adapters: they advance with the time they are given and return hand-written
+//! results. They serve the core's tests and the prototype (with the fake data of
+//! [`crate::demo`]).
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -12,7 +12,7 @@ use crate::meeting::{Stage, Word, SpeakerTurn};
 use crate::resources::{ClaudeState, Tools, sha256};
 use crate::time::DateTime;
 
-/// Une tâche qui dure `duree` secondes de temps écoulé, puis rend son résultat.
+/// A task that lasts `duration` seconds of elapsed time, then returns its result.
 pub struct FakeTask<T> {
     duration: f64,
     progress: f64,
@@ -48,22 +48,22 @@ impl<T> Task<T> for FakeTask<T> {
     }
 }
 
-/// Une capture dont le temps va `vitesse` fois plus vite que le temps écoulé. Elle écrit au fil
-/// de l'eau un petit MP4 fragmenté sans image ni son (une piste, un fragment par sondage), dont
-/// la durée se relit comme celle d'un vrai enregistrement, même coupé. Sa durée finale vaut au
-/// moins `duree_minimale`.
+/// A capture whose time runs `speed` times faster than the elapsed time. It writes as it goes a
+/// small fragmented MP4 with no picture or sound (one track, one fragment per poll), whose
+/// duration reads back like that of a real recording, even cut off. Its final duration is at
+/// least `min_duration`.
 pub struct FakeCapture {
     speed: f64,
     min_duration: f64,
     duration: f64,
     file: Option<PathBuf>,
-    /// Millisecondes déjà écrites dans les fragments, et numéro du prochain fragment.
+    /// Milliseconds already written in the fragments, and number of the next fragment.
     written: u64,
     fragment: u32,
     permissions: Permissions,
-    /// La capture s'arrête d'elle-même à cet instant, avec ce message.
+    /// The capture stops on its own at this instant, with this message.
     breakdown: Option<(f64, String)>,
-    /// `arreter` échoue avec ce message (le fichier garde les fragments déjà écrits).
+    /// `stop` fails with this message (the file keeps the fragments already written).
     failure_on_stop: Option<String>,
 }
 
@@ -72,27 +72,27 @@ impl FakeCapture {
         FakeCapture { speed, min_duration, duration: 0.0, file: None, written: 0, fragment: 1, permissions: Permissions::GRANTED, breakdown: None, failure_on_stop: None }
     }
 
-    /// La capture s'arrête d'elle-même après `duree` secondes enregistrées, comme quand macOS
-    /// coupe le flux : elle n'avance plus et signale `message`.
+    /// The capture stops on its own after `duration` recorded seconds, as when macOS cuts the
+    /// stream: it no longer advances and reports `message`.
     pub fn broken_at(mut self, duration: f64, message: &str) -> FakeCapture {
         self.breakdown = Some((duration, message.into()));
         self
     }
 
-    /// L'arrêt échoue avec `message`, comme un fichier qui ne peut pas être fini.
+    /// Stopping fails with `message`, like a file that cannot be finished.
     pub fn failing_on_stop(mut self, message: &str) -> FakeCapture {
         self.failure_on_stop = Some(message.into());
         self
     }
 
-    /// Les autorisations de départ. Une demande est toujours acceptée (« Autoriser ») ; une
-    /// autorisation refusée le reste, comme sous macOS.
+    /// The initial permissions. A request is always accepted ("Autoriser"); a denied permission
+    /// stays denied, as on macOS.
     pub fn with_permissions(mut self, permissions: Permissions) -> FakeCapture {
         self.permissions = permissions;
         self
     }
 
-    /// Ajoute un fragment jusqu'à la durée actuelle.
+    /// Adds a fragment up to the current duration.
     fn write_so_far(&mut self) -> Result<(), String> {
         let Some(file) = &self.file else { return Ok(()) };
         let ms = (self.duration * 1000.0).round() as u64;
@@ -159,7 +159,7 @@ impl Capture for FakeCapture {
     }
 }
 
-/// Les boîtes du MP4 fragmenté de la fausse capture : une piste au millième de seconde.
+/// The boxes of the fake capture's fragmented MP4: one track at a thousandth of a second.
 mod mp4 {
     fn boxed(name: &[u8; 4], content: &[u8]) -> Vec<u8> {
         let mut b = ((content.len() + 8) as u32).to_be_bytes().to_vec();
@@ -172,7 +172,7 @@ mod mp4 {
         v.iter().flat_map(|x| x.to_be_bytes()).collect()
     }
 
-    /// `ftyp` et `moov` : durée inconnue, une piste (identifiant 1, échelle 1000).
+    /// `ftyp` and `moov`: unknown duration, one track (ID 1, timescale 1000).
     pub fn start() -> Vec<u8> {
         let matrix = [0x0001_0000, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000];
         let mut mvhd = integers(&[0, 0, 0, 1000, 0, 0x0001_0000, 0x0100_0000, 0, 0]);
@@ -190,7 +190,7 @@ mod mp4 {
         [boxed(b"ftyp", &[b"iso5".to_vec(), integers(&[0]), b"iso5iso6mp41".to_vec()].concat()), boxed(b"moov", &moov)].concat()
     }
 
-    /// Un fragment d'un échantillon de `duree` ms commençant à `debut` ms, et son `mdat` vide.
+    /// A fragment of one sample of `duration` ms starting at `start` ms, and its empty `mdat`.
     pub fn fragment(number: u32, start: u64, duration: u32) -> Vec<u8> {
         let tfhd = integers(&[0x0002_0000, 1]);
         let tfdt = [integers(&[0x0100_0000]), start.to_be_bytes().to_vec()].concat();
@@ -203,7 +203,7 @@ mod mp4 {
 
 type Producer<D, T> = Box<dyn FnMut(&D) -> Result<T, String>>;
 
-/// Rend, après `duree` secondes, les mots que produit sa fonction.
+/// Returns, after `duration` seconds, the words its function produces.
 pub struct FakeTranscriber {
     duration: f64,
     produce: Producer<TranscriptionRequest, Vec<Word>>,
@@ -224,7 +224,7 @@ impl Transcriber for FakeTranscriber {
     }
 }
 
-/// Rend, après `duree` secondes, les tours de parole que produit sa fonction.
+/// Returns, after `duration` seconds, the speaker turns its function produces.
 pub struct FakeDiarizer {
     duration: f64,
     produce: Producer<DiarizationRequest, Vec<SpeakerTurn>>,
@@ -245,8 +245,8 @@ impl Diarizer for FakeDiarizer {
     }
 }
 
-/// Un agent dont la relecture et le bilan sont donnés par deux fonctions. Le bilan (Markdown)
-/// est écrit dans le fichier demandé dès l'appel, comme le ferait l'agent.
+/// An agent whose review and summary are given by two functions. The summary (Markdown) is
+/// written to the requested file right at the call, as the agent would do.
 pub struct FakeAgent {
     review_duration: f64,
     review: Producer<ReviewRequest, ReviewResult>,
@@ -279,8 +279,8 @@ impl Agent for FakeAgent {
     }
 }
 
-/// Des ressources prêtes, ou absentes jusqu'à ce qu'une installation de `duree` secondes aboutisse,
-/// ou figées dans les états donnés (les scènes de l'interface).
+/// Resources that are ready, or missing until an installation of `duration` seconds succeeds,
+/// or frozen in the given states (the UI scenes).
 pub struct FakeResources {
     ready: Rc<Cell<bool>>,
     install_duration: f64,
@@ -295,11 +295,11 @@ impl FakeResources {
     pub fn missing(install_duration: f64) -> FakeResources {
         FakeResources { ready: Rc::new(Cell::new(false)), install_duration, failure: None, fixed: None }
     }
-    /// Toujours ces ressources ; installer et vérifier n'y changent rien.
+    /// Always these resources; installing and checking change nothing.
     pub fn fixed(resources: Vec<Resource>) -> FakeResources {
         FakeResources { fixed: Some(resources), ..FakeResources::ready() }
     }
-    /// L'installation échoue avec ce message.
+    /// The installation fails with this message.
     pub fn failing(mut self, message: &str) -> FakeResources {
         self.failure = Some(message.into());
         self
@@ -350,9 +350,9 @@ impl Resources for FakeResources {
     }
 }
 
-/// Les outils des ressources, sans réseau ni uv : des téléchargements servis depuis la mémoire à
-/// `octets_par_seconde` (écrits peu à peu dans le fichier partiel, comme curl), des empreintes
-/// vraies, un Python et une CLI `claude` au résultat donné.
+/// The resource tools, without network or uv: downloads served from memory at
+/// `bytes_per_second` (written little by little into the partial file, like curl), real
+/// fingerprints, a Python and a `claude` CLI with the given result.
 pub struct FakeTools {
     bytes_per_second: f64,
     contents: HashMap<String, Vec<u8>>,
@@ -379,12 +379,12 @@ impl FakeTools {
         self.contents.insert(url.into(), content.to_vec());
         self
     }
-    /// Le prochain téléchargement de `url` s'interrompt une fois le fichier partiel à `octets`.
+    /// The next download of `url` is interrupted once the partial file reaches `bytes`.
     pub fn cut_once(mut self, url: &str, bytes: u64) -> FakeTools {
         self.cuts.insert(url.into(), bytes);
         self
     }
-    /// Le prochain téléchargement de `url` reçoit des octets faux.
+    /// The next download of `url` receives wrong bytes.
     pub fn corrupt_once(mut self, url: &str) -> FakeTools {
         self.corrupted.insert(url.into());
         self
@@ -466,7 +466,7 @@ impl Tools for FakeTools {
     }
 }
 
-/// Une horloge arrêtée.
+/// A stopped clock.
 pub struct FakeClock(pub DateTime);
 
 impl Clock for FakeClock {
@@ -475,9 +475,8 @@ impl Clock for FakeClock {
     }
 }
 
-/// Une corbeille dans un dossier temporaire (effacé avec la dernière copie) : les dossiers jetés
-/// y sont déplacés et retenus. Les copies partagent la même corbeille, pour regarder dedans après
-/// l'avoir branchée.
+/// A trash in a temporary folder (deleted with the last copy): trashed folders are moved there
+/// and remembered. Copies share the same trash, to look inside it after plugging it in.
 #[derive(Clone)]
 pub struct FakeTrash(std::sync::Arc<TrashBin>);
 
@@ -501,20 +500,20 @@ impl FakeTrash {
         FakeTrash(std::sync::Arc::new(TrashBin { folder, breakdown: None, trashed: Default::default() }))
     }
 
-    /// Une corbeille qui refuse tout, avec ce message.
+    /// A trash that refuses everything, with this message.
     pub fn broken(self, message: &str) -> FakeTrash {
         let folder = self.0.folder.clone();
         FakeTrash(std::sync::Arc::new(TrashBin { folder, breakdown: Some(message.into()), trashed: Default::default() }))
     }
 
-    /// Où sont les dossiers jetés (sous leur nom).
+    /// Where the trashed folders are (under their name).
     pub fn folder(&self) -> &Path {
         &self.0.folder
     }
 
-    /// Les chemins jetés, dans l'ordre.
+    /// The trashed paths, in order.
     pub fn trashed(&self) -> Vec<PathBuf> {
-        self.0.trashed.lock().expect("corbeille").clone()
+        self.0.trashed.lock().expect("trash").clone()
     }
 }
 
@@ -532,13 +531,13 @@ impl Trash for FakeTrash {
         let name = path.file_name().ok_or("rien à jeter")?;
         std::fs::create_dir_all(&self.0.folder).map_err(|e| e.to_string())?;
         std::fs::rename(path, self.0.folder.join(name)).map_err(|e| format!("{} : {e}", path.display()))?;
-        self.0.trashed.lock().expect("corbeille").push(path.to_path_buf());
+        self.0.trashed.lock().expect("trash").push(path.to_path_buf());
         Ok(())
     }
 }
 
-/// Une fausse mise en MP4 : un fichier qui commence comme un MP4 (boîte `ftyp`) est copié tel
-/// quel, le reste est refusé.
+/// A fake MP4 muxing: a file that starts like an MP4 (`ftyp` box) is copied as is, anything
+/// else is rejected.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FakeMp4Muxer;
 

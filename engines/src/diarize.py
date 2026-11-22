@@ -1,18 +1,18 @@
 """
-Qui parle quand : la séparation des locuteurs d'un WAV 16 kHz mono 16 bits, par pyannote.
+Who speaks when: diarization of a 16 kHz mono 16-bit WAV, by pyannote.
 
-    python -I -c "<ce script>" AUDIO.wav SORTIE.json MODELE [--locuteurs N]
+    python -I -c "<this script>" AUDIO.wav OUTPUT.json MODEL [--speakers N]
 
-Lancé par Greffier (moteurs/src/pyannote.rs) dans son Python privé, avec l'environnement de
-`greffier_outils::mac::environnement_python` (hors ligne, rien d'écrit hors du dossier de l'app),
-pendant que whisper.cpp transcrit. MODELE est le dossier pyannote-community-1 installé au premier
-lancement ; il est lu hors ligne, sans jeton.
+Run by Greffier (engines/src/pyannote.rs) in its private Python, with the environment from
+`greffier_tools::mac::python_env` (offline, nothing written outside the app folder), while
+whisper.cpp transcribes. MODEL is the pyannote-community-1 folder installed on first launch; it is
+read offline, without a token.
 
-Sortie exclusive (un seul locuteur à la fois : celle qui s'aligne sur une transcription), sur MPS
-avec repli sur le CPU en cas d'erreur. Écrit
+Exclusive output (one speaker at a time: the one that lines up with a transcription), on MPS with
+a fallback to the CPU on error. Writes
 {"segments": [{"start", "end", "speaker"}], "speakers": n, "device": "mps", "seconds": s}
-où `speaker` est un entier, 0 pour le premier locuteur rendu par pyannote. Sur la sortie
-d'erreur, des lignes « PROGRES 0.42 » donnent l'avancement.
+where `speaker` is an integer, 0 for the first speaker returned by pyannote. On stderr,
+"PROGRESS 0.42" lines give the progress.
 """
 
 import json
@@ -24,92 +24,92 @@ import wave
 
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
-warnings.filterwarnings("ignore")  # torchcodec / torchaudio : on ne décode aucun fichier avec eux
+warnings.filterwarnings("ignore")  # torchcodec / torchaudio: no file is decoded with them
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from pyannote.audio import Pipeline  # noqa: E402
 
-FREQUENCE = 16000
-# Part de l'avancement de chaque étape de pyannote (les empreintes de voix sont les plus longues).
-ETAPES = {"segmentation": (0.0, 0.2), "embeddings": (0.2, 0.95)}
+SAMPLE_RATE = 16000
+# Share of the progress for each pyannote step (the voice embeddings take the longest).
+STEPS = {"segmentation": (0.0, 0.2), "embeddings": (0.2, 0.95)}
 
 
-def progres(p: float) -> None:
-    print(f"PROGRES {p:.3f}", file=sys.stderr, flush=True)
+def progress(p: float) -> None:
+    print(f"PROGRESS {p:.3f}", file=sys.stderr, flush=True)
 
 
-def crochet(etape, _artefact, file=None, total=None, completed=None):
-    debut, fin = ETAPES.get(etape, (None, None))
-    if debut is None:
+def hook(step, _artifact, file=None, total=None, completed=None):
+    start, end = STEPS.get(step, (None, None))
+    if start is None:
         return
     if total and completed is not None:
-        progres(debut + (fin - debut) * min(completed / total, 1.0))
+        progress(start + (end - start) * min(completed / total, 1.0))
     elif completed is None and total is None:
-        progres(fin)
+        progress(end)
 
 
-def lire_wav(chemin: str) -> torch.Tensor:
-    with wave.open(chemin, "rb") as w:
-        if w.getframerate() != FREQUENCE or w.getnchannels() != 1 or w.getsampwidth() != 2:
-            raise SystemExit(f"{chemin} : il faut un WAV 16 kHz mono 16 bits")
-        trames = w.readframes(w.getnframes())
-    audio = np.frombuffer(trames, dtype="<i2").astype(np.float32) / 32768.0
+def read_wav(path: str) -> torch.Tensor:
+    with wave.open(path, "rb") as w:
+        if w.getframerate() != SAMPLE_RATE or w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise SystemExit(f"{path} : il faut un WAV 16 kHz mono 16 bits")
+        frames = w.readframes(w.getnframes())
+    audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
     return torch.from_numpy(audio).unsqueeze(0)
 
 
-def exclusive(sortie):
-    """pyannote 4 rend un DiarizeOutput ; on prend sa version exclusive."""
-    for nom in ("exclusive_speaker_diarization", "speaker_diarization"):
-        a = getattr(sortie, nom, None)
+def exclusive(output):
+    """pyannote 4 returns a DiarizeOutput; take its exclusive version."""
+    for name in ("exclusive_speaker_diarization", "speaker_diarization"):
+        a = getattr(output, name, None)
         if a is not None:
             return a
-    return sortie
+    return output
 
 
-def separer(modele: str, audio: torch.Tensor, locuteurs, appareil: str):
-    pipeline = Pipeline.from_pretrained(modele)
+def diarize(model: str, audio: torch.Tensor, speakers, device: str):
+    pipeline = Pipeline.from_pretrained(model)
     if pipeline is None:
-        raise SystemExit(f"modèle pyannote illisible : {modele}")
-    pipeline.to(torch.device(appareil))
-    options = {"num_speakers": locuteurs} if locuteurs else {}
-    return exclusive(pipeline({"waveform": audio, "sample_rate": FREQUENCE}, hook=crochet, **options))
+        raise SystemExit(f"modèle pyannote illisible : {model}")
+    pipeline.to(torch.device(device))
+    options = {"num_speakers": speakers} if speakers else {}
+    return exclusive(pipeline({"waveform": audio, "sample_rate": SAMPLE_RATE}, hook=hook, **options))
 
 
 def main() -> int:
     args = sys.argv[1:]
-    locuteurs = None
-    if "--locuteurs" in args:
-        i = args.index("--locuteurs")
-        locuteurs = int(args[i + 1]) or None
+    speakers = None
+    if "--speakers" in args:
+        i = args.index("--speakers")
+        speakers = int(args[i + 1]) or None
         del args[i:i + 2]
     if len(args) != 3:
-        print("Usage : AUDIO.wav SORTIE.json MODELE [--locuteurs N]", file=sys.stderr)
+        print("Usage: AUDIO.wav OUTPUT.json MODEL [--speakers N]", file=sys.stderr)
         return 2
-    wav, sortie, modele = args
+    wav, output, model = args
 
     t0 = time.time()
-    audio = lire_wav(wav)
-    appareil = "mps" if torch.backends.mps.is_available() else "cpu"
+    audio = read_wav(wav)
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
     try:
-        annotation = separer(modele, audio, locuteurs, appareil)
-    except Exception as erreur:  # noqa: BLE001
-        if appareil == "cpu":
+        annotation = diarize(model, audio, speakers, device)
+    except Exception as error:  # noqa: BLE001
+        if device == "cpu":
             raise
-        print(f"pyannote sur {appareil} : {erreur} ; nouvel essai sur le CPU", file=sys.stderr, flush=True)
-        appareil = "cpu"
-        annotation = separer(modele, audio, locuteurs, appareil)
+        print(f"pyannote sur {device} : {error} ; nouvel essai sur le CPU", file=sys.stderr, flush=True)
+        device = "cpu"
+        annotation = diarize(model, audio, speakers, device)
 
-    numeros: dict[str, int] = {}
+    numbers: dict[str, int] = {}
     segments = []
-    for tour, _, etiquette in annotation.itertracks(yield_label=True):
-        n = numeros.setdefault(etiquette, len(numeros))
-        segments.append({"start": round(tour.start, 3), "end": round(tour.end, 3), "speaker": n})
+    for turn, _, label in annotation.itertracks(yield_label=True):
+        n = numbers.setdefault(label, len(numbers))
+        segments.append({"start": round(turn.start, 3), "end": round(turn.end, 3), "speaker": n})
     segments.sort(key=lambda s: s["start"])
 
-    with open(sortie, "w", encoding="utf-8") as f:
-        json.dump({"segments": segments, "speakers": len(numeros), "device": appareil, "seconds": round(time.time() - t0, 1)}, f)
-    progres(1.0)
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump({"segments": segments, "speakers": len(numbers), "device": device, "seconds": round(time.time() - t0, 1)}, f)
+    progress(1.0)
     return 0
 
 

@@ -1,12 +1,12 @@
-//! Greffier — l'interface (Rune). Elle lit l'état du cœur (`greffier_coeur`) et lui envoie des
-//! commandes. Le cœur lit les réunions du dossier de réunions choisi au premier lancement et les
-//! traite avec les vrais adaptateurs (whisper.cpp, la CLI `claude`…). Les ressources (modèles,
-//! Python privé, CLI `claude`) sont dans `~/Library/Application Support/Greffier`.
+//! Greffier — the UI (Rune). It reads the core's state (`greffier_core`) and sends it commands.
+//! The core reads the meetings of the meetings folder chosen at first launch and processes them
+//! with the real adapters (whisper.cpp, the `claude` CLI…). The resources (models, private
+//! Python, `claude` CLI) live in `~/Library/Application Support/Greffier`.
 //!
-//! `cargo run` ouvre la fenêtre. `cargo run -- --snap out.png --scene meeting` rend une scène
-//! sans fenêtre (`--list-scenes` pour la liste) : sans fenêtre, l'app part des données fictives
-//! du prototype, jamais du dossier de réunions. `GREFFIER_DOSSIER=… cargo run` ouvre un autre
-//! dossier de réunions le temps d'un lancement.
+//! `cargo run` opens the window. `cargo run -- --snap out.png --scene meeting` renders a scene
+//! headless (`--list-scenes` for the list): headless, the app starts from the prototype's fake
+//! data, never from the meetings folder. `GREFFIER_FOLDER=… cargo run` opens another meetings
+//! folder for a single launch.
 
 #![forbid(unsafe_code)]
 
@@ -41,13 +41,13 @@ pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
-    /// Premier lancement : choisir le dossier de réunions.
+    /// First launch: choose the meetings folder.
     Welcome,
     Overview,
     Recording,
     Meeting(MeetingId),
     Settings,
-    /// Le premier lancement : télécharger et vérifier les ressources.
+    /// First launch: download and check the resources.
     Installation,
 }
 
@@ -69,7 +69,7 @@ pub struct Toast {
 }
 
 pub struct App {
-    /// Le cœur : réunions, enregistrement, file de traitement. On ne le change que par commandes.
+    /// The core: meetings, recording, processing queue. Only changed through commands.
     pub core: Greffier,
     pub sidebar: PaneState,
     pub page: Page,
@@ -80,72 +80,71 @@ pub struct App {
     pub follow: bool,
     pub current: Option<usize>,
     pub followed: Option<usize>,
-    /// Images depuis l'ouverture de l'onglet Transcription (la liste doit exister pour défiler).
+    /// Frames since the Transcript tab opened (the list must exist before it can scroll).
     pub transcript_frames: u32,
-    /// Phase de l'animation de l'enregistrement (pulsation, niveaux).
+    /// Phase of the recording animation (pulse, levels).
     pub rec_phase: f64,
-    /// La correction du nom ou la fusion d'un locuteur, dans l'onglet Locuteurs.
+    /// Correcting a speaker's name or merging a speaker, in the Speakers tab.
     pub picking: Option<speakers::Picking>,
     pub toast: Option<Toast>,
     pub clock: f64,
     pub last: Option<f64>,
     pub collapsed: [bool; 5],
-    /// Recherche ⌘K : ouverte quand `Some`.
+    /// ⌘K search: open when `Some`.
     pub search: Option<TextEdit>,
-    /// Menu du clic droit sur une réunion de la barre latérale.
+    /// Right-click menu on a meeting in the sidebar.
     pub menu: Option<(MeetingId, PointerPress)>,
     pub confirm_delete: Option<MeetingId>,
-    /// Vidéo en plein écran (la fenêtre passe aussi en plein écran macOS).
+    /// Full-screen video (the window also goes macOS full screen).
     pub fullscreen: bool,
-    /// L'enregistrement de la réunion ouverte, quand son dossier en a un. Sans lui (données
-    /// fictives), la lecture est simulée.
+    /// The open meeting's recording, when its folder has one. Without it (fake data), playback
+    /// is simulated.
     pub video: Option<(MeetingId, Player)>,
-    /// Réveille l'interface quand la vidéo charge, finit ou échoue.
+    /// Wakes the UI when the video loads, ends or fails.
     pub waker: Option<Waker>,
-    /// Le dossier de réunions choisi (`None` pour les données fictives du prototype).
+    /// The chosen meetings folder (`None` for the prototype's fake data).
     pub folder: Option<PathBuf>,
-    /// Premier lancement : rien d'autre que le choix du dossier de réunions tant qu'il n'est
-    /// pas fait (aucun enregistrement ne doit partir dans un dossier non choisi).
+    /// First launch: nothing but choosing the meetings folder until it is done (no recording
+    /// may go into a folder that was not chosen).
     pub needs_folder: bool,
-    /// Le dernier problème avec le dossier de réunions, affiché dans les réglages.
+    /// The last problem with the meetings folder, shown in the settings.
     pub folder_error: Option<String>,
-    /// Pour (dé)poser les raccourcis globaux une fois l'app lancée.
+    /// To register (and unregister) the global shortcuts once the app is running.
     pub handle: Option<AppHandle<App>>,
-    /// Le raccourci global qui démarre et arrête l'enregistrement (réglable).
+    /// The global shortcut that starts and stops recording (configurable).
     pub shortcut: ShortcutRecorderState,
     pub shortcut_id: Option<ShortcutId>,
-    /// ⌘M pose un repère de n'importe où, le temps de l'enregistrement.
+    /// ⌘M adds a marker from anywhere, for the duration of the recording.
     pub marker_id: Option<ShortcutId>,
-    /// Pourquoi l'enregistrement n'a pas démarré (autorisation, source…).
+    /// Why the recording did not start (permission, source…).
     pub record_error: Option<String>,
-    /// Un enregistrement de moins d'une minute, proposé à la suppression.
+    /// A recording shorter than a minute, offered for deletion.
     pub short_recording: Option<MeetingId>,
-    /// Ce que compte le lexique, pour les réglages.
+    /// What the lexicon contains, for the settings.
     pub lexicon: lexicon::Overview,
-    /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
+    /// The lexicon's people: the names offered in one click to name a speaker.
     pub people: Vec<String>,
-    /// Signale les changements faits dans le dossier de réunions hors de l'app.
+    /// Reports changes made in the meetings folder outside the app.
     pub watch: Option<watch::FolderWatch>,
-    /// La fenêtre d'import, ouverte quand `Some`.
+    /// The import window, open when `Some`.
     pub import: Option<import::Draft>,
-    /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
+    /// The meeting just imported: we ask when to start its processing.
     pub process_imported: Option<MeetingId>,
-    /// L'icône de la barre des menus (fenêtre seulement, posée au lancement).
+    /// The menu bar icon (window only, installed at launch).
     pub menu_bar: Option<MenubarIcon>,
-    /// La fenêtre « Changer le titre », ouverte quand `Some`.
+    /// The « Changer le titre » window, open when `Some`.
     pub rename: Option<title::Renaming>,
-    /// La fenêtre « Refaire la transcription », ouverte quand `Some`.
+    /// The « Refaire la transcription » window, open when `Some`.
     pub redo_transcription: Option<redo::RedoTranscription>,
-    /// Le menu « Refaire… » de l'onglet Transcription, ouvert.
+    /// The Transcript tab's « Refaire… » menu, open.
     pub redo_menu: bool,
-    /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
-    /// seulement).
+    /// The keep-awake assertion, held during a recording or processing (window only).
     pub awake: Option<KeepAwake>,
-    /// Le passage à vérifier sélectionné au clavier (voir `verifier::selected`).
+    /// The passage to check selected with the keyboard (see `check::selected`).
     pub doubt: usize,
-    /// La correction à la main en cours (passage à vérifier ou réplique).
+    /// The manual correction in progress (passage to check or utterance).
     pub correction: Option<check::Correction>,
-    /// « Écouter » un passage : la lecture s'arrête à la fin de son extrait.
+    /// « Écouter » on a passage: playback stops at the end of its excerpt.
     pub listen_until: Option<f64>,
 }
 
@@ -156,22 +155,22 @@ impl App {
             _ => None,
         }
     }
-    /// La vidéo de la réunion ouverte.
+    /// The open meeting's video.
     pub fn player(&self) -> Option<&Player> {
         match (self.page, &self.video) {
             (Page::Meeting(id), Some((vid, p))) if id == *vid => Some(p),
             _ => None,
         }
     }
-    /// La durée de la réunion ouverte : celle de ses fichiers, sinon celle de la vidéo.
+    /// The open meeting's duration: that of its files, otherwise that of the video.
     pub fn duration(&self) -> f64 {
         let d = self.meeting().map_or(0.0, |m| m.duration);
         if d > 0.0 { d } else { self.player().and_then(Player::duration).unwrap_or(0.0) }
     }
-    /// Envoie une commande au cœur et donne suite à ses événements.
+    /// Sends a command to the core and acts on its events.
     pub fn command(&mut self, c: Command) {
         if let Err(rejection) = self.try_command(c) {
-            eprintln!("greffier : {rejection}");
+            eprintln!("greffier: {rejection}");
         }
     }
     fn try_command(&mut self, c: Command) -> Result<(), Rejection> {
@@ -185,7 +184,7 @@ impl App {
             match e {
                 Event::MeetingRecorded(id) => self.open(id),
                 Event::RecordingInterrupted { meeting, message } => {
-                    eprintln!("greffier : {message}");
+                    eprintln!("greffier: {message}");
                     self.register_marker_shortcut(false);
                     self.open(meeting);
                     self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(meeting), until: self.clock + 8.0 });
@@ -203,18 +202,18 @@ impl App {
                     self.notify_summary(meeting);
                 }
                 Event::StageDone { stage: Stage::Review, .. } if !rune::is_headless() => {
-                    // La relecture a pu enrichir le lexique.
+                    // The review may have added to the lexicon.
                     self.lexicon = self.core.lexicon();
                     self.people = settings::people(&self.core);
                 }
-                Event::StageFailed { message, .. } | Event::WriteFailed { message, .. } => eprintln!("greffier : {message}"),
+                Event::StageFailed { message, .. } | Event::WriteFailed { message, .. } => eprintln!("greffier: {message}"),
                 Event::ResourcesInstalled => {
                     self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
                 }
-                Event::InstallationFailed(message) => eprintln!("greffier : installation des ressources : {message}"),
+                Event::InstallationFailed(message) => eprintln!("greffier: resource installation: {message}"),
                 Event::MeetingDisappeared(id) => self.forget(id),
                 Event::MeetingReviewed(id) if self.page == Page::Meeting(id) => {
-                    // Les répliques et les locuteurs ont pu changer.
+                    // The utterances and speakers may have changed.
                     self.picking = None;
                     self.current = self.meeting().and_then(|m| m.utterance_at(self.pos));
                     if self.video.is_none() {
@@ -225,14 +224,14 @@ impl App {
             }
         }
     }
-    /// Ouvre le lexique dans l'éditeur de texte par défaut (sans fenêtre, rien).
+    /// Opens the lexicon in the default text editor (headless: does nothing).
     pub fn open_lexicon(&mut self) {
         if rune::is_headless() {
             return;
         }
         let Some(path) = settings::lexicon_path() else { return };
         if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-t").arg(&path).spawn() {
-            eprintln!("greffier : ouvrir le lexique : {e}");
+            eprintln!("greffier: opening the lexicon: {e}");
         }
     }
     pub fn open(&mut self, id: MeetingId) {
@@ -254,20 +253,20 @@ impl App {
             self.command(Command::MarkRead(id));
         }
     }
-    /// La notification de macOS « Bilan prêt », quand l'app n'est pas devant (elle a déjà son
-    /// bandeau). Un clic ouvre la réunion (`open_folder_named`), retrouvée par son dossier :
-    /// l'identifiant ne survit pas à un redémarrage de l'app. Seule l'app installée peut poster.
+    /// The macOS « Bilan prêt » notification, when the app is not in front (otherwise it already
+    /// has its toast). A click opens the meeting (`open_folder_named`), found by its folder: the
+    /// id does not survive an app restart. Only the installed app can post.
     fn notify_summary(&self, id: MeetingId) {
         if rune::is_headless() || rune_notify::app_focused() {
             return;
         }
         let Some(m) = self.core.meeting(id) else { return };
-        let n = rune_notify::Notification::new(format!("bilan:{}", m.folder_name), "Bilan prêt")
+        let n = rune_notify::Notification::new(format!("summary:{}", m.folder_name), "Bilan prêt")
             .body(meeting::display_title(m, true))
-            .info("dossier", m.folder_name.clone());
+            .info("folder", m.folder_name.clone());
         rune_notify::post(&n);
     }
-    /// Ouvre la réunion dont le dossier porte ce nom (clic sur une notification).
+    /// Opens the meeting whose folder has this name (click on a notification).
     pub fn open_folder_named(&mut self, name: &str) {
         if let Some(id) = self.core.meetings().iter().find(|r| r.folder_name == name).map(|r| r.id) {
             self.open(id);
@@ -277,7 +276,7 @@ impl App {
         self.open(id);
         self.seek(t);
     }
-    /// Ouvre l'enregistrement de la réunion, son activé, s'il existe.
+    /// Opens the meeting's recording, sound on, if there is one.
     fn load_video(&mut self, id: MeetingId) {
         self.video = None;
         let Some(m) = self.core.meeting(id) else { return };
@@ -334,7 +333,7 @@ impl App {
             p.set_rate(SPEEDS[i] as f32);
         }
     }
-    /// Lit les réunions d'un dossier de réunions et le retient pour les lancements suivants.
+    /// Reads the meetings of a meetings folder and remembers it for later launches.
     pub fn use_folder(&mut self, dir: PathBuf) {
         if self.core.busy() {
             self.folder_error = Some("Impossible de changer de dossier pendant un enregistrement ou un traitement.".into());
@@ -360,7 +359,7 @@ impl App {
             self.page = Page::Overview;
         }
     }
-    /// Le sélecteur de dossier de macOS, pour choisir le dossier de réunions.
+    /// The macOS folder picker, to choose the meetings folder.
     pub fn pick_folder(&mut self, tx: &mut Tx) {
         let directory = self.folder.clone().or_else(|| settings::suggested_folder().parent().map(Path::to_path_buf));
         let options = FileDialogOptions { title: "Dossier de réunions".into(), directory, ..Default::default() };
@@ -373,8 +372,8 @@ impl App {
     pub fn recorded(&self) -> bool {
         self.core.recording().is_some()
     }
-    /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
-    /// global, sur le thread de l'interface (`AppHandle::update`), comme lui.
+    /// Installs the menu bar icon. Its choices do the same as the global shortcut, on the UI
+    /// thread (`AppHandle::update`), like it.
     fn install_menu_bar(&mut self) {
         let Some(h) = self.handle.clone() else { return };
         self.menu_bar = MenubarIcon::new(move |choice| match choice {
@@ -385,15 +384,14 @@ impl App {
         });
         self.show_menu_bar();
     }
-    /// Ce qui suit l'état du cœur hors de la fenêtre : l'icône de la barre des menus et
-    /// l'assertion de non-veille.
+    /// What follows the core's state outside the window: the menu bar icon and the keep-awake
+    /// assertion.
     fn follow_core(&mut self) {
         self.show_menu_bar();
         self.keep_awake();
     }
-    /// Le Mac ne se met pas en veille pendant un enregistrement (l'écran non plus) ou un
-    /// traitement : l'assertion suit [`Greffier::garder_le_mac_eveille`] (refaite quand la raison
-    /// change).
+    /// The Mac does not sleep during a recording (nor does the screen) or a processing: the
+    /// assertion follows [`Greffier::keep_mac_awake`] (taken again when the reason changes).
     fn keep_awake(&mut self) {
         let keep_awake = if rune::is_headless() { None } else { self.core.keep_mac_awake() };
         if self.awake.as_ref().map(|a| (a.reason(), a.screen())) == keep_awake.map(|e| (e.reason, e.screen)) {
@@ -403,11 +401,11 @@ impl App {
         if let Some(keep_awake) = keep_awake {
             match KeepAwake::new(keep_awake.reason, keep_awake.screen) {
                 Ok(a) => self.awake = Some(a),
-                Err(e) => eprintln!("greffier : {e}"),
+                Err(e) => eprintln!("greffier: {e}"),
             }
         }
     }
-    /// Montre l'état de l'enregistrement dans la barre des menus.
+    /// Shows the recording state in the menu bar.
     fn show_menu_bar(&mut self) {
         let state = match self.core.recording() {
             Some(r) => greffier_menubar::State::Recording { duration: r.duration },
@@ -427,7 +425,7 @@ impl App {
             if self.recorded() {
                 self.register_marker_shortcut(true);
             } else if let Some(h) = &self.handle {
-                // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
+                // Started from the menu bar or the shortcut with the window hidden: show why.
                 h.open();
             }
         }
@@ -446,13 +444,13 @@ impl App {
     pub fn toggle_recording(&mut self) {
         if self.recorded() { self.stop_recording() } else { self.start_recording() }
     }
-    /// ⌘M de n'importe où pendant l'enregistrement (rendu aux autres apps à l'arrêt).
+    /// ⌘M from anywhere during the recording (given back to other apps when it stops).
     fn register_marker_shortcut(&mut self, on: bool) {
         let Some(h) = &self.handle else { return };
         match (on, self.marker_id) {
             (true, None) => match h.register_shortcut("cmd+m".parse().expect("cmd+m"), |s: &mut App, _| s.add_marker()) {
                 Ok(id) => self.marker_id = Some(id),
-                Err(e) => eprintln!("greffier : ⌘M pour les repères : {e}"),
+                Err(e) => eprintln!("greffier: ⌘M for markers: {e}"),
             },
             (false, Some(id)) => {
                 let _ = h.unregister_shortcut(id);
@@ -461,15 +459,15 @@ impl App {
             _ => {}
         }
     }
-    /// Pose le raccourci global d'enregistrement retenu, au lancement.
+    /// Registers the remembered global recording shortcut, at launch.
     pub fn register_record_shortcut(&mut self) {
         let shortcut = self.shortcut.shortcut().cloned();
         if let Err(e) = self.change_shortcut(shortcut.as_ref()) {
-            eprintln!("greffier : raccourci {} : {e}", shortcut.map(|s| s.to_string()).unwrap_or_default());
+            eprintln!("greffier: shortcut {}: {e}", shortcut.map(|s| s.to_string()).unwrap_or_default());
             self.shortcut.mark_unregistered();
         }
     }
-    /// Remplace le raccourci global d'enregistrement ; garde l'ancien si le nouveau est refusé.
+    /// Replaces the global recording shortcut; keeps the old one if the new one is refused.
     pub fn change_shortcut(&mut self, next: Option<&Shortcut>) -> Result<(), ShortcutError> {
         let h = self.handle.as_ref().ok_or(ShortcutError::NotRunning)?;
         let new = next.map(|sc| h.register_shortcut(sc.clone(), |s: &mut App, _| s.toggle_recording())).transpose()?;
@@ -480,14 +478,14 @@ impl App {
         self.save_settings();
         Ok(())
     }
-    /// Retient sources, démarrage automatique et raccourci (pas pour les données fictives).
+    /// Remembers sources, automatic start and shortcut (not for the fake data).
     fn save_settings(&mut self) {
         if rune::is_headless() || self.folder.is_none() && !self.needs_folder {
             return;
         }
         let shortcut = self.shortcut.shortcut().map(|s| s.to_string()).unwrap_or_default();
         if let Err(e) = settings::remember_recording_settings(self.core.settings(), &shortcut) {
-            eprintln!("greffier : réglages : {e}");
+            eprintln!("greffier: settings: {e}");
         }
     }
     pub fn process(&mut self, id: MeetingId) {
@@ -496,8 +494,8 @@ impl App {
     pub fn stop_processing(&mut self, id: MeetingId) {
         self.command(Command::StopProcessing(id));
     }
-    /// Met la réunion à la corbeille (après confirmation) ; si la corbeille refuse, elle reste et
-    /// un bandeau dit pourquoi.
+    /// Moves the meeting to the trash (after confirmation); if the trash refuses, it stays and a
+    /// toast says why.
     pub fn delete(&mut self, id: MeetingId) {
         self.confirm_delete = None;
         match self.try_command(Command::Delete(id)) {
@@ -505,17 +503,17 @@ impl App {
             Err(rejection) => self.toast = Some(Toast { text: format!("Suppression impossible : {rejection}"), meeting: Some(id), until: self.clock + 8.0 }),
         }
     }
-    /// Montre le dossier de la réunion dans le Finder (sans fenêtre, rien).
+    /// Shows the meeting's folder in the Finder (headless: does nothing).
     pub fn reveal(&mut self, id: MeetingId) {
         let Some(folder) = self.core.meeting_folder(id) else { return };
         if rune::is_headless() {
             return;
         }
         if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-R").arg(&folder).spawn() {
-            eprintln!("greffier : afficher dans le Finder : {e}");
+            eprintln!("greffier: show in Finder: {e}");
         }
     }
-    /// Copie le bilan, tel qu'il est écrit (Markdown), dans le presse-papiers.
+    /// Copies the summary, as written (Markdown), to the clipboard.
     pub fn copy_summary(&mut self, id: MeetingId, tx: &mut Tx) {
         let Some(m) = self.core.meeting(id) else { return };
         if m.summary.trim().is_empty() {
@@ -524,7 +522,7 @@ impl App {
         tx.copy(m.summary.clone());
         self.toast = Some(Toast { text: "Bilan copié en Markdown.".into(), meeting: Some(id), until: self.clock + 4.0 });
     }
-    /// La réunion n'existe plus (supprimée dans l'app ou hors de l'app) : on quitte sa page.
+    /// The meeting no longer exists (deleted in or outside the app): leave its page.
     fn forget(&mut self, id: MeetingId) {
         if self.video.as_ref().is_some_and(|(v, _)| *v == id) {
             self.video = None;
@@ -540,13 +538,13 @@ impl App {
             self.confirm_delete = None;
         }
     }
-    /// Surveille le dossier de réunions choisi, une fois l'interface prête à être réveillée.
+    /// Watches the chosen meetings folder, once the UI is ready to be woken.
     fn watch_folder(&mut self) {
         self.watch = None;
         let (Some(dir), Some(waker)) = (&self.folder, &self.waker) else { return };
         match watch::FolderWatch::new(dir, waker.clone()) {
             Ok(w) => self.watch = Some(w),
-            Err(e) => eprintln!("greffier : surveillance du dossier de réunions impossible ({e})"),
+            Err(e) => eprintln!("greffier: cannot watch the meetings folder ({e})"),
         }
     }
     pub fn add_marker(&mut self) {
@@ -554,7 +552,7 @@ impl App {
             self.command(Command::AddMarker);
         }
     }
-    /// Écran, son du Mac, micro.
+    /// Screen, Mac audio, microphone.
     pub fn source(&self, i: usize) -> bool {
         let s = &self.core.settings().sources;
         [s.screen, s.mac_audio, s.micro][i]
@@ -574,7 +572,7 @@ impl App {
         self.command(Command::ChangeSettings(r));
         self.save_settings();
     }
-    /// Le sélecteur de dossier de macOS, pour ouvrir un dossier de contexte à l'agent.
+    /// The macOS folder picker, to open a context folder to the agent.
     pub fn pick_context_folder(&mut self, tx: &mut Tx) {
         let options = FileDialogOptions { title: "Dossier de contexte de l'agent".into(), directory: self.folder.clone(), ..Default::default() };
         tx.open_folder(options, |s: &mut App, answer, _| {
@@ -608,40 +606,40 @@ impl App {
     }
 }
 
-/// Le dossier de réunions du prototype : un répertoire temporaire, vidé à chaque lancement.
+/// The prototype's meetings folder: a temporary directory, emptied at each launch.
 fn prototype_folder() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join("greffier-prototype");
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
 
-/// Le cœur du prototype : données fictives, dossier temporaire.
+/// The prototype's core: fake data, temporary folder.
 fn prototype() -> Greffier {
     Greffier::with_meetings(prototype_folder(), demo::adapters(), demo::meetings())
 }
 
-/// Le cœur de la fenêtre sur un dossier de réunions, avec les vraies ressources, dont il lance
-/// tout de suite les vérifications, le lexique et le cache de recherche du dossier de l'app.
+/// The window's core on a meetings folder, with the real resources, whose checks it starts right
+/// away, and the lexicon and search cache from the app folder.
 fn real_core(folder: &Path, meetings: bool) -> Greffier {
     let mut core = if meetings { Greffier::open(folder, settings::adapters()) } else { Greffier::with_meetings(folder, settings::adapters(), vec![]) };
     let lexicon = settings::lexicon_path();
     let search_cache = Some(settings::search_cache());
     for c in [Command::ChangeSettings(greffier_core::Settings { lexicon, search_cache, ..core.settings().clone() }), Command::CheckResources] {
         if let Err(e) = core.execute(c) {
-            eprintln!("greffier : {e}");
+            eprintln!("greffier: {e}");
         }
     }
     core
 }
 
-/// L'écran du premier lancement des ressources, tant que la transcription ne peut pas tourner.
+/// The first-launch resources screen, as long as transcription cannot run.
 fn resources_missing(core: &Greffier) -> bool {
     core.resources().iter().any(|r| r.stages.contains(&Stage::Transcription) && r.state != ResourceState::Ready)
 }
 
 fn init() -> App {
-    // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
-    // jamais d'écriture dans le vrai dossier de réunions ni dans le dossier de l'app.
+    // Headless (scenes, snapshots), the app starts from the fake data: deterministic rendering,
+    // and never a write to the real meetings folder or to the app folder.
     let folder = if rune::is_headless() { None } else { settings::meetings_folder() };
     let (mut core, page) = match &folder {
         _ if rune::is_headless() => (prototype(), Page::Overview),
@@ -652,9 +650,9 @@ fn init() -> App {
         }
         None => (real_core(&settings::suggested_folder(), false), Page::Welcome),
     };
-    // Sans fenêtre, les réglages par défaut : rendu déterministe.
+    // Headless, the default settings: deterministic rendering.
     let remembered = if rune::is_headless() { greffier_core::settings::PersistedSettings::default() } else { settings::remembered() };
-    // Le lexique et le cache viennent du dossier de l'app (`real_core`), pas des réglages retenus.
+    // The lexicon and the cache come from the app folder (`real_core`), not from the remembered settings.
     let settings = remembered.apply(core.settings().clone());
     let _ = core.execute(Command::ChangeSettings(settings));
     let shortcut = remembered.shortcut;
@@ -717,20 +715,20 @@ fn setup(s: &mut App, waker: Waker) {
     s.watch_folder();
 }
 
-/// Avance la lecture et fait passer le temps du cœur (enregistrement, file de traitement).
+/// Advances playback and moves the core's time forward (recording, processing queue).
 fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let dt = s.last.map_or(0.0, |l| (clock - l).clamp(0.0, 0.25));
     s.clock = clock;
     let mut active = false;
     let mut changed = false;
 
-    // La vidéo ne joue que sur la page de sa réunion.
+    // The video only plays on its meeting's page.
     if s.video.is_some() && s.player().is_none() {
         s.video = None;
         s.playing = false;
     }
     if let Some(p) = s.player() {
-        // La vraie vidéo donne la position ; on la relit tant qu'elle joue.
+        // The real video gives the position; read it again while it plays.
         let (pos, playing) = (p.time(), p.is_playing());
         if playing || s.playing != playing || (pos - s.pos).abs() > 0.01 {
             changed = true;
@@ -752,17 +750,17 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         }
         s.current = s.meeting().and_then(|m| m.utterance_at(s.pos));
     }
-    // « Écouter » un passage à vérifier s'arrête à la fin de son extrait.
+    // « Écouter » on a passage to check stops at the end of its excerpt.
     if s.listen_until.is_some_and(|t| s.playing && s.pos >= t) {
         s.pause();
         changed = true;
     }
-    // Une correction qui n'est plus affichée (autre onglet, autre page) est abandonnée.
+    // A correction no longer shown (other tab, other page) is abandoned.
     if s.correction.is_some() && !check::correction_shown(s) {
         s.correction = None;
         changed = true;
     }
-    // La transcription suit la réplique en cours (lecture, saut, changement d'onglet).
+    // The transcript follows the current utterance (playback, seek, tab change).
     if s.tab != Tab::Transcript {
         s.followed = None;
         s.transcript_frames = 0;
@@ -778,7 +776,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if s.recorded() {
         s.rec_phase += dt;
     }
-    // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
+    // A file changed in the meetings folder: the core rereads what changed outside the app.
     if s.watch.as_ref().is_some_and(watch::FolderWatch::has_changed) {
         let events = s.core.rescan_folder();
         changed |= !events.is_empty();
@@ -826,12 +824,12 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
         return false;
     }
-    // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
+    // The global shortcut takes ⇧⌘R when registered; otherwise (headless, refused), the app keeps it.
     if ev.is_command('r') && ev.mods.shift && s.shortcut_id.is_none() {
         s.toggle_recording();
         return true;
     }
-    // ⌘⌫ : supprimer la réunion ouverte (après confirmation).
+    // ⌘⌫: delete the open meeting (after confirmation).
     if ev.mods.cmd && ev.key == Key::Backspace && let Page::Meeting(id) = s.page {
         s.confirm_delete = Some(id);
         return true;
@@ -885,8 +883,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         },
     };
     let main = pages::with_toast(s, &k, main);
-    // La bande d'outils de SplitView est vide : le contenu remonte par-dessus tant que la barre
-    // latérale est ouverte. Fermée, la bande garde la place des feux et du bouton de la barre.
+    // SplitView's toolbar strip is empty: the content moves up over it while the sidebar is
+    // open. Closed, the strip keeps room for the traffic lights and the sidebar button.
     let main = if s.sidebar.is_open() { main.mt(-shell::TOOLBAR_HEIGHT) } else { main };
     let shell = SplitView::new(main)
         .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar::view(s, &k, &mut layer))
@@ -906,7 +904,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     redo::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
-    // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
+    // Files dropped anywhere on the window open the import.
     rune_kit::root(shell, layer).on_drop_files(|s: &mut App, files, _| s.propose_import(files))
 }
 
@@ -922,7 +920,7 @@ fn scene_doubts(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Doubts;
 }
-/// Un passage tranché (hypothèse acceptée), et le suivant en cours de correction.
+/// One passage settled (hypothesis accepted), and the next one being corrected.
 fn scene_doubt_fix(s: &mut App) {
     scene_doubts(s);
     s.resolve_doubt(0, greffier_core::Resolution::AcceptHypothesis);
@@ -930,7 +928,7 @@ fn scene_doubt_fix(s: &mut App) {
         s.start_correction(check::Target::Passage(i));
     }
 }
-/// La correction d'une réplique dans l'onglet Transcription.
+/// Correcting an utterance in the Transcript tab.
 fn scene_transcript_fix(s: &mut App) {
     scene_transcript(s);
     if let Some(i) = s.current {
@@ -941,12 +939,12 @@ fn scene_people(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Speakers;
 }
-/// Locuteurs : la correction du nom de SPEAKER_01 ouverte.
+/// Speakers: correcting SPEAKER_01's name, open.
 fn scene_people_naming(s: &mut App) {
     scene_people(s);
     s.start_naming(1);
 }
-/// Locuteurs : SPEAKER_02 fusionné dans Jérôme, la fusion de Pablo ouverte.
+/// Speakers: SPEAKER_02 merged into Jérôme, merging Pablo open.
 fn scene_people_merged(s: &mut App) {
     scene_people(s);
     s.command(Command::MergeSpeakers { meeting: 2, speaker: 2, into: 0 });
@@ -956,7 +954,7 @@ fn scene_info(s: &mut App) {
     scene_meeting(s);
     s.tab = Tab::Info;
 }
-/// 12 min 34 d'enregistrement (temps accéléré ×20), un repère à 5 min 12.
+/// 12 min 34 of recording (time sped up ×20), a marker at 5 min 12.
 fn scene_recording(s: &mut App) {
     s.start_recording();
     s.core.advance(312.0 / demo::RECORDING_SPEED);
@@ -964,11 +962,11 @@ fn scene_recording(s: &mut App) {
     s.core.advance(442.0 / demo::RECORDING_SPEED);
     s.rec_phase = 1.3;
 }
-/// La page d'enregistrement avant le démarrage : sources et autorisations.
+/// The recording page before starting: sources and permissions.
 fn scene_record_ready(s: &mut App) {
     s.page = Page::Recording;
 }
-/// À l'arrêt d'un enregistrement de 12 s (capture au temps réel) : proposé à la suppression.
+/// When a 12 s recording stops (real-time capture): offered for deletion.
 fn scene_short_recording(s: &mut App) {
     let adapters = greffier_core::adapters::Adapters { capture: Box::new(greffier_core::fake::FakeCapture::new(1.0, 0.0)), ..demo::adapters() };
     s.core = Greffier::with_meetings(prototype_folder(), adapters, demo::meetings());
@@ -976,7 +974,7 @@ fn scene_short_recording(s: &mut App) {
     s.core.advance(12.0);
     s.stop_recording();
 }
-/// La réunion à traiter, transcrite, à 40 % de la relecture.
+/// The meeting to process, transcribed, 40 % into the review.
 fn scene_processing(s: &mut App) {
     s.open(1);
     s.process(1);
@@ -984,7 +982,7 @@ fn scene_processing(s: &mut App) {
     s.core.advance(demo::simulated_duration(Stage::Transcription));
     s.core.advance(0.4 * demo::simulated_duration(Stage::Review));
 }
-/// La file : la réunion du jour en transcription, la revue de release en attente derrière elle.
+/// The queue: today's meeting in transcription, the release review waiting behind it.
 fn scene_queue(s: &mut App) {
     let second = s.core.meetings()[1].id;
     s.process(1);
@@ -993,7 +991,7 @@ fn scene_queue(s: &mut App) {
     s.command(Command::Redo { meeting: second, stage: Stage::Summary });
     s.open(second);
 }
-/// La transcription a échoué : le message et « Réessayer cette étape ».
+/// Transcription failed: the message and « Réessayer cette étape ».
 fn scene_failed(s: &mut App) {
     let transcriber = greffier_core::fake::FakeTranscriber::new(1.0, |_| Err("Le média n'a pas de son.".into()));
     let adapters = greffier_core::adapters::Adapters { transcriber: Box::new(transcriber), ..demo::adapters() };
@@ -1003,12 +1001,12 @@ fn scene_failed(s: &mut App) {
     s.core.advance(0.0);
     s.core.advance(1.0);
 }
-/// Le menu « Refaire… » de l'onglet Transcription.
+/// The Transcript tab's « Refaire… » menu.
 fn scene_redo(s: &mut App) {
     scene_transcript(s);
     s.redo_menu = true;
 }
-/// « Refaire la transcription… » : le nombre de locuteurs avant de relancer.
+/// « Refaire la transcription… »: the speaker count before running it again.
 fn scene_redo_transcription(s: &mut App) {
     scene_transcript(s);
     s.start_redo_transcription(2);
@@ -1022,18 +1020,18 @@ fn scene_unprocessed(s: &mut App) {
 fn scene_settings(s: &mut App) {
     s.page = Page::Settings;
 }
-/// La fenêtre « Changer le titre » sur la réunion ouverte.
+/// The « Changer le titre » window on the open meeting.
 fn scene_rename(s: &mut App) {
     scene_meeting(s);
     s.start_rename(2);
 }
-/// Les réglages avec deux dossiers de contexte ouverts à l'agent.
+/// The settings with two context folders open to the agent.
 fn scene_context(s: &mut App) {
     let folders = ["/Users/odile/Documents/Notes", "/Users/odile/Projets/Atelier"].map(PathBuf::from).to_vec();
     s.command(Command::ChangeSettings(greffier_core::Settings { context_folders: folders, ..s.core.settings().clone() }));
     s.page = Page::Settings;
 }
-/// Le premier lancement : un téléchargement, une installation, un sha256 faux, `claude` absente.
+/// First launch: a download, an installation, a wrong sha256, `claude` missing.
 fn scene_installation(s: &mut App) {
     let adapters = greffier_core::adapters::Adapters { resources: Box::new(FakeResources::fixed(demo::installing_resources())), ..demo::adapters() };
     s.core = Greffier::with_meetings(prototype_folder(), adapters, demo::meetings());
@@ -1061,7 +1059,7 @@ fn scene_welcome(s: &mut App) {
     s.page = Page::Welcome;
     s.needs_folder = true;
 }
-/// Les réunions d'exemple des tests du cœur (une copie), la réunion complète ouverte à 0:00:05.
+/// The core tests' sample meetings (a copy), the complete meeting open at 0:00:05.
 fn scene_folder(s: &mut App) {
     let dir = prototype_folder();
     copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("core/tests/fixtures/meetings-folder"), &dir);
@@ -1082,7 +1080,7 @@ fn copy_dir(from: &Path, to: &Path) {
         }
     }
 }
-/// Les réunions d'exemple : celle qui n'a que son enregistrement.
+/// The sample meetings: the one that only has its recording.
 fn scene_video_only(s: &mut App) {
     scene_folder(s);
     if let Some(id) = s.core.meetings().get(1).map(|m| m.id) {
@@ -1090,7 +1088,7 @@ fn scene_video_only(s: &mut App) {
     }
 }
 
-/// La fenêtre d'import sur la vidéo et la transcription d'une réunion d'exemple.
+/// The import window on a sample meeting's video and transcription.
 fn scene_import(s: &mut App) {
     scene_folder(s);
     s.page = Page::Overview;
@@ -1103,13 +1101,13 @@ fn scene_import(s: &mut App) {
     let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - enregistrement.mp4"), &media);
     let _ = std::fs::copy(fixture.join("2026-11-18 09h15 - Réunion - transcription.json"), &transcription);
     s.propose_import(&[media, transcription]);
-    // La date du fichier copié change à chaque rendu : on la fixe.
+    // The copied file's date changes at each render: pin it.
     if let Some(d) = &mut s.import {
         d.date = TextEdit::new("2026-11-18");
         d.hour = TextEdit::new("09:15");
     }
 }
-/// Après l'import : la question « maintenant ou plus tard ».
+/// After the import: the now-or-later question.
 fn scene_imported(s: &mut App) {
     scene_import(s);
     s.confirm_import();
@@ -1157,8 +1155,8 @@ fn main() {
         ],
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
-    let import = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
-    // Fermer la fenêtre garde l'app (et l'icône de la barre des menus) : ⌘Q la quitte.
+    let import = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("import").menu("Fichier").key_equivalent("cmd+i".parse().expect("shortcut"));
+    // Closing the window keeps the app (and the menu bar icon) running: ⌘Q quits it.
     let app = rune::App::new(spec).chrome(chrome).menu_item(import).keep_running();
     let handle = app.handle();
     let shared = handle.clone();
@@ -1168,10 +1166,10 @@ fn main() {
         s.register_record_shortcut();
         if !rune::is_headless() {
             s.install_menu_bar();
-            // Un clic sur « Bilan prêt » ouvre la réunion, même si la fenêtre était fermée.
+            // A click on « Bilan prêt » opens the meeting, even if the window was closed.
             let h = shared_for_clicks.clone();
             rune_notify::on_click(move |click| {
-                let Some(name) = click.get("dossier").map(str::to_owned) else { return };
+                let Some(name) = click.get("folder").map(str::to_owned) else { return };
                 h.open();
                 h.update(move |s: &mut App, _| {
                     s.open_folder_named(&name);

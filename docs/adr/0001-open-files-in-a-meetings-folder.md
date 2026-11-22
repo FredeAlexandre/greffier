@@ -1,5 +1,5 @@
-# Les réunions sont des fichiers ouverts dans un dossier de réunions
+# Meetings are open files in a meetings folder
 
-Greffier n'a pas de base de données propre : chaque réunion est un sous-dossier de fichiers lisibles (Markdown, JSON, vidéo) dans un dossier de réunions choisi dans les réglages, pour que l'utilisateur et ses agents IA puissent les lire et les exploiter sans passer par l'app. On a écarté une bibliothèque opaque avec export, qui aurait coupé les agents de leur source.
+Greffier has no database of its own: each meeting is a subfolder of readable files (Markdown, JSON, video) in a meetings folder chosen in the settings, so that the user and their AI agents can read and use them without going through the app. We rejected an opaque library with export, which would have cut the agents off from their source.
 
-Le format de ces fichiers est conçu pour Greffier, pas hérité du vault Obsidian qui l'a précédé : aucune compatibilité n'est due à l'ancien outil, qui n'a servi que d'expérience. Les anciennes réunions entrent par l'import, comme n'importe quel enregistrement externe.
+The format of these files is designed for Greffier, not inherited from the Obsidian vault that preceded it: no compatibility is owed to the old tool, which only served as an experiment. Old meetings come in through import, like any external recording.

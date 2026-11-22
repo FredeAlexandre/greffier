@@ -1,5 +1,5 @@
-//! La file de traitement : une réunion à la fois, Transcription → Relecture → Bilan, arrêt, pause
-//! pendant un enregistrement.
+//! The processing queue: one meeting at a time, Transcription → Review → Summary, stopping,
+//! pausing during a recording.
 
 mod bench;
 
@@ -120,7 +120,7 @@ fn a_summary_without_decisions_fails_the_stage_and_processing_retries_it() {
     bench.execute(Command::Process(id));
     bench.advance_until(id, |s| matches!(s, Status::Failed { .. }));
     assert_eq!(bench.meeting(id).status, Status::Failed { stage: Stage::Summary, message: "Le bilan n'a pas de décisions horodatées.".into() });
-    // La session de l'agent est gardée quand même, pour reprendre la conversation.
+    // The agent's session is kept anyway, to resume the conversation.
     assert_eq!(bench.meeting(id).sessions.summary.as_deref(), Some("session-bilan"));
     let name = bench.meeting(id).folder_name.clone();
     let sheet = bench.read(&bench.greffier.folder().file(&name, greffier_core::Role::Sheet));

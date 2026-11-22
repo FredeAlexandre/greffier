@@ -1,6 +1,6 @@
-//! La lecture du dossier de réunions : chaque sous-dossier `AAAA-MM-JJ HHhMM - Titre` donne une
-//! réunion, avec ce qu'il contient (fiche, bilan, transcription structurée, enregistrement), même
-//! incomplet. Les réunions d'exemple sont dans `tests/fixtures/meetings-folder`.
+//! Reading the meetings folder: each `YYYY-MM-DD HHhMM - Title` subfolder gives a meeting, with
+//! what it contains (sheet, summary, structured transcription, recording), even incomplete. The
+//! sample meetings are in `tests/fixtures/meetings-folder`.
 
 mod bench;
 
@@ -14,7 +14,7 @@ fn a_meeting_with_only_its_recording_is_to_process() {
     let r = bench.named_meeting("2026-11-19 15h30 - Réunion");
     assert_eq!(r.start, DateTime::new(2026, 11, 19, 15, 30));
     assert_eq!(r.title, "Réunion");
-    assert_eq!(r.duration, 12.0, "la durée est lue dans l'enregistrement");
+    assert_eq!(r.duration, 12.0, "the duration is read from the recording");
     assert_eq!(r.status, Status::ToProcess);
     assert_eq!(r.completed_stage, None);
     assert_eq!(r.files, [Role::Recording]);
@@ -38,7 +38,7 @@ fn a_complete_meeting_is_read_from_its_sheet_summary_and_transcription() {
     assert_eq!(r.files, Role::ALL);
     assert!(!r.is_new);
 
-    // Fiche : noms, propositions, fusions, repères, sessions, résumé et actions principales.
+    // Sheet: names, proposals, merges, markers, sessions, brief and key actions.
     let speakers: Vec<(&str, String)> = r.speakers.iter().map(|l| (l.label.as_str(), l.display_name())).collect();
     assert_eq!(speakers, [("SPEAKER_00", "Alexandre".into()), ("SPEAKER_01", "Khalid ?".into()), ("SPEAKER_02", "SPEAKER_02".into())]);
     assert_eq!(r.speakers[1].justification, "Alexandre l'appelle Khalid à 0:00:00.");
@@ -49,7 +49,7 @@ fn a_complete_meeting_is_read_from_its_sheet_summary_and_transcription() {
     assert_eq!(r.brief, "On publie la release lundi si la recette passe vendredi.");
     assert_eq!(r.key_actions, ["Alexandre — publier la release — lundi", "Khalid — lancer la recette — vendredi"]);
 
-    // Transcription structurée : mots, tours, répliques, relecture, passages à vérifier.
+    // Structured transcription: words, turns, utterances, review, passages to check.
     assert_eq!(r.words.len(), 19);
     assert_eq!(r.words[11].text, "recète");
     assert_eq!(r.words[11].confidence, 0.42);
@@ -69,7 +69,7 @@ fn a_complete_meeting_is_read_from_its_sheet_summary_and_transcription() {
     assert_eq!(r.passages[0].status, PassageStatus::Pending);
     assert_eq!(r.utterances[2].passages, [0]);
 
-    // Bilan : rendu tel quel, sujets et décisions pour la timeline.
+    // Summary: rendered as is, topics and decisions for the timeline.
     assert!(r.summary.starts_with("## En bref\n\nOn publie la release lundi"));
     let topics: Vec<(f64, &str)> = r.topics.iter().map(|s| (s.start, s.title.as_str())).collect();
     assert_eq!(topics, [(0.0, "Date de la release"), (5.0, "Support")]);
@@ -82,7 +82,7 @@ fn a_meeting_with_its_recording_and_transcription_resumes_at_review() {
     let mut bench = Bench::on_fixtures();
     let r = bench.named_meeting("2026-11-18 09h15 - Réunion");
     assert_eq!(r.status, Status::ToProcess);
-    assert_eq!(r.completed_stage, Some(Stage::Transcription), "une transcription sans journal de relecture n'est pas relue");
+    assert_eq!(r.completed_stage, Some(Stage::Transcription), "a transcription without a review log is not reviewed");
     assert_eq!(r.duration, 12.0);
     assert_eq!(r.files, [Role::StructuredTranscription, Role::Recording]);
     let speakers: Vec<&str> = r.speakers.iter().map(|l| l.label.as_str()).collect();
@@ -103,8 +103,8 @@ fn only_meeting_folders_count_most_recent_first() {
     assert_eq!(names, ["2026-11-20 10h00 - Revue de release", "2026-11-19 15h30 - Réunion", "2026-11-18 09h15 - Réunion"]);
 }
 
-/// Enregistre 5 s (2 locuteurs indiqués, un repère à 2 s), traite jusqu'au bout, nomme
-/// SPEAKER_00 et coche la 2e action.
+/// Records 5 s (2 speakers given, a marker at 2 s), processes to the end, names SPEAKER_00 and
+/// ticks the 2nd action.
 fn processed_and_edited_meeting(bench: &mut Bench) -> MeetingId {
     bench.execute(Command::StartRecording);
     bench.execute(Command::RecordingSpeakerCount(Some(2)));

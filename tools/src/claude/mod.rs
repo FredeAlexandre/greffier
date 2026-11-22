@@ -1,12 +1,12 @@
-//! L'agent de Greffier : la CLI `claude` installée sur le Mac (ADR 0002), modèle opus, en mode
-//! non interactif (`claude -p … --output-format json --json-schema …`), avec des sessions
-//! reprenables.
+//! Greffier's agent: the `claude` CLI installed on the Mac (ADR 0002), opus model, in
+//! non-interactive mode (`claude -p … --output-format json --json-schema …`), with resumable
+//! sessions.
 //!
-//! - [`Claude`] : un appel à la CLI, qui rend la sortie structurée ; [`ClaudeDuMac`] la lance
-//!   vraiment, les tests la remplacent.
-//! - [`relecture`] : la relecture en deux passes, réécoute comprise.
-//! - [`bilan`] : le bilan, que l'agent écrit lui-même.
-//! - [`AgentClaude`] : l'adaptateur [`Agent`] branché dans l'app.
+//! - [`Claude`]: a call to the CLI, which returns the structured output; [`MacClaude`] actually
+//!   runs it, the tests replace it.
+//! - [`review`]: the two-pass review, relisten included.
+//! - [`summary`]: the summary, which the agent writes itself.
+//! - [`AgentClaude`]: the [`Agent`] adapter plugged into the app.
 
 pub mod summary;
 pub mod review;
@@ -24,37 +24,37 @@ use crate::subprocess::{Interruption, Progression, wait, on_thread};
 
 use greffier_core::adapters::{Agent, SummaryRequest, ReviewRequest, ReviewResult, SummaryResult, BoxedTask};
 
-/// Le modèle demandé à la CLI.
+/// The model requested from the CLI.
 pub const MODEL: &str = "opus";
 
-/// Une nouvelle conversation, avec l'identifiant qu'on lui donne, ou la reprise d'une conversation.
+/// A new conversation, with the identifier we give it, or the resumption of a conversation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Session {
     New(String),
     Resume(String),
 }
 
-/// Un appel à la CLI `claude`.
+/// A call to the `claude` CLI.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClaudeCall {
     pub prompt: String,
-    /// Donné sur l'entrée standard.
+    /// Given on standard input.
     pub input: String,
-    /// Le schéma JSON de la réponse structurée.
+    /// The JSON schema of the structured answer.
     pub schema: String,
     pub session: Session,
-    /// Le répertoire de travail de l'agent.
+    /// The agent's working directory.
     pub directory: PathBuf,
     pub allowed_tools: Vec<String>,
     pub forbidden_tools: Vec<String>,
-    /// L'agent écrit des fichiers sans demander (`--permission-mode acceptEdits`).
+    /// The agent writes files without asking (`--permission-mode acceptEdits`).
     pub can_write: bool,
-    /// Des dossiers ouverts à l'agent en plus de son répertoire de travail (`--add-dir`).
+    /// Folders open to the agent in addition to its working directory (`--add-dir`).
     pub extra_folders: Vec<PathBuf>,
 }
 
 impl ClaudeCall {
-    /// Les arguments de la CLI (le prompt compris).
+    /// The CLI arguments (prompt included).
     pub fn arguments(&self) -> Vec<String> {
         let mut a: Vec<String> = vec!["-p".into(), self.prompt.clone(), "--model".into(), MODEL.into()];
         match &self.session {
@@ -77,18 +77,18 @@ impl ClaudeCall {
     }
 }
 
-/// Lance la CLI `claude` et rend sa réponse structurée (`structured_output`), ou un message
-/// d'erreur lisible. `arret` l'interrompt.
+/// Runs the `claude` CLI and returns its structured answer (`structured_output`), or a readable
+/// error message. `stop` interrupts it.
 pub trait Claude {
     fn ask(&self, call: &ClaudeCall, stop: &AtomicBool) -> Result<Value, String>;
 }
 
-/// Un identifiant de session neuf (UUID v4), comme `claude --session-id` l'attend.
+/// A fresh session identifier (UUID v4), as `claude --session-id` expects.
 pub fn new_session() -> String {
     let mut bytes = [0u8; 16];
     let contents = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes));
     if contents.is_err() {
-        // Sans /dev/urandom : l'heure et l'aléa de la table de hachage de la bibliothèque standard.
+        // Without /dev/urandom: the time and the standard library's hash map randomness.
         use std::hash::{BuildHasher, Hasher};
         for (i, piece) in bytes.chunks_mut(8).enumerate() {
             let mut h = std::collections::hash_map::RandomState::new().build_hasher();
@@ -110,8 +110,8 @@ fn truncate(s: &str, n: usize) -> String {
     }
 }
 
-/// Lit ce que la CLI a rendu (`--output-format json`) : la réponse structurée, sinon un message
-/// qui dit pourquoi (erreur de Claude, fin de la sortie d'erreur…).
+/// Reads what the CLI returned (`--output-format json`): the structured answer, otherwise a
+/// message saying why (Claude error, end of the error output…).
 pub fn read_response(output: &str, errors: &str, succeeded: bool) -> Result<Value, String> {
     let errors_tail = || {
         let lines: Vec<&str> = errors.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
@@ -133,9 +133,9 @@ pub fn read_response(output: &str, errors: &str, succeeded: bool) -> Result<Valu
     }
 }
 
-/// La vraie CLI `claude`, trouvée là où ses installateurs la mettent.
+/// The real `claude` CLI, found where its installers put it.
 pub struct MacClaude {
-    /// Au-delà, l'appel est abandonné.
+    /// Beyond this, the call is abandoned.
     pub timeout: Duration,
 }
 
@@ -150,7 +150,7 @@ impl Claude for MacClaude {
         let Some(claude) = crate::mac::find_claude() else {
             return Err("La CLI `claude` est introuvable : installer Claude Code (https://claude.com/claude-code), s'y connecter (`claude` dans un terminal), puis réessayer cette étape.".into());
         };
-        // Lancée du Finder, l'app n'a pas le PATH du terminal : on y met au moins le dossier de la CLI.
+        // Launched from the Finder, the app does not have the terminal's PATH: add at least the CLI's folder.
         let mut path: Vec<PathBuf> = claude.parent().map(|d| vec![d.to_path_buf()]).unwrap_or_default();
         path.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
         path.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
@@ -191,8 +191,8 @@ impl Claude for MacClaude {
     }
 }
 
-/// L'agent branché dans l'app : la relecture (avec la réécoute donnée) et le bilan par la CLI
-/// `claude`.
+/// The agent plugged into the app: the review (with the given relisten) and the summary by the
+/// `claude` CLI.
 pub struct AgentClaude {
     claude: Arc<dyn Claude + Send + Sync>,
     relisten: Arc<dyn review::Relisten + Send + Sync>,

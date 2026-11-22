@@ -1,6 +1,6 @@
-//! [`MiseEnMp4DuMac`] : un média importé de la famille MP4 (`.mov`, `.m4a`, `.m4v`) passé en
-//! `.mp4` par `AVAssetExportSession` sans réencodage (préréglage « passthrough ») : les pistes
-//! sont recopiées telles quelles dans un conteneur MP4. L'original n'est que lu.
+//! [`MacMp4Muxer`]: an imported medium from the MP4 family (`.mov`, `.m4a`, `.m4v`) turned into
+//! `.mp4` by `AVAssetExportSession` without re-encoding ("passthrough" preset): the tracks are
+//! copied as is into an MP4 container. The original is only read.
 
 use std::path::Path;
 use std::sync::mpsc;
@@ -17,8 +17,8 @@ impl Mp4Muxer for MacMp4Muxer {
     fn to_mp4(&self, from: &Path, to: &Path) -> Result<(), String> {
         let url = |p: &Path| p.to_str().map(|s| NSURL::fileURLWithPath(&NSString::from_str(s))).ok_or_else(|| format!("chemin illisible : {}", p.display()));
         let (source, target) = (url(from)?, url(to)?);
-        // SAFETY : objets AVFoundation créés et gardés ici ; le bloc ne capture qu'un Sender, et
-        // on attend sa fin avant de lire l'état de la session.
+        // SAFETY: AVFoundation objects created and held here; the block captures only a Sender,
+        // and we wait for it to finish before reading the session's status.
         unsafe {
             let asset = AVURLAsset::URLAssetWithURL_options(&source, None);
             let session = AVAssetExportSession::initWithAsset_presetName(AVAssetExportSession::alloc(), &asset, AVAssetExportPresetPassthrough)

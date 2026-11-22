@@ -1,20 +1,20 @@
-//! La recherche ⌘K dans les titres, les bilans et les transcriptions de toutes les réunions.
+//! The ⌘K search across the titles, summaries and transcriptions of all meetings.
 //!
-//! Le cœur tient un index : pour chaque dossier de réunion, son titre, les lignes de son bilan
-//! (avec l'instant de leur sujet) et ses répliques (avec leur début et leur locuteur). Une entrée
-//! est refaite quand les empreintes des fichiers de la réunion changent (écriture de Greffier ou
-//! modification hors de l'app) ; elle disparaît avec la réunion (suppression, renommage).
+//! The core keeps an index: for each meeting folder, its title, the lines of its summary (with
+//! the instant of their topic) and its utterances (with their start and speaker). An entry is
+//! rebuilt when the fingerprints of the meeting's files change (a write by Greffier or a change
+//! outside the app); it disappears with the meeting (deletion, renaming).
 //!
-//! La recherche ignore la casse et les accents (« equipe » trouve « Équipe ») et l'apostrophe
-//! typographique. Un résultat dit où ouvrir la réunion : la réplique, ou le sujet (la décision)
-//! d'une ligne du bilan.
+//! The search ignores case and accents ("equipe" finds "Équipe") and the typographic
+//! apostrophe. A result says where to open the meeting: the utterance, or the topic (the
+//! decision) of a summary line.
 //!
-//! **Le cache** (ADR 0001 : le seul état de l'app hors du dossier de réunions, reconstructible) :
-//! un fichier JSON par réunion, `<cache>/<nom du dossier>.json`, avec les empreintes des fichiers
-//! dont il vient. Au lancement, une entrée du cache sert si ses empreintes sont celles du
-//! dossier ; sinon (fichiers changés app fermée, cache abîmé, absent, d'une autre version) elle
-//! est refaite depuis la réunion. Ensuite, chaque entrée refaite est réécrite, chaque entrée
-//! retirée est effacée.
+//! **The cache** (ADR 0001: the app's only state outside the meetings folder, rebuildable): one
+//! JSON file per meeting, `<cache>/<folder name>.json`, with the fingerprints of the files it
+//! comes from. At launch, a cache entry is used if its fingerprints match the folder's;
+//! otherwise (files changed while the app was closed, cache damaged, missing, or from another
+//! version) it is rebuilt from the meeting. After that, each rebuilt entry is rewritten and each
+//! removed entry is erased.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ use crate::folder::watch::Fingerprints;
 use crate::meeting::{MeetingId, Meeting};
 use crate::Greffier;
 
-/// Où le mot a été trouvé.
+/// Where the word was found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Location {
     Title,
@@ -34,31 +34,31 @@ pub enum Location {
     Transcription,
 }
 
-/// Un passage trouvé.
+/// A passage found.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SearchResult {
     pub meeting: MeetingId,
     pub location: Location,
-    /// L'instant où ouvrir la réunion, en secondes : le début de la réplique, ou celui du sujet
-    /// (de la décision) pour une ligne du bilan. Rien : le début de la réunion.
+    /// The instant at which to open the meeting, in seconds: the start of the utterance, or that
+    /// of the topic (of the decision) for a summary line. None: the start of the meeting.
     pub instant: Option<f64>,
-    /// Le locuteur de la réplique, tel qu'il s'affiche.
+    /// The utterance's speaker, as displayed.
     pub speaker: Option<String>,
-    /// Le passage autour du mot trouvé (coupé par « … »).
+    /// The passage around the word found (cut with "…").
     pub excerpt: String,
-    /// Le mot trouvé dans `extrait`, en octets.
+    /// The word found in `excerpt`, in bytes.
     pub highlight: (usize, usize),
 }
 
-/// Au plus tant de lignes du bilan, de répliques par réunion, et de résultats en tout.
+/// At most this many summary lines and utterances per meeting, and results in total.
 const SUMMARY_LINES: usize = 3;
 const UTTERANCES: usize = 4;
 const RESULTS: usize = 40;
 
-/// La version du format du cache : une autre version est refaite.
+/// The cache format's version: another version is rebuilt.
 const VERSION: u32 = 1;
 
-/// Une ligne cherchable : le texte, sa version pliée (même nombre de caractères), son instant.
+/// A searchable line: the text, its folded version (same number of characters), its instant.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Line {
     text: String,
@@ -76,7 +76,7 @@ impl Line {
         Line { text, instant, speaker, folded }
     }
 
-    /// Le mot `requete` (déjà plié) dans la ligne : l'extrait et le passage surligné.
+    /// The word `query` (already folded) in the line: the excerpt and the highlighted passage.
     fn find(&self, query: &str) -> Option<(String, (usize, usize))> {
         let i = self.folded.find(query)?;
         let start = self.folded[..i].chars().count();
@@ -86,11 +86,11 @@ impl Line {
     }
 }
 
-/// Ce que l'index retient d'une réunion (et le fichier du cache).
+/// What the index keeps of a meeting (and the cache file).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct IndexEntry {
     version: u32,
-    /// Les empreintes des fichiers quand l'entrée a été faite.
+    /// The files' fingerprints when the entry was made.
     fingerprints: Fingerprints,
     title: Option<Line>,
     summary: Vec<Line>,
@@ -111,7 +111,7 @@ impl IndexEntry {
         IndexEntry { version: VERSION, fingerprints, title, summary: summary_lines(&r.summary), transcription }
     }
 
-    /// L'entrée du cache, si elle est lisible et de cette version.
+    /// The cache entry, if it is readable and of this version.
     fn read(path: &Path) -> Option<IndexEntry> {
         let mut e: IndexEntry = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
         if e.version != VERSION {
@@ -124,8 +124,8 @@ impl IndexEntry {
     }
 }
 
-/// Les lignes du bilan, sans les titres de section. Une ligne prend son propre horodatage (une
-/// décision), sinon celui du sujet `### Titre (h:mm:ss)` qui la contient.
+/// The summary's lines, without the section headings. A line takes its own timestamp (a
+/// decision), otherwise that of the `### Title (h:mm:ss)` topic containing it.
 fn summary_lines(md: &str) -> Vec<Line> {
     let mut topic = None;
     let mut lines = Vec::new();
@@ -153,8 +153,8 @@ fn summary_lines(md: &str) -> Vec<Line> {
     lines
 }
 
-/// Minuscules, sans accents, apostrophe droite : un caractère pour un caractère, pour retrouver
-/// le passage dans le texte d'origine.
+/// Lowercase, without accents, straight apostrophe: one character for one character, to find
+/// the passage again in the original text.
 fn fold_text(s: &str) -> String {
     s.chars().map(fold_char).collect()
 }
@@ -179,8 +179,8 @@ fn fold_char(c: char) -> char {
     }
 }
 
-/// Un extrait de `s` autour de `[a, b)` (en octets), coupé entre deux mots, et la place du
-/// passage dans l'extrait.
+/// An excerpt of `s` around `[a, b)` (in bytes), cut between two words, and the passage's
+/// position in the excerpt.
 fn excerpt(s: &str, a: usize, b: usize) -> (String, (usize, usize)) {
     let mut start = a.saturating_sub(50);
     while !s.is_char_boundary(start) {
@@ -190,7 +190,7 @@ fn excerpt(s: &str, a: usize, b: usize) -> (String, (usize, usize)) {
     while !s.is_char_boundary(end) {
         end += 1;
     }
-    // Couper entre deux mots plutôt qu'au milieu d'un mot.
+    // Cut between two words rather than in the middle of one.
     if start > 0 && let Some(i) = s[start..a].find(' ') {
         start += i + 1;
     }
@@ -203,11 +203,11 @@ fn excerpt(s: &str, a: usize, b: usize) -> (String, (usize, usize)) {
     (format!("{before}{}{after}", &s[start..end]), (offset, offset + (b - a)))
 }
 
-/// L'index de recherche, par nom de dossier de réunion.
+/// The search index, by meeting folder name.
 #[derive(Default)]
 pub(crate) struct Index {
     entries: HashMap<String, IndexEntry>,
-    /// Le dossier du cache, s'il y en a un.
+    /// The cache folder, if there is one.
     cache: Option<PathBuf>,
 }
 
@@ -216,7 +216,7 @@ impl Index {
         cache.join(format!("{name}.json"))
     }
 
-    /// Écrit l'entrée dans le cache (sans erreur : le cache se refait).
+    /// Writes the entry to the cache (no error: the cache can be rebuilt).
     fn write(&self, name: &str, e: &IndexEntry) {
         let Some(cache) = &self.cache else { return };
         let Ok(json) = serde_json::to_vec(e) else { return };
@@ -232,8 +232,8 @@ impl Index {
         }
     }
 
-    /// Prend `cache` comme dossier du cache : l'index repart des entrées qui y sont à jour
-    /// (`a_jour(nom, empreintes)`), les autres fichiers sont effacés.
+    /// Takes `cache` as the cache folder: the index restarts from the entries in it that are up
+    /// to date (`up_to_date(name, fingerprints)`), the other files are erased.
     fn open(&mut self, cache: Option<PathBuf>, up_to_date: impl Fn(&str, &Fingerprints) -> bool) {
         self.entries.clear();
         self.cache = cache;
@@ -243,7 +243,7 @@ impl Index {
             let name = f.file_name().to_string_lossy().strip_suffix(".json").map(str::to_owned);
             match name.and_then(|name| Some((IndexEntry::read(&path).filter(|e| up_to_date(&name, &e.fingerprints))?, name))) {
                 Some((e, name)) => _ = self.entries.insert(name, e),
-                // Périmé, illisible, ou une écriture interrompue (`.….json.partiel`).
+                // Stale, unreadable, or an interrupted write (`.….json.partial`).
                 None => _ = std::fs::remove_file(&path),
             }
         }
@@ -251,9 +251,9 @@ impl Index {
 }
 
 impl Greffier {
-    /// Les passages qui contiennent `requete` (sans tenir compte de la casse ni des accents),
-    /// des réunions les plus récentes aux plus anciennes : pour chacune, le titre, puis quelques
-    /// lignes du bilan, puis quelques répliques.
+    /// The passages containing `query` (ignoring case and accents), from the most recent
+    /// meetings to the oldest: for each, the title, then a few summary lines, then a few
+    /// utterances.
     pub fn search(&self, query: &str) -> Vec<SearchResult> {
         let q = fold_text(query.trim());
         let mut results = Vec::new();
@@ -275,8 +275,8 @@ impl Greffier {
         results
     }
 
-    /// Met l'index à jour : une entrée refaite pour chaque réunion dont les fichiers ont changé
-    /// depuis, une entrée retirée pour chaque réunion qui n'existe plus.
+    /// Updates the index: an entry rebuilt for each meeting whose files have changed since, an
+    /// entry removed for each meeting that no longer exists.
     pub(crate) fn indexer(&mut self) {
         for r in &self.meetings {
             let fingerprints = self.fingerprints.get(&r.folder_name).cloned().unwrap_or_default();
@@ -295,7 +295,7 @@ impl Greffier {
         }
     }
 
-    /// Garde l'index dans ce dossier (ou en mémoire seulement) : voir le cache plus haut.
+    /// Keeps the index in this folder (or in memory only): see the cache above.
     pub(crate) fn use_search_cache(&mut self, cache: Option<PathBuf>) {
         let expected: HashMap<&str, Fingerprints> = self.meetings.iter().map(|r| (r.folder_name.as_str(), self.fingerprints.get(&r.folder_name).cloned().unwrap_or_default())).collect();
         self.index.open(cache, |name, e| expected.get(name) == Some(e));

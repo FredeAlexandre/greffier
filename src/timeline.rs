@@ -1,5 +1,5 @@
-//! La timeline : sujets, une piste par locuteur, décisions et repères, tête de lecture.
-//! Glisser sur les pistes déplace la lecture ; cliquer un sujet y saute.
+//! The timeline: topics, one track per speaker, decisions and markers, playhead.
+//! Dragging over the tracks moves playback; clicking a topic jumps to it.
 
 use rune::{Cx, El, Spring, col, el, row, text};
 use rune_kit::Kit;
@@ -21,7 +21,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
     let label = |e: El| row().w(LABEL_W).h_full().pr(10.0).gap(6.0).center_y().child(e);
     let faint = k.c.text_faint;
 
-    // Sujets
+    // Topics
     let current_topic = m.topic_at(s.pos);
     let mut chapters = el().key("tl-area").h(CHAPTER_H).grow(1.0).min_w(0.0);
     for (i, tp) in m.topics.iter().enumerate() {
@@ -47,7 +47,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
     }
     let chapters_row = row().w_full().h(CHAPTER_H).child(label(text("Sujets").font(k.ty.small).color(faint))).child(chapters);
 
-    // Pistes des locuteurs
+    // Speaker tracks
     let active: Vec<usize> = (0..m.speakers.len()).filter(|&i| m.speakers[i].merged_into.is_none()).collect();
     let mut tracks = col().key("tl-tracks").w_full().gap(GAP);
     for &si in &active {
@@ -70,7 +70,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
         tracks = tracks.child(row().key(format!("lane{si}")).w_full().h(TRACK_H).child(label(dot(c, 8.0)).child(name)).child(lane));
     }
 
-    // Décisions et repères
+    // Decisions and markers
     let mut events = el().h(EVENTS_H).grow(1.0).min_w(0.0);
     for (i, dcs) in m.decisions.iter().enumerate() {
         let at = dcs.instant;
@@ -105,7 +105,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
         .child(text("Décisions").font(k.ty.small).color(faint));
     tracks = tracks.child(row().w_full().h(EVENTS_H).child(label(legend)).child(events));
 
-    // Graduations
+    // Ticks
     let step = if m.duration > 5400.0 { 1800.0 } else if m.duration > 1800.0 { 600.0 } else { 300.0 };
     let mut ruler = el().h(14.0).grow(1.0).min_w(0.0);
     let mut t = step;
@@ -115,7 +115,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
     }
     let ruler_row = row().w_full().h(14.0).child(el().w(LABEL_W)).child(ruler);
 
-    // Tête de lecture, au-dessus des pistes
+    // Playhead, above the tracks
     let rows = active.len() as f32 + 1.0;
     let tracks_h = rows * TRACK_H + (rows - 1.0) * GAP;
     let dur_ = m.duration;

@@ -1,6 +1,6 @@
-//! La relecture par la CLI `claude` (claude::relecture) : la première passe, la réécoute des
-//! passages douteux, la deuxième passe dans la même session, et la traduction de leurs réponses
-//! en résultat pour le cœur. La CLI et la réécoute sont remplacées par des faux.
+//! The review by the `claude` CLI (`claude::review`): the first pass, the relisten of the doubtful
+//! passages, the second pass in the same session, and the translation of their answers into a
+//! result for the core. The CLI and the relisten are replaced by fakes.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -32,11 +32,11 @@ impl Claude for FakeClaude {
     fn ask(&self, call: &ClaudeCall, _: &AtomicBool) -> Result<Value, String> {
         self.calls.lock().unwrap().push(call.clone());
         let mut r = self.responses.lock().unwrap();
-        if r.is_empty() { Err("appel de trop".into()) } else { r.remove(0) }
+        if r.is_empty() { Err("one call too many".into()) } else { r.remove(0) }
     }
 }
 
-/// Une demande de réécoute : l'enregistrement, les extraits, le vocabulaire.
+/// A relisten request: the recording, the excerpts, the vocabulary.
 type RelistenRequest = (PathBuf, Vec<(f64, f64)>, String);
 
 #[derive(Default)]
@@ -110,35 +110,35 @@ fn review(claude: &FakeClaude, relisten: &FakeRelisten, request: ReviewRequest) 
 #[test]
 fn first_pass_receives_numbered_utterances_lexicon_and_context() {
     let claude = FakeClaude::answering(vec![Ok(json!({ "corrections": [], "speakers": [], "doubts": [], "lexicon": [] }))]);
-    review(&claude, &FakeRelisten::default(), request()).expect("relecture");
+    review(&claude, &FakeRelisten::default(), request()).expect("review");
 
     let calls = claude.calls();
-    assert_eq!(calls.len(), 1, "sans passage douteux, ni réécoute ni deuxième passe");
+    assert_eq!(calls.len(), 1, "without doubtful passages, neither relisten nor second pass");
     let a = &calls[0];
     assert_eq!(a.input, "#1 [0:00:00 → 0:00:02] SPEAKER_00 : Bonjour, on parle de Zorglube.\n#2 [0:00:05 → 0:00:07] SPEAKER_01 : La recète est prête ?\n#3 [0:01:09 → 0:01:51] SPEAKER_01 : Pas encore, il faut attendre que l'équipe de recette ait fini, jeudi peut-être, ou alors la semaine prochaine si tout va bien.");
     assert!(matches!(&a.session, Session::New(id) if id.len() == 36), "{:?}", a.session);
     assert_eq!(a.directory, PathBuf::from("/reunions"));
-    assert!(a.prompt.contains("Réunion du 2026-11-21"), "{}", a.prompt);
+    assert!(a.prompt.contains("Meeting of 2026-11-21"), "{}", a.prompt);
     assert!(a.prompt.contains("`2026-11-21 14h02 - Point`"), "{}", a.prompt);
-    assert!(a.prompt.contains("2 personnes dans la réunion."), "{}", a.prompt);
+    assert!(a.prompt.contains("2 people in the meeting."), "{}", a.prompt);
     assert!(a.prompt.contains("## Erreurs connues\n\n| Entendu | Correct |\n|---|---|\n| Zorglube | Zorglub |"), "{}", a.prompt);
     assert!(!a.prompt.contains("type: lexique") && !a.prompt.contains("\n# Lexique") && !a.prompt.contains("{{"), "{}", a.prompt);
-    assert!(!a.prompt.contains("Deuxième passe"), "la deuxième partie du prompt attend la réécoute");
+    assert!(!a.prompt.contains("Second pass"), "the second part of the prompt waits for the relisten");
     for tool in ["Write", "Edit", "Bash", "WebFetch", "WebSearch", "Task"] {
         assert!(a.forbidden_tools.iter().any(|o| o == tool) && !a.allowed_tools.iter().any(|o| o == tool), "{tool}");
     }
     assert_eq!(a.allowed_tools, ["Read", "Glob", "Grep"]);
-    let schema: Value = serde_json::from_str(&a.schema).expect("schéma JSON");
-    assert_eq!(schema["required"], json!(["corrections", "locuteurs", "doutes", "lexique"]));
+    let schema: Value = serde_json::from_str(&a.schema).expect("JSON schema");
+    assert_eq!(schema["required"], json!(["corrections", "speakers", "doubts", "lexicon"]));
 }
 
 #[test]
 fn doubtful_passages_are_relistened_then_decided_in_the_same_session() {
     let claude = FakeClaude::answering(vec![Ok(first_pass()), Ok(second_pass())]);
     let relisten = FakeRelisten { texts: vec!["pas encore mardi peut-être".into(), "".into()], ..Default::default() };
-    let r = review(&claude, &relisten, request()).expect("relecture");
+    let r = review(&claude, &relisten, request()).expect("review");
 
-    // ±1,5 s autour de la réplique, 28 s au plus : la réplique 3 (42 s) est centrée sur l'extrait.
+    // ±1.5 s around the utterance, 28 s at most: utterance 3 (42 s) is centered on the excerpt.
     let requests = relisten.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 1);
     let (recording, excerpts, vocabulary) = &requests[0];
@@ -156,14 +156,14 @@ fn doubtful_passages_are_relistened_then_decided_in_the_same_session() {
     let Session::New(id) = &calls[0].session else { panic!("{:?}", calls[0].session) };
     assert_eq!(calls[1].session, Session::Resume(id.clone()));
     assert_eq!(calls[1].input, "");
-    assert!(calls[1].prompt.starts_with("## Deuxième passe"), "{}", calls[1].prompt);
+    assert!(calls[1].prompt.starts_with("## Second pass"), "{}", calls[1].prompt);
     assert!(
-        calls[1].prompt.ends_with("- ligne #3 [0:01:09] · extrait : « jeudi » · ton hypothèse : « mardi »\n  réécoute : « pas encore mardi peut-être »\n- ligne #1 [0:00:00] · extrait : « Zorglube » · ton hypothèse : « ? »\n  réécoute : « (rien d'exploitable) »"),
+        calls[1].prompt.ends_with("- line #3 [0:01:09] · excerpt: \"jeudi\" · your hypothesis: \"mardi\"\n  relisten: \"pas encore mardi peut-être\"\n- line #1 [0:00:00] · excerpt: \"Zorglube\" · your hypothesis: \"?\"\n  relisten: \"(nothing usable)\""),
         "{}",
         calls[1].prompt
     );
-    let schema: Value = serde_json::from_str(&calls[1].schema).expect("schéma JSON");
-    assert_eq!(schema["required"], json!(["decisions", "lexique"]));
+    let schema: Value = serde_json::from_str(&calls[1].schema).expect("JSON schema");
+    assert_eq!(schema["required"], json!(["decisions", "lexicon"]));
 
     assert_eq!(r.session.as_deref(), Some(id.as_str()));
     assert_eq!(r.corrections, [ConfidentCorrection { utterance: 1, before: "recète".into(), after: "recette".into() }]);
@@ -177,9 +177,9 @@ fn doubtful_passages_are_relistened_then_decided_in_the_same_session() {
 fn relisten_drops_bracketed_noises_like_the_transcription() {
     let claude = FakeClaude::answering(vec![Ok(first_pass()), Ok(second_pass())]);
     let relisten = FakeRelisten { texts: vec!["[Musique] pas encore (rires) mardi peut-être".into(), " (bruit de fond) ".into()], ..Default::default() };
-    let r = review(&claude, &relisten, request()).expect("relecture");
+    let r = review(&claude, &relisten, request()).expect("review");
     assert!(
-        claude.calls()[1].prompt.ends_with("  réécoute : « pas encore mardi peut-être »\n- ligne #1 [0:00:00] · extrait : « Zorglube » · ton hypothèse : « ? »\n  réécoute : « (rien d'exploitable) »"),
+        claude.calls()[1].prompt.ends_with("  relisten: \"pas encore mardi peut-être\"\n- line #1 [0:00:00] · excerpt: \"Zorglube\" · your hypothesis: \"?\"\n  relisten: \"(nothing usable)\""),
         "{}",
         claude.calls()[1].prompt
     );
@@ -192,7 +192,7 @@ fn a_passage_without_decision_or_corrected_to_a_question_mark_stays_to_check() {
     let second = json!({ "decisions": [{ "line": 1, "excerpt": "autre chose", "status": "corrected", "after": "? (un nom de client, peut-être)", "reason": "?" }], "lexicon": [] });
     let claude = FakeClaude::answering(vec![Ok(first_pass()), Ok(second)]);
     let relisten = FakeRelisten { texts: vec!["a".into(), "b".into()], ..Default::default() };
-    let r = review(&claude, &relisten, request()).expect("relecture");
+    let r = review(&claude, &relisten, request()).expect("review");
     assert!(r.corrected_passages.is_empty());
     let passages: Vec<(usize, &str, Option<&str>, &str)> = r.passages_to_check.iter().map(|p| (p.utterance, p.excerpt.as_str(), p.hypothesis.as_deref(), p.relisten.as_str())).collect();
     assert_eq!(passages, [(2, "jeudi", Some("mardi"), "a"), (0, "Zorglube", None, "b")]);
@@ -202,7 +202,7 @@ fn a_passage_without_decision_or_corrected_to_a_question_mark_stays_to_check() {
 fn at_most_thirty_doubtful_passages() {
     let doubts: Vec<Value> = (0..40).map(|i| json!({ "line": 3, "excerpt": format!("mot {i}"), "hypothesis": "?", "reason": "" })).collect();
     let claude = FakeClaude::answering(vec![Ok(json!({ "corrections": [], "speakers": [], "doubts": doubts, "lexicon": [] })), Ok(json!({ "decisions": [], "lexicon": [] }))]);
-    let r = review(&claude, &FakeRelisten::default(), request()).expect("relecture");
+    let r = review(&claude, &FakeRelisten::default(), request()).expect("review");
     assert_eq!(r.passages_to_check.len(), 30);
 }
 
@@ -210,8 +210,8 @@ fn at_most_thirty_doubtful_passages() {
 fn a_failed_relisten_does_not_prevent_the_second_pass() {
     let claude = FakeClaude::answering(vec![Ok(first_pass()), Ok(second_pass())]);
     let relisten = FakeRelisten { failure: Some("modèle illisible".into()), ..Default::default() };
-    let r = review(&claude, &relisten, request()).expect("relecture");
-    assert!(claude.calls()[1].prompt.contains("réécoute : « (réécoute impossible : modèle illisible) »"), "{}", claude.calls()[1].prompt);
+    let r = review(&claude, &relisten, request()).expect("review");
+    assert!(claude.calls()[1].prompt.contains("relisten: \"(relisten failed: modèle illisible)\""), "{}", claude.calls()[1].prompt);
     assert_eq!(r.corrected_passages.len(), 1);
 }
 
@@ -224,7 +224,7 @@ fn if_claude_fails_the_review_fails_with_its_message() {
     assert_eq!(review(&claude, &FakeRelisten::default(), request()), Err("Claude : délai dépassé".into()));
 
     let claude = FakeClaude::answering(vec![Ok(json!({ "corrections": "pas une liste" }))]);
-    let e = review(&claude, &FakeRelisten::default(), request()).expect_err("réponse illisible");
+    let e = review(&claude, &FakeRelisten::default(), request()).expect_err("unreadable answer");
     assert!(e.starts_with("Claude a rendu une réponse illisible"), "{e}");
 }
 

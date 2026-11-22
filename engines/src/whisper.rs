@@ -1,5 +1,5 @@
-//! whisper.cpp, compilé dans l'app (build.rs), appelé par `src/transcribe.cpp` avec les
-//! paramètres du vault.
+//! whisper.cpp, built into the app (build.rs), called through `src/transcribe.cpp` with the
+//! vault's parameters.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::path::Path;
@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use greffier_core::Word;
 
-/// Paramètres fixés (ceux du vault) : français, 6 threads.
+/// Fixed parameters (the vault's): French, 6 threads.
 pub const LANGUAGE: &str = "fr";
 pub const THREADS: i32 = 6;
 
@@ -45,21 +45,21 @@ struct Context<'a> {
 }
 
 extern "C" fn on_word(user: *mut c_void, text: *const c_char, t0: i64, t1: i64, p: f32) {
-    // SAFETY : `user` est le `Contexte` passé à `greffier_transcribe`, vivant pendant l'appel ;
-    // `texte` est une chaîne C de whisper.cpp.
+    // SAFETY: `user` is the `Context` passed to `greffier_transcribe`, alive during the call;
+    // `text` is a C string from whisper.cpp.
     let c = unsafe { &mut *(user as *mut Context) };
     let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
     c.words.push(Word { start: t0 as f64 / 1000.0, end: t1 as f64 / 1000.0, text: text.trim().to_string(), confidence: (p * 1000.0).round() / 1000.0, speaker: None });
 }
 
 extern "C" fn on_progress(user: *mut c_void, progress: c_int) {
-    // SAFETY : voir `sur_mot`.
+    // SAFETY: see `on_word`.
     let c = unsafe { &mut *(user as *mut Context) };
     (c.progress)(progress as f64 / 100.0);
 }
 
 extern "C" fn abandon(user: *mut c_void) -> bool {
-    // SAFETY : voir `sur_mot`.
+    // SAFETY: see `on_word`.
     let c = unsafe { &*(user as *const Context) };
     c.stop.load(Ordering::Relaxed)
 }
@@ -68,11 +68,11 @@ fn c_string(s: &str) -> Result<CString, String> {
     CString::new(s).map_err(|_| format!("caractère nul dans « {s} »"))
 }
 
-/// Transcrit de l'audio mono 16 kHz : un mot par segment, avec sa confiance (arrondie au
-/// millième, comme le vault), horodaté en secondes. `progres` reçoit l'avancement de whisper (0
-/// à 1). `arret` l'interrompt (rend `Err("arrêté")`).
+/// Transcribes 16 kHz mono audio: one word per segment, with its confidence (rounded to the
+/// thousandth, like the vault), timestamped in seconds. `progress` receives whisper's progress (0
+/// to 1). `stop` interrupts it (returns `Err("arrêté")`).
 pub fn transcribe(model: &Path, vad: &Path, samples: &[i16], vocabulary: &str, stop: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<Vec<Word>, String> {
-    // Comme whisper-cli lisant un wav 16 bits.
+    // Like whisper-cli reading a 16-bit wav.
     let pcm: Vec<f32> = samples.iter().map(|&e| e as f32 / 32768.0).collect();
     let model_c = c_string(&model.to_string_lossy())?;
     let vad_c = c_string(&vad.to_string_lossy())?;
@@ -82,7 +82,7 @@ pub fn transcribe(model: &Path, vad: &Path, samples: &[i16], vocabulary: &str, s
     let mut context = Context { words: Vec::new(), progress, stop };
     let mut error = vec![0 as c_char; 512];
     let n = c_int::try_from(pcm.len()).map_err(|_| "réunion trop longue pour whisper.cpp".to_string())?;
-    // SAFETY : tous les pointeurs restent valides pendant l'appel, qui est synchrone.
+    // SAFETY: all pointers stay valid during the call, which is synchronous.
     let code = unsafe {
         greffier_transcribe(&settings, pcm.as_ptr(), n, &mut context as *mut Context as *mut c_void, on_word, on_progress, abandon, error.as_mut_ptr(), error.len() as c_int)
     };

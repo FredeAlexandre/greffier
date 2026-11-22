@@ -1,6 +1,6 @@
-//! Le banc de test du cœur : un dossier de réunions dans un répertoire temporaire, des faux
-//! adaptateurs nourris de données écrites à la main, des commandes, puis on regarde l'état et les
-//! fichiers. Aucun test ne dépend de la structure interne du cœur.
+//! The core's test bench: a meetings folder in a temporary directory, fake adapters fed with
+//! hand-written data, commands, then we look at the state and the files. No test depends on the
+//! core's internal structure.
 
 #![allow(dead_code)]
 
@@ -11,7 +11,7 @@ use greffier_core::adapters::{Adapters, SummarySpeaker, ReviewResult, SummaryRes
 use greffier_core::fake::{FakeCapture, FakeTrash, FakeClock, FakeResources, FakeAgent, FakeDiarizer, FakeTranscriber};
 use greffier_core::{Command, DateTime, Stage, Event, Greffier, MeetingId, Word, Meeting, Status, SpeakerTurn};
 
-/// Durée simulée de chaque étape des faux adaptateurs, en secondes.
+/// Simulated duration of each stage of the fake adapters, in seconds.
 pub const STAGE_DURATION: f64 = 1.0;
 
 pub const SUMMARY: &str = "## En bref\n\nAlexandre salue l'équipe.\n\n## Participants\n\n- **SPEAKER_00 — Alexandre**\n- **SPEAKER_01 — Khalid**\n\n## Sujets abordés\n\n### Salutations (0:00:00)\n\n- Bonjour.\n\n## Décisions\n\n- (0:00:03) On se revoit demain.\n\n## Actions\n\n- [ ] **Alexandre** — préparer la démo — lundi\n- [ ] **Khalid** — relire la PR\n\n## Questions ouvertes\n\n- Aucune.\n";
@@ -24,7 +24,7 @@ pub fn turn(start: f64, end: f64, speaker: &str) -> SpeakerTurn {
     SpeakerTurn { start, end, speaker: speaker.into() }
 }
 
-/// Deux répliques : SPEAKER_00 dit bonjour, SPEAKER_01 répond.
+/// Two utterances: SPEAKER_00 says hello, SPEAKER_01 answers.
 pub fn words() -> Vec<Word> {
     vec![word(0.0, 0.5, "Bonjour"), word(0.5, 0.8, "à"), word(0.8, 1.5, "tous."), word(3.0, 3.4, "Salut"), word(3.4, 4.0, "Alexandre.")]
 }
@@ -46,7 +46,7 @@ pub fn summary_result() -> SummaryResult {
     }
 }
 
-/// Un agent qui ne corrige rien et écrit le bilan donné.
+/// An agent that corrects nothing and writes the given summary.
 pub fn agent(summary: &'static str) -> FakeAgent {
     FakeAgent::new(
         STAGE_DURATION,
@@ -85,7 +85,7 @@ impl Bench {
         Bench { greffier, folder }
     }
 
-    /// Le cœur sur une copie du dossier de réunions d'exemple (`tests/fixtures/meetings-folder`).
+    /// The core on a copy of the sample meetings folder (`tests/fixtures/meetings-folder`).
     pub fn on_fixtures() -> Bench {
         let folder = temp_folder();
         copy_to(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/meetings-folder"), &folder);
@@ -93,23 +93,23 @@ impl Bench {
         Bench { greffier, folder }
     }
 
-    /// Relance le cœur sur le même dossier de réunions, comme au lancement suivant de l'app.
+    /// Restarts the core on the same meetings folder, as at the app's next launch.
     pub fn reopen(&mut self) {
         self.greffier = Greffier::open(&self.folder, adapters());
     }
 
-    /// La réunion dont le dossier porte ce nom.
+    /// The meeting whose folder has this name.
     pub fn named_meeting(&self, name: &str) -> &Meeting {
         let names: Vec<&str> = self.greffier.meetings().iter().map(|r| r.folder_name.as_str()).collect();
-        self.greffier.meetings().iter().find(|r| r.folder_name == name).unwrap_or_else(|| panic!("pas de réunion « {name} » parmi {names:?}"))
+        self.greffier.meetings().iter().find(|r| r.folder_name == name).unwrap_or_else(|| panic!("no meeting « {name} » among {names:?}"))
     }
 
     pub fn execute(&mut self, command: Command) -> Vec<Event> {
         let name = format!("{command:?}");
-        self.greffier.execute(command).unwrap_or_else(|e| panic!("{name} refusée : {e}"))
+        self.greffier.execute(command).unwrap_or_else(|e| panic!("{name} rejected: {e}"))
     }
 
-    /// Avance le temps par pas de 0,1 s, comme le ferait l'interface.
+    /// Advances time in 0.1 s steps, as the UI would.
     pub fn advance(&mut self, seconds: f64) -> Vec<Event> {
         let mut events = Vec::new();
         let step = (seconds / 0.1).round() as usize;
@@ -119,7 +119,7 @@ impl Bench {
         events
     }
 
-    /// Avance jusqu'à ce que `fin` soit vraie (au plus 60 s), en notant les étapes traversées.
+    /// Advances until `end` is true (at most 60 s), noting the stages gone through.
     pub fn advance_until(&mut self, id: MeetingId, end: impl Fn(&Status) -> bool) -> Vec<Stage> {
         let mut stages = Vec::new();
         for _ in 0..600 {
@@ -133,17 +133,17 @@ impl Bench {
             }
             self.greffier.advance(0.1);
         }
-        panic!("toujours {:?} après 60 s", self.meeting(id).status);
+        panic!("still {:?} after 60 s", self.meeting(id).status);
     }
 
-    /// Enregistre une réunion de `duree` secondes (fausse capture au temps réel), sans la traiter.
+    /// Records a meeting of `duration` seconds (fake capture in real time), without processing it.
     pub fn record(&mut self, duration: f64) -> MeetingId {
         self.execute(Command::StartRecording);
         self.advance(duration);
         self.finish_recording()
     }
 
-    /// Arrête l'enregistrement en cours ; rend la réunion enregistrée.
+    /// Stops the running recording; returns the recorded meeting.
     pub fn finish_recording(&mut self) -> MeetingId {
         let events = self.execute(Command::StopRecording);
         events
@@ -152,21 +152,21 @@ impl Bench {
                 Event::MeetingRecorded(id) => Some(*id),
                 _ => None,
             })
-            .expect("la réunion enregistrée")
+            .expect("the recorded meeting")
     }
 
-    /// Une réunion enregistrée et pas encore traitée.
+    /// A meeting recorded and not yet processed.
     pub fn meeting_to_process(&mut self) -> MeetingId {
         self.execute(Command::ChangeSettings(greffier_core::Settings { process_on_stop: false, ..self.greffier.settings().clone() }));
         self.record(5.0)
     }
 
     pub fn meeting(&self, id: MeetingId) -> &Meeting {
-        self.greffier.meeting(id).expect("réunion connue")
+        self.greffier.meeting(id).expect("known meeting")
     }
 
-    /// Le cache de recherche à côté du dossier de réunions (supprimé avec lui), donné au cœur
-    /// comme l'app le fait au lancement avec celui de son dossier.
+    /// The search cache next to the meetings folder (deleted with it), given to the core as the
+    /// app does at launch with the one in its folder.
     pub fn enable_search_cache(&mut self) -> PathBuf {
         let cache = self.folder.with_extension("search");
         self.execute(Command::ChangeSettings(greffier_core::Settings { search_cache: Some(cache.clone()), ..self.greffier.settings().clone() }));
@@ -174,7 +174,7 @@ impl Bench {
     }
 
     pub fn read(&self, path: &Path) -> String {
-        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{} : {e}", path.display()))
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 }
 
@@ -182,19 +182,19 @@ fn temp_folder() -> PathBuf {
     static N: AtomicU32 = AtomicU32::new(0);
     let folder = std::env::temp_dir().join(format!("greffier-bench-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&folder);
-    std::fs::create_dir_all(&folder).expect("dossier temporaire");
+    std::fs::create_dir_all(&folder).expect("temporary folder");
     folder
 }
 
 fn copy_to(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).expect("copie des fixtures");
+    std::fs::create_dir_all(to).expect("copying fixtures");
     for input in std::fs::read_dir(from).expect("fixtures") {
         let input = input.expect("fixture");
         let target = to.join(input.file_name());
         if input.file_type().expect("type").is_dir() {
             copy_to(&input.path(), &target);
         } else {
-            std::fs::copy(input.path(), target).expect("copie d'une fixture");
+            std::fs::copy(input.path(), target).expect("copying a fixture");
         }
     }
 }

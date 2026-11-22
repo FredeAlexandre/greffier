@@ -1,6 +1,6 @@
-//! Les ressources téléchargées au premier lancement, vues par le cœur : modèles vérifiés par
-//! sha256, téléchargements qui reprennent, Python privé et vérification de la CLI `claude`. Les
-//! outils (téléchargement, empreinte, uv, `claude`) sont faux ; tout le reste est celui de l'app.
+//! The resources downloaded at first launch, as seen by the core: models verified by sha256,
+//! resuming downloads, private Python and the `claude` CLI check. The tools (download,
+//! fingerprint, uv, `claude`) are fake; everything else is the app's own.
 
 mod bench;
 
@@ -22,7 +22,7 @@ const URL_SMALL: &str = "https://exemple.org/petit.bin";
 const PYPROJECT: &str = "[project]\nname = \"locuteurs\"\n";
 const LOCKFILE: &str = "version = 1\n";
 
-/// Le dossier de l'app, dans un répertoire temporaire supprimé à la fin du test.
+/// The app folder, in a temporary directory deleted at the end of the test.
 struct AppFolder(PathBuf);
 
 impl AppFolder {
@@ -42,14 +42,14 @@ impl Drop for AppFolder {
 
 fn catalogue(lock: &str) -> Catalogue {
     Catalogue(vec![
-        Element::files("Grand modèle", "exemple.org", &[Stage::Transcription], vec![ResourceFile::new("modeles/grand.bin", URL_LARGE, LARGE.len() as u64, SHA_LARGE)]),
-        Element::files("Petit modèle", "exemple.org", &[Stage::Transcription], vec![ResourceFile::new("modeles/petit/a.bin", URL_SMALL, SMALL.len() as u64, SHA_SMALL)]),
+        Element::files("Grand modèle", "exemple.org", &[Stage::Transcription], vec![ResourceFile::new("models/grand.bin", URL_LARGE, LARGE.len() as u64, SHA_LARGE)]),
+        Element::files("Petit modèle", "exemple.org", &[Stage::Transcription], vec![ResourceFile::new("models/petit/a.bin", URL_SMALL, SMALL.len() as u64, SHA_SMALL)]),
         Element::python("Python privé", "uv", PYPROJECT, lock),
         Element::claude("Claude Code"),
     ])
 }
 
-/// 10 octets par seconde ; une empreinte prend 0,5 s, le Python 2 s, `claude` répond aussitôt.
+/// 10 bytes per second; a fingerprint takes 0.5 s, the Python 2 s, `claude` answers immediately.
 fn tools() -> FakeTools {
     FakeTools::new(10.0).serve(URL_LARGE, LARGE.as_bytes()).serve(URL_SMALL, SMALL.as_bytes()).fingerprint_duration(0.5).python(2.0, Ok(()))
 }
@@ -65,7 +65,7 @@ fn state(bench: &Bench, name: &str) -> ResourceState {
 }
 
 fn resource(bench: &Bench, name: &str) -> Resource {
-    bench.greffier.resources().iter().find(|r| r.name == name).unwrap_or_else(|| panic!("ressource {name}")).clone()
+    bench.greffier.resources().iter().find(|r| r.name == name).unwrap_or_else(|| panic!("resource {name}")).clone()
 }
 
 fn install_to_completion(bench: &mut Bench) -> Vec<Event> {
@@ -77,7 +77,7 @@ fn install_to_completion(bench: &mut Bench) -> Vec<Event> {
             return events;
         }
     }
-    panic!("installation toujours en cours après 30 s");
+    panic!("installation still running after 30 s");
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn first_launch_shows_each_resource_state_until_they_are_ready() {
 
     bench.execute(Command::InstallResources);
     bench.advance(0.3);
-    // Les plus petits fichiers d'abord ; le Python s'installe en même temps.
+    // Smallest files first; the Python installs at the same time.
     assert_eq!(state(&bench, "Petit modèle"), ResourceState::Downloading { received: 3, total: 13 });
     assert_eq!(state(&bench, "Grand modèle"), ResourceState::Missing);
     assert_eq!(state(&bench, "Python privé"), ResourceState::Installing);
@@ -108,8 +108,8 @@ fn first_launch_shows_each_resource_state_until_they_are_ready() {
     for r in bench.greffier.resources() {
         assert_eq!(r.state, ResourceState::Ready, "{}", r.name);
     }
-    assert_eq!(bench.read(&app.0.join("modeles/grand.bin")), LARGE);
-    assert_eq!(bench.read(&app.0.join("modeles/petit/a.bin")), SMALL);
+    assert_eq!(bench.read(&app.0.join("models/grand.bin")), LARGE);
+    assert_eq!(bench.read(&app.0.join("models/petit/a.bin")), SMALL);
     assert_eq!(resource(&bench, "Grand modèle").size, 42);
 }
 
@@ -134,14 +134,14 @@ fn a_wrong_sha256_fails_the_resource_then_the_file_is_redownloaded() {
     assert!(message.contains("sha256"), "{message}");
     assert!(events.iter().any(|e| matches!(e, Event::InstallationFailed(m) if m.contains("Grand modèle"))), "{events:?}");
     assert_eq!(state(&bench, "Petit modèle"), ResourceState::Ready);
-    // Rien de faux ne reste sur le disque.
+    // Nothing wrong is left on disk.
     assert_eq!(resource(&bench, "Grand modèle").size, 0);
-    assert!(!app.0.join("modeles/grand.bin").exists());
+    assert!(!app.0.join("models/grand.bin").exists());
 
     let events = install_to_completion(&mut bench);
     assert!(events.contains(&Event::ResourcesInstalled), "{events:?}");
     assert_eq!(state(&bench, "Grand modèle"), ResourceState::Ready);
-    assert_eq!(bench.read(&app.0.join("modeles/grand.bin")), LARGE);
+    assert_eq!(bench.read(&app.0.join("models/grand.bin")), LARGE);
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn an_interrupted_download_resumes_where_it_stopped_at_next_launch() {
         assert!(matches!(state(&bench, "Grand modèle"), ResourceState::Failed(m) if m.contains("reprendra")));
     }
 
-    // L'app est relancée : le téléchargement est vu comme interrompu, et reprend à 20 octets.
+    // The app is relaunched: the download is seen as interrupted, and resumes at 20 bytes.
     let mut bench = bench_on(&app.0, tools());
     assert_eq!(state(&bench, "Grand modèle"), ResourceState::Interrupted { received: 20, total: 42 });
     assert_eq!(state(&bench, "Petit modèle"), ResourceState::Ready);
@@ -164,7 +164,7 @@ fn an_interrupted_download_resumes_where_it_stopped_at_next_launch() {
 
     install_to_completion(&mut bench);
     assert_eq!(state(&bench, "Grand modèle"), ResourceState::Ready);
-    assert_eq!(bench.read(&app.0.join("modeles/grand.bin")), LARGE);
+    assert_eq!(bench.read(&app.0.join("models/grand.bin")), LARGE);
 }
 
 #[test]

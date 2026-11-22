@@ -1,7 +1,7 @@
-//! L'onglet Locuteurs : chaque locuteur détecté avec le nom proposé par l'agent du bilan, sa
-//! justification et son temps de parole. On confirme le nom proposé, on le corrige (champ libre
-//! ou un nom du lexique), on fusionne deux locuteurs qui sont la même voix et on défait une
-//! fusion. Le cœur écrit les noms et les fusions dans la fiche et régénère la transcription.
+//! The Speakers tab: each detected speaker with the name proposed by the summary agent, its
+//! justification and its speaking time. Confirm the proposed name, correct it (free field or a
+//! name from the lexicon), merge two speakers that are the same voice, and undo a merge. The core
+//! writes the names and merges into the sheet and regenerates the transcription.
 
 use rune::{El, TextEdit, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Kit, TextInput};
@@ -11,16 +11,16 @@ use greffier_core::{Command, Meeting};
 use crate::ui::{self, dot, glyph, muted, spk_color};
 use crate::App;
 
-/// Ce qu'on est en train de faire sur un locuteur.
+/// What is being done to a speaker.
 pub struct Picking {
     pub speaker: usize,
     pub mode: Mode,
 }
 
 pub enum Mode {
-    /// Corriger le nom : un champ libre et les noms connus.
+    /// Correct the name: a free field and the known names.
     Name { edit: Box<TextEdit>, error: Option<String> },
-    /// Choisir l'autre locuteur, qui est la même voix.
+    /// Choose the other speaker, who is the same voice.
     Fusion,
 }
 
@@ -28,13 +28,13 @@ impl Picking {
     fn edit(&mut self) -> &mut TextEdit {
         match &mut self.mode {
             Mode::Name { edit, .. } => edit,
-            Mode::Fusion => unreachable!("le champ du nom n'existe qu'en correction"),
+            Mode::Fusion => unreachable!("the name field only exists while correcting"),
         }
     }
 }
 
 impl App {
-    /// Ouvre (ou referme) la correction du nom, prérempli avec le nom actuel ou proposé.
+    /// Opens (or closes) the name correction, prefilled with the current or proposed name.
     pub fn start_naming(&mut self, speaker: usize) {
         if matches!(&self.picking, Some(Picking { speaker: l, mode: Mode::Name { .. } }) if *l == speaker) {
             self.picking = None;
@@ -53,7 +53,7 @@ impl App {
         };
     }
 
-    /// Donne ce nom au locuteur ; un refus (nom vide) reste affiché sous le champ.
+    /// Gives this name to the speaker; a refusal (empty name) stays shown under the field.
     pub fn name_speaker(&mut self, speaker: usize, name: String) {
         let Some(id) = self.meeting().map(|m| m.id) else { return };
         match self.try_command(Command::NameSpeaker { meeting: id, speaker, name }) {
@@ -76,8 +76,8 @@ impl App {
     }
 }
 
-/// Les noms à proposer en un clic : ceux du lexique, puis ceux déjà donnés ou proposés dans la
-/// réunion, sans doublon.
+/// The names offered in one click: the lexicon's, then those already given or proposed in the
+/// meeting, without duplicates.
 fn known_names(s: &App, m: &Meeting) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     let meeting = m.speakers.iter().flat_map(|l| l.name.iter().chain(&l.proposal)).cloned();
@@ -139,7 +139,7 @@ fn card(s: &App, m: &Meeting, si: usize, k: &Kit) -> El {
             .child(if spk.name.is_some() { glyph(&ui::CHECK, 13.0, k.c.success.icon) } else { el() }),
     );
 
-    // Ce que l'agent propose, et pourquoi.
+    // What the agent proposes, and why.
     let why = match (&spk.name, &spk.proposal) {
         (Some(n), Some(p)) if n != p => Some(format!("Proposé par l'IA : « {p} ». {}", spk.justification)),
         _ if !spk.justification.is_empty() => Some(spk.justification.clone()),
@@ -182,7 +182,7 @@ fn card(s: &App, m: &Meeting, si: usize, k: &Kit) -> El {
     if let Some(Picking { mode: Mode::Name { edit, error }, .. }) = s.picking.as_ref().filter(|_| naming) {
         let input = TextInput::new(edit)
             .width(None)
-            .on_edit(|s: &mut App| s.picking.as_mut().expect("correction du nom ouverte").edit())
+            .on_edit(|s: &mut App| s.picking.as_mut().expect("name correction open").edit())
             .on_submit(|s: &mut App, _| s.confirm_naming())
             .build(k)
             .key(format!("spk{si}-name"))

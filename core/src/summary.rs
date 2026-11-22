@@ -1,10 +1,10 @@
-//! Le bilan est du Markdown écrit par l'agent à partir du prompt du bilan. Greffier ne stocke
-//! que ce texte. Il en tire ce dont il a besoin : les sujets (chapitres de la timeline), les
-//! décisions (◆), le résumé, les actions, et rend les horodatages « (0:44:12) » cliquables.
+//! The summary is Markdown written by the agent from the summary prompt. Greffier stores only
+//! this text. It derives what it needs from it: the topics (chapters of the timeline), the
+//! decisions (◆), the brief, the actions, and makes the "(0:44:12)" timestamps clickable.
 
 use crate::meeting::{Decision, Topic};
 
-/// Lit « h:mm:ss » au début de `s`. Renvoie les secondes et la longueur lue.
+/// Reads "h:mm:ss" at the start of `s`. Returns the seconds and the length read.
 fn read_timestamp(s: &str) -> Option<(f64, usize)> {
     let b = s.as_bytes();
     let mut i = 0;
@@ -24,7 +24,7 @@ fn read_timestamp(s: &str) -> Option<(f64, usize)> {
     Some((h * 3600.0 + m * 60.0 + sec, i + 6))
 }
 
-/// Tous les « (h:mm:ss) » d'une ligne : (position de la parenthèse ouvrante, longueur, secondes).
+/// All the "(h:mm:ss)" of a line: (position of the opening parenthesis, length, seconds).
 fn timestamps(line: &str) -> Vec<(usize, usize, f64)> {
     let mut out = Vec::new();
     for (i, _) in line.match_indices('(') {
@@ -37,7 +37,7 @@ fn timestamps(line: &str) -> Vec<(usize, usize, f64)> {
     out
 }
 
-/// Le premier « (h:mm:ss) » d'une ligne, en secondes.
+/// The first "(h:mm:ss)" of a line, in seconds.
 pub(crate) fn first_timestamp(line: &str) -> Option<f64> {
     timestamps(line).first().map(|h| h.2)
 }
@@ -46,7 +46,7 @@ fn clean(s: &str) -> String {
     s.replace("**", "").trim().to_string()
 }
 
-/// Les lignes d'une section `## Titre` (jusqu'au prochain `## `).
+/// The lines of a `## Title` section (up to the next `## `).
 fn section<'a>(md: &'a str, title: &str) -> impl Iterator<Item = &'a str> {
     let mut inside = false;
     md.lines().filter(move |l| {
@@ -63,7 +63,7 @@ fn is_checkbox(line: &str) -> bool {
     t.starts_with("- [ ]") || t.starts_with("- [x]") || t.starts_with("- [X]")
 }
 
-/// Les sujets : les `### Titre (h:mm:ss)` de « Sujets abordés ».
+/// The topics: the `### Title (h:mm:ss)` headings of "Sujets abordés".
 pub fn topics(md: &str) -> Vec<Topic> {
     let mut v: Vec<Topic> = section(md, "Sujets")
         .filter_map(|l| {
@@ -76,7 +76,7 @@ pub fn topics(md: &str) -> Vec<Topic> {
     v
 }
 
-/// Les décisions : les puces horodatées de « Décisions ».
+/// The decisions: the timestamped bullets of "Décisions".
 pub fn decisions(md: &str) -> Vec<Decision> {
     section(md, "Décisions")
         .filter_map(|l| {
@@ -88,17 +88,17 @@ pub fn decisions(md: &str) -> Vec<Decision> {
         .collect()
 }
 
-/// Les actions : les cases `- [ ]` de la section « Actions ».
+/// The actions: the `- [ ]` checkboxes of the "Actions" section.
 pub fn actions(md: &str) -> Vec<String> {
     section(md, "Actions").filter(|l| is_checkbox(l)).map(|l| clean(&l.trim_start()[5..])).collect()
 }
 
-/// Le premier paragraphe de « En bref ».
+/// The first paragraph of "En bref".
 pub fn brief(md: &str) -> String {
     section(md, "En bref").map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
-/// Ce qu'il manque au bilan pour que l'interface s'en serve, ou rien.
+/// What the summary lacks for the interface to use it, or nothing.
 pub fn missing_parts(md: &str) -> Option<String> {
     let mut missing = Vec::new();
     if topics(md).is_empty() {
@@ -113,7 +113,7 @@ pub fn missing_parts(md: &str) -> Option<String> {
     (!missing.is_empty()).then(|| format!("Le bilan n'a pas de {}.", missing.join(", ni de ")))
 }
 
-/// Rend les horodatages cliquables : « (0:44:12) » devient un lien `t:2652`.
+/// Makes the timestamps clickable: "(0:44:12)" becomes a `t:2652` link.
 pub fn with_playback_links(md: &str) -> String {
     let mut out = String::with_capacity(md.len() + 256);
     for line in md.lines() {
@@ -130,7 +130,7 @@ pub fn with_playback_links(md: &str) -> String {
     out
 }
 
-/// La position, en octets, du caractère entre les crochets de la `index`-ième case `- [ ]`.
+/// The position, in bytes, of the character between the brackets of the `index`-th `- [ ]` checkbox.
 pub fn checkbox_position(md: &str, index: usize) -> Option<usize> {
     let mut start = 0;
     let mut n = 0;
@@ -146,13 +146,13 @@ pub fn checkbox_position(md: &str, index: usize) -> Option<usize> {
     None
 }
 
-/// Le nombre de cases `- [ ]` du Markdown.
+/// The number of `- [ ]` checkboxes in the Markdown.
 pub fn checkbox_count(md: &str) -> usize {
     md.lines().filter(|l| is_checkbox(l)).count()
 }
 
-/// Coche ou décoche la `index`-ième case `- [ ]` du Markdown, sans toucher au reste. Vrai si
-/// la case a changé.
+/// Ticks or unticks the Markdown's `index`-th `- [ ]` checkbox, without touching the rest. True
+/// if the checkbox changed.
 pub fn tick(md: &mut String, index: usize, done: bool) -> bool {
     let Some(p) = checkbox_position(md, index) else { return false };
     if (md.as_bytes()[p] != b' ') == done {
@@ -162,7 +162,7 @@ pub fn tick(md: &mut String, index: usize, done: bool) -> bool {
     true
 }
 
-/// L'index de la case dont le `[` est à `offset` dans `src`.
+/// The index of the checkbox whose `[` is at `offset` in `src`.
 pub fn checkbox_index(src: &str, offset: usize) -> usize {
     src[..offset.min(src.len())].lines().filter(|l| is_checkbox(l)).count()
 }

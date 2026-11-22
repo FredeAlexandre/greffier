@@ -1,10 +1,10 @@
-//! Transcrit un média avec les vrais moteurs et les modèles du dossier de l'app, sans fenêtre :
-//! la vérification à la main de l'adaptateur whisper.cpp.
+//! Transcribes a medium with the real engines and the app folder's models, without a window: the
+//! hands-on check of the whisper.cpp adapter.
 //!
-//!     cargo run --release -p greffier-moteurs --example transcrire -- <média> [--vocabulaire "…"] [--wav sortie.wav]
+//!     cargo run --release -p greffier-engines --example transcribe -- <media> [--vocabulary "…"] [--wav output.wav]
 //!
-//! Affiche les mots (début, fin, confiance) puis la durée de chaque partie. `--wav` écrit l'audio
-//! converti par AVFoundation, pour le comparer à celui de ffmpeg.
+//! Prints the words (start, end, confidence) then the duration of each part. `--wav` writes the
+//! audio converted by AVFoundation, to compare it with ffmpeg's.
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -20,17 +20,17 @@ fn main() {
     let mut wav = None;
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--vocabulaire" => vocabulary = args.next().expect("--vocabulaire <phrase>"),
-            "--wav" => wav = Some(PathBuf::from(args.next().expect("--wav <fichier>"))),
+            "--vocabulary" => vocabulary = args.next().expect("--vocabulary <sentence>"),
+            "--wav" => wav = Some(PathBuf::from(args.next().expect("--wav <file>"))),
             _ => media = Some(PathBuf::from(a)),
         }
     }
-    let media = media.expect("usage : transcrire <média> [--vocabulaire \"…\"] [--wav sortie.wav]");
+    let media = media.expect("usage: transcribe <media> [--vocabulary \"…\"] [--wav output.wav]");
     let stop = AtomicBool::new(false);
 
     let t = Instant::now();
-    let samples = audio::mixing(&media, &stop, |_| {}).unwrap_or_else(|e| panic!("audio : {e}"));
-    eprintln!("audio : {:.2} s de son en {:.2} s", samples.len() as f64 / audio::SAMPLE_RATE as f64, t.elapsed().as_secs_f64());
+    let samples = audio::mixing(&media, &stop, |_| {}).unwrap_or_else(|e| panic!("audio: {e}"));
+    eprintln!("audio: {:.2} s of sound in {:.2} s", samples.len() as f64 / audio::SAMPLE_RATE as f64, t.elapsed().as_secs_f64());
     if let Some(w) = wav {
         audio::write_wav(&w, &samples).expect("wav");
     }
@@ -47,8 +47,8 @@ fn main() {
                 last = pc;
             }
         })
-        .unwrap_or_else(|e| panic!("transcription : {e}"));
-    eprintln!("transcription : {} mots en {:.1} s", words.len(), t.elapsed().as_secs_f64());
+        .unwrap_or_else(|e| panic!("transcription: {e}"));
+    eprintln!("transcription: {} words in {:.1} s", words.len(), t.elapsed().as_secs_f64());
     for m in &words {
         println!("{:8.2} {:8.2} {:.3} {}", m.start, m.end, m.confidence, m.text);
     }

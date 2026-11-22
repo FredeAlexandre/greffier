@@ -1,26 +1,25 @@
-//! Les fichiers font foi : le cœur relit ce qui a changé dans le dossier de réunions hors de
-//! l'app (un bilan retouché dans un éditeur, une transcription corrigée par un agent, un dossier
-//! supprimé ou ajouté dans le Finder).
+//! The files are authoritative: the core reads back what changed in the meetings folder outside
+//! the app (a summary edited in an editor, a transcription corrected by an agent, a folder
+//! deleted or added in the Finder).
 //!
-//! Le cœur retient l'empreinte de chaque dossier de réunion ([`Empreintes`]) et la met à jour à
-//! chacune de ses propres écritures ([`Greffier::noter`]) : relire le dossier juste après une
-//! écriture de Greffier ne recharge rien, il n'y a pas de boucle.
+//! The core remembers the fingerprint of each meeting folder ([`Fingerprints`]) and updates it on
+//! each of its own writes ([`Greffier::note_end`]): reading the folder right after a write by
+//! Greffier reloads nothing, there is no loop.
 
 use crate::folder::watch::Fingerprints;
 use crate::{Event, Greffier, Role, Status};
 
 impl Greffier {
-    /// Compare le dossier de réunions à ce que le cœur en connaît et relit ce qui a changé hors
-    /// de l'app. L'interface l'appelle quand le système signale un changement dans le dossier.
+    /// Compares the meetings folder with what the core knows of it and reads back what changed
+    /// outside the app. The interface calls it when the system reports a change in the folder.
     ///
-    /// - Un fichier modifié, ajouté ou supprimé dans le dossier d'une réunion : elle est relue
-    ///   (son statut est gardé si elle est dans la file).
-    /// - Un dossier de réunion nouveau : la réunion apparaît ; un dossier disparu : elle
-    ///   disparaît (et sort de la file).
-    /// - Le dossier de l'enregistrement en cours et celui de la réunion en cours de traitement
-    ///   sont laissés de côté : ils seront relus après.
-    /// - Un dossier connu qui n'est la réunion de personne (illisible au dernier passage) est
-    ///   laissé de côté.
+    /// - A file modified, added or deleted in a meeting's folder: the meeting is read back (its
+    ///   status is kept if it is in the queue).
+    /// - A new meeting folder: the meeting appears; a vanished folder: the meeting disappears
+    ///   (and leaves the queue).
+    /// - The folder of the recording in progress and that of the meeting being processed are
+    ///   left aside: they will be read back later.
+    /// - A known folder that is nobody's meeting (unreadable at the last pass) is left aside.
     pub fn rescan_folder(&mut self) -> Vec<Event> {
         let mut ev = Vec::new();
         let names = self.folder.names();
@@ -56,8 +55,8 @@ impl Greffier {
                         ev.push(Event::MeetingReviewed(id));
                     }
                 }
-                // Une réunion supprimée dans l'app est partie à la corbeille et sortie des
-                // empreintes : un dossier connu sans réunion est un dossier illisible.
+                // A meeting deleted in the app went to the trash and left the fingerprints: a
+                // known folder without a meeting is an unreadable folder.
                 None if known => {}
                 None => {
                     if let Some(r) = self.folder.read(&name, self.next_id) {
@@ -73,8 +72,8 @@ impl Greffier {
         ev
     }
 
-    /// Note l'empreinte des fichiers que Greffier vient d'écrire dans le dossier `nom` (tout le
-    /// dossier s'il ne le connaissait pas encore, comme celui d'un enregistrement qui s'arrête).
+    /// Records the fingerprint of the files Greffier has just written in folder `name` (the whole
+    /// folder if it did not know it yet, like that of a recording that stops).
     pub(crate) fn note_end(&mut self, name: &str, roles: &[Role]) {
         let current: Fingerprints = self.folder.fingerprints(name);
         let known = self.fingerprints.entry(name.to_string()).or_insert_with(|| current.clone());
@@ -90,7 +89,7 @@ impl Greffier {
         self.meetings.iter().find(|r| r.folder_name == name).map(|r| r.id)
     }
 
-    /// Remplace une réunion par sa version relue. Dans la file, elle garde son statut.
+    /// Replaces a meeting with its read-back version. In the queue, it keeps its status.
     fn replace(&mut self, mut reread: crate::Meeting) {
         let Some(i) = self.meetings.iter().position(|r| r.id == reread.id) else { return };
         if self.meetings[i].status.in_queue() {
@@ -103,7 +102,7 @@ impl Greffier {
         }
     }
 
-    /// Ajoute une réunion apparue, à sa place (les plus récentes d'abord).
+    /// Adds a meeting that appeared, in its place (most recent first).
     fn add(&mut self, r: crate::Meeting) {
         let i = self.meetings.iter().position(|x| x.start < r.start).unwrap_or(self.meetings.len());
         let id = r.id;
@@ -111,8 +110,8 @@ impl Greffier {
         self.enqueue_if_pending(id);
     }
 
-    /// Une fiche en attente ou en cours (écrite hors de l'app) remet la réunion dans la file,
-    /// comme au lancement.
+    /// A pending or running sheet (written outside the app) puts the meeting back in the queue,
+    /// as at launch.
     fn enqueue_if_pending(&mut self, id: crate::MeetingId) {
         if let Some(Status::Pending(stage) | Status::Running { stage, .. }) = self.meeting(id).map(|r| r.status.clone()) {
             self.file.retain(|x| *x != id);
