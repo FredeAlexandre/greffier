@@ -3,41 +3,41 @@
 use rune::{El, ScrollSpec, Span, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit, TextInput};
 
-use greffier_coeur::recherche::Endroit;
-use greffier_coeur::{IdReunion, Reunion, Statut};
+use greffier_core::search::Location;
+use greffier_core::{MeetingId, Meeting, Status};
 
 use crate::ui::{self, glyph, muted, tnum};
 use crate::{App, Tab, meeting};
 
 pub struct Hit {
-    pub id: IdReunion,
+    pub id: MeetingId,
     pub at: Option<f64>,
     pub kind: &'static str,
     pub meeting: String,
     pub who: Option<String>,
     pub snippet: String,
     pub range: Option<(usize, usize)>,
-    pub endroit: Option<Endroit>,
+    pub location: Option<Location>,
 }
 
 /// Les résultats de la recherche du cœur ; sans requête, les réunions récentes.
 pub fn hits(s: &App) -> Vec<Hit> {
     let q = s.search.as_ref().map(|e| e.text.trim().to_string()).unwrap_or_default();
-    let when = |m: &Reunion| format!("{} · {}", m.debut.jour_court(), m.debut.heure_courte());
+    let when = |m: &Meeting| format!("{} · {}", m.start.short_day(), m.start.short_time());
     if q.is_empty() {
-        return s.core.reunions().iter().take(6).map(|m| Hit { id: m.id, at: None, kind: "Réunion", meeting: when(m), who: None, snippet: meeting::display_title(m, false), range: None, endroit: None }).collect();
+        return s.core.meetings().iter().take(6).map(|m| Hit { id: m.id, at: None, kind: "Réunion", meeting: when(m), who: None, snippet: meeting::display_title(m, false), range: None, location: None }).collect();
     }
     s.core
-        .rechercher(&q)
+        .search(&q)
         .into_iter()
         .filter_map(|r| {
-            let m = s.core.reunion(r.reunion)?;
-            let (kind, meeting) = match r.endroit {
-                Endroit::Titre => ("Réunion", when(m)),
-                Endroit::Bilan => ("Bilan", format!("{} · {}", meeting::display_title(m, false), when(m))),
-                Endroit::Transcription => ("Transcription", format!("{} · {}", meeting::display_title(m, false), when(m))),
+            let m = s.core.meeting(r.meeting)?;
+            let (kind, meeting) = match r.location {
+                Location::Title => ("Réunion", when(m)),
+                Location::Summary => ("Bilan", format!("{} · {}", meeting::display_title(m, false), when(m))),
+                Location::Transcription => ("Transcription", format!("{} · {}", meeting::display_title(m, false), when(m))),
             };
-            Some(Hit { id: r.reunion, at: r.instant, kind, meeting, who: r.locuteur, snippet: r.extrait, range: Some(r.surligne), endroit: Some(r.endroit) })
+            Some(Hit { id: r.meeting, at: r.instant, kind, meeting, who: r.speaker, snippet: r.excerpt, range: Some(r.highlight), location: Some(r.location) })
         })
         .collect()
 }
@@ -49,9 +49,9 @@ fn go(s: &mut App, h: &Hit) {
     if let Some(t) = h.at {
         s.seek(t);
     }
-    match h.endroit {
-        Some(Endroit::Transcription) => s.tab = Tab::Transcript,
-        Some(Endroit::Bilan) => s.tab = Tab::Summary,
+    match h.location {
+        Some(Location::Transcription) => s.tab = Tab::Transcript,
+        Some(Location::Summary) => s.tab = Tab::Summary,
         _ => {}
     }
     s.search = None;
@@ -141,15 +141,15 @@ pub fn search(s: &App, k: &Kit, layer: &mut Vec<El>) {
 
 pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(id) = s.confirm_delete else { return };
-    let Some(m) = s.core.reunion(id) else { return };
-    let title = if m.statut == Statut::Terminee { m.titre.clone() } else { format!("Réunion du {}", m.debut.jour_court()) };
+    let Some(m) = s.core.meeting(id) else { return };
+    let title = if m.status == Status::Done { m.title.clone() } else { format!("Réunion du {}", m.start.short_day()) };
     let body = col()
         .w_full()
         .px(16.0)
         .pb(16.0)
         .gap(14.0)
         .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(title).font(k.ty.ui_medium).color(k.c.text_base).truncate().min_w(0.0)))
-        .child(muted(k, format!("La vidéo ({}), la transcription et le bilan iront à la corbeille du Mac.", ui::dur(m.duree))))
+        .child(muted(k, format!("La vidéo ({}), la transcription et le bilan iront à la corbeille du Mac.", ui::dur(m.duration))))
         .child(
             row().w_full().gap(8.0).justify_end()
                 .child(Button::new("Annuler").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.confirm_delete = None).build(k).key("del-cancel"))
@@ -159,22 +159,22 @@ pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
 }
 
 /// À l'arrêt d'un enregistrement de moins d'une minute : sans doute un faux départ.
-pub fn enregistrement_court(s: &App, k: &Kit, layer: &mut Vec<El>) {
-    let Some(id) = s.enregistrement_court else { return };
-    let Some(m) = s.core.reunion(id) else { return };
+pub fn short_recording(s: &App, k: &Kit, layer: &mut Vec<El>) {
+    let Some(id) = s.short_recording else { return };
+    let Some(m) = s.core.meeting(id) else { return };
     let body = col()
         .w_full()
         .px(16.0)
         .pb(16.0)
         .gap(14.0)
-        .child(muted(k, format!("L'enregistrement n'a duré que {}. Si c'était un faux départ, il peut partir à la corbeille du Mac.", ui::dur(m.duree))))
+        .child(muted(k, format!("L'enregistrement n'a duré que {}. Si c'était un faux départ, il peut partir à la corbeille du Mac.", ui::dur(m.duration))))
         .child(
             row().w_full().gap(8.0).justify_end()
-                .child(Button::new("Garder").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.enregistrement_court = None).build(k).key("short-keep"))
+                .child(Button::new("Garder").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.short_recording = None).build(k).key("short-keep"))
                 .child(Button::new("Supprimer").variant(ButtonVariant::Danger).on_press(move |s: &mut App| {
-                    s.enregistrement_court = None;
+                    s.short_recording = None;
                     s.delete(id);
                 }).build(k).key("short-delete")),
         );
-    Dialog::new("short-recording", "Supprimer cet enregistrement ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.enregistrement_court = None).child(body).build(k, layer);
+    Dialog::new("short-recording", "Supprimer cet enregistrement ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.short_recording = None).child(body).build(k, layer);
 }

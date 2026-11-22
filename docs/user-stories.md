@@ -34,7 +34,7 @@ formats de fichiers, ni sa structure de notes, ni ses outils. On n'en reprend qu
 | Indiquer le nombre de locuteurs | Champ `personnes` de la fiche. | Champ dans la réunion avant le traitement. |
 | Transcrire | Bouton Meta Bind → `reunion traiter --fond` : ffmpeg, whisper.cpp large-v3 et pyannote en parallèle, attribution des mots aux locuteurs. | Même pipeline, embarqué ; rien installé dans l'environnement de l'utilisateur. |
 | Relecture | `claude -p` en deux passes avec réécoute des passages douteux ; le lexique s'enrichit. | Identique, via la CLI `claude`. |
-| Bilan | `claude -p` avec `prompt-bilan.md` ; l'agent écrit le bilan lui-même. | Identique. |
+| Bilan | `claude -p` avec `prompt-summary.md` ; l'agent écrit le bilan lui-même. | Identique. |
 | Suivre | Encadré « État » dans la fiche Markdown, notification, file d'attente. | Dans l'interface. |
 | Revoir | Plugin Media One : vidéo et transcription cliquable. | Lecteur, timeline par sujet et par locuteur, bilan cliquable. |
 | Retrouver | `Index des réunions.md` régénéré par code. | Liste, vue d'ensemble, recherche ⌘K. |
@@ -54,7 +54,7 @@ un long fichier.
 
 ## Les fichiers d'une réunion
 
-Les fichiers font foi ([ADR 0001](adr/0001-fichiers-ouverts-dans-un-dossier-de-reunions.md)). Chaque
+Les fichiers font foi ([ADR 0001](adr/0001-fichiers-ouverts-dans-un-meetings-folder.md)). Chaque
 réunion est un dossier du **dossier de réunions** ; chaque fichier reprend la date et le titre, pour
 pouvoir être partagé seul sans être renommé :
 

@@ -7,21 +7,21 @@
 //! [`greffier_coeur::adaptateurs::Capture`]. Elle n'est pas testée par la suite automatique
 //! (spec : les vrais adaptateurs sont couverts par l'usage), sauf le mixage, qui est du calcul.
 
-pub mod mixage;
+pub mod mixing;
 
 #[cfg(target_os = "macos")]
-mod corbeille;
+mod trash;
 #[cfg(target_os = "macos")]
-pub mod ecrivain;
+pub mod writer;
 #[cfg(target_os = "macos")]
 mod mac;
 #[cfg(target_os = "macos")]
-mod mise_en_mp4;
+mod mp4_muxing;
 #[cfg(target_os = "macos")]
-pub mod veille;
+pub mod sleep;
 #[cfg(target_os = "macos")]
-pub use corbeille::CorbeilleDuMac;
+pub use trash::MacTrash;
 #[cfg(target_os = "macos")]
-pub use mise_en_mp4::MiseEnMp4DuMac;
+pub use mp4_muxing::MacMp4Muxer;
 #[cfg(target_os = "macos")]
-pub use mac::{CaptureDuMac, taille_des_images};
+pub use mac::{MacCapture, image_size};

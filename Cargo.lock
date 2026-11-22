@@ -1136,11 +1136,11 @@ name = "greffier"
 version = "0.0.1"
 dependencies = [
  "chrono",
- "greffier-barre",
  "greffier-capture",
- "greffier-coeur",
- "greffier-moteurs",
- "greffier-outils",
+ "greffier-core",
+ "greffier-engines",
+ "greffier-menubar",
+ "greffier-tools",
  "notify",
  "rune",
  "rune-kit",
@@ -1149,21 +1149,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "greffier-barre"
-version = "0.0.1"
-dependencies = [
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
-]
-
-[[package]]
 name = "greffier-capture"
 version = "0.0.1"
 dependencies = [
  "block2 0.6.2",
  "dispatch2",
- "greffier-coeur",
+ "greffier-core",
  "objc2 0.6.5",
  "objc2-av-foundation",
  "objc2-core-audio-types",
@@ -1176,7 +1167,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "greffier-coeur"
+name = "greffier-core"
 version = "0.0.1"
 dependencies = [
  "serde",
@@ -1185,12 +1176,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "greffier-moteurs"
+name = "greffier-engines"
 version = "0.0.1"
 dependencies = [
  "cc",
- "greffier-coeur",
- "greffier-outils",
+ "greffier-core",
+ "greffier-tools",
  "objc2 0.6.5",
  "objc2-av-foundation",
  "objc2-core-media",
@@ -1199,10 +1190,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "greffier-outils"
+name = "greffier-menubar"
 version = "0.0.1"
 dependencies = [
- "greffier-coeur",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "greffier-tools"
+version = "0.0.1"
+dependencies = [
+ "greffier-core",
  "serde",
  "serde_json",
  "sha2",

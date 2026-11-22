@@ -5,15 +5,15 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "coeur", "outils", "moteurs", "capture", "barre"]
-default-members = [".", "coeur", "outils", "moteurs", "capture", "barre"]
+members = [".", "core", "tools", "engines", "capture", "menubar"]
+default-members = [".", "core", "tools", "engines", "capture", "menubar"]
 
 [dependencies]
-greffier-coeur = { path = "coeur" }
-greffier-outils = { path = "outils" }
-greffier-moteurs = { path = "moteurs" }
+greffier-core = { path = "core" }
+greffier-tools = { path = "tools" }
+greffier-engines = { path = "engines" }
 greffier-capture = { path = "capture" }
-greffier-barre = { path = "barre" }
+greffier-menubar = { path = "menubar" }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rune = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d326e323e971b86b8f105d3df53d4642c", features = ["tooling", "native-file-dialog"] }
@@ -32,6 +32,6 @@ accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "b39e1b4d32
 [profile.dev.package."*"]
 opt-level = 2
 
-# Le rééchantillonnage de l'audio (une heure de réunion = des milliards de multiplications).
-[profile.dev.package.greffier-moteurs]
+# Audio resampling (one hour of meeting = billions of multiplications).
+[profile.dev.package.greffier-engines]
 opt-level = 3

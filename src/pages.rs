@@ -4,11 +4,11 @@
 use rune::{El, ScrollSpec, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Keybind, Kit, Progress, ShortcutRecorder, Spinner, Switch};
 
-use greffier_coeur::adaptateurs::{Autorisation, EtatDAutorisation, EtatDeRessource, Ressource};
-use greffier_coeur::{Commande, Statut, bilan};
+use greffier_core::adapters::{Permission, PermissionState, ResourceState, Resource};
+use greffier_core::{Command, Status, summary};
 
 use crate::ui::{self, card, check_row, eyebrow, glyph, heading, muted, red, title_style, tnum};
-use crate::{App, Page, reglages};
+use crate::{App, Page, settings};
 
 fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
     col()
@@ -72,13 +72,13 @@ fn stat(k: &Kit, value: String, label: &str) -> El {
 
 /// Premier lancement : où ranger les réunions.
 pub fn welcome(s: &App, k: &Kit) -> El {
-    let proposed = reglages::dossier_propose();
+    let proposed = settings::suggested_folder();
     let mut body = card(k)
         .gap(14.0)
         .padding(24.0)
         .child(heading(k, "Où ranger tes réunions ?"))
         .child(muted(k, "Chaque réunion devient un dossier de fichiers lisibles hors de l'app : la fiche, le bilan, la transcription et l'enregistrement. Toi et tes agents IA pouvez les ouvrir directement."))
-        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text(reglages::afficher(&proposed)).font(k.ty.ui_medium).color(k.c.text_base)))
+        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text(settings::display(&proposed)).font(k.ty.ui_medium).color(k.c.text_base)))
         .child(
             row().gap(8.0).pt(4.0)
                 .child(Button::new("Utiliser ce dossier").variant(ButtonVariant::Submit).on_press(move |s: &mut App| s.use_folder(proposed.clone())).build(k).key("use-proposed"))
@@ -92,12 +92,12 @@ pub fn welcome(s: &App, k: &Kit) -> El {
 }
 
 pub fn overview(s: &App, k: &Kit) -> El {
-    let meetings = s.core.reunions();
-    let total: f64 = meetings.iter().map(|m| m.duree).sum();
-    let sans_bilan = meetings.iter().filter(|m| m.statut != Statut::Terminee).count();
-    let doubts: usize = meetings.iter().map(|m| m.passages_en_attente()).sum();
-    let since = match meetings.iter().map(|m| m.debut).min() {
-        Some(d) => format!("réunions depuis le {:02}/{:02}", d.jour, d.mois),
+    let meetings = s.core.meetings();
+    let total: f64 = meetings.iter().map(|m| m.duration).sum();
+    let without_summary = meetings.iter().filter(|m| m.status != Status::Done).count();
+    let doubts: usize = meetings.iter().map(|m| m.pending_passages()).sum();
+    let since = match meetings.iter().map(|m| m.start).min() {
+        Some(d) => format!("réunions depuis le {:02}/{:02}", d.day, d.month),
         None => "réunions".to_string(),
     };
     let stats = row()
@@ -105,16 +105,16 @@ pub fn overview(s: &App, k: &Kit) -> El {
         .gap(10.0)
         .child(stat(k, format!("{}", meetings.len()), &since))
         .child(stat(k, ui::dur(total), "enregistrées"))
-        .child(stat(k, format!("{sans_bilan}"), "en attente de bilan"))
+        .child(stat(k, format!("{without_summary}"), "en attente de bilan"))
         .child(stat(k, format!("{doubts}"), "passages à vérifier"));
 
     // Temps en réunion par jour, les 12 derniers jours qui en ont.
-    let mut days: Vec<(greffier_coeur::DateHeure, f64)> = Vec::new();
+    let mut days: Vec<(greffier_core::DateTime, f64)> = Vec::new();
     for m in meetings {
-        let day = greffier_coeur::DateHeure { heure: 0, minute: 0, ..m.debut };
+        let day = greffier_core::DateTime { hour: 0, minute: 0, ..m.start };
         match days.iter_mut().find(|(d, _)| *d == day) {
-            Some((_, mins)) => *mins += m.duree / 60.0,
-            None => days.push((day, m.duree / 60.0)),
+            Some((_, mins)) => *mins += m.duration / 60.0,
+            None => days.push((day, m.duration / 60.0)),
         }
     }
     days.sort_by(|a, b| b.0.cmp(&a.0));
@@ -127,7 +127,7 @@ pub fn overview(s: &App, k: &Kit) -> El {
     for (i, (d, mins)) in days.iter().enumerate() {
         chart = chart.child(
             row().key(format!("day{i}")).w_full().gap(10.0).center_y()
-                .child(text(d.jour_court()).font(tnum(k.ty.small)).color(k.c.text_muted).w(78.0))
+                .child(text(d.short_day()).font(tnum(k.ty.small)).color(k.c.text_muted).w(78.0))
                 .child(row().grow(1.0).min_w(0.0).h(10.0).child(el().grow((*mins as f32).max(0.0001)).h(10.0).radius(3.0).fill(k.c.text_accent.alpha(0.75))).child(el().grow((max - *mins).max(0.0001) as f32)))
                 .child(text(ui::dur(*mins * 60.0)).font(tnum(k.ty.small)).color(k.c.text_faint).w(52.0).align(rune::Align::End)),
         );
@@ -136,16 +136,16 @@ pub fn overview(s: &App, k: &Kit) -> El {
     let mut recent = card(k).child(heading(k, "Dernières réunions"));
     for m in meetings.iter().take(5) {
         let id = m.id;
-        let title = if m.statut == Statut::Terminee { crate::meeting::display_title(m, false) } else { format!("{} · {}", crate::meeting::display_title(m, false), ui::status(&m.statut).to_lowercase()) };
-        let summary = if !m.resume.is_empty() { m.resume.clone() } else if m.bilan.is_empty() { "Pas encore de bilan.".into() } else { bilan::en_bref(&m.bilan).replace("**", "") };
+        let title = if m.status == Status::Done { crate::meeting::display_title(m, false) } else { format!("{} · {}", crate::meeting::display_title(m, false), ui::status(&m.status).to_lowercase()) };
+        let summary = if !m.brief.is_empty() { m.brief.clone() } else if m.summary.is_empty() { "Pas encore de bilan.".into() } else { summary::brief(&m.summary).replace("**", "") };
         recent = recent.child(
             row().key(format!("rec{id}")).w_full().gap(12.0).center_y().px(8.0).py(8.0).radius(k.radius.md).hover(k.c.hover).cursor(rune::Cursor::Pointer)
                 .on_press(move |s: &mut App| s.open(id))
-                .child(col().w(78.0).child(text(m.debut.jour_court()).font(k.ty.small_medium).color(k.c.text_base)).child(text(m.debut.heure_courte()).font(k.ty.text_xsmall).color(k.c.text_faint)))
+                .child(col().w(78.0).child(text(m.start.short_day()).font(k.ty.small_medium).color(k.c.text_base)).child(text(m.start.short_time()).font(k.ty.text_xsmall).color(k.c.text_faint)))
                 .child(col().grow(1.0).min_w(0.0).gap(2.0)
                     .child(text(title).font(k.ty.ui_medium).color(k.c.text_base).truncate())
                     .child(text(summary).font(k.ty.small).color(k.c.text_muted).truncate()))
-                .child(text(ui::dur(m.duree)).font(tnum(k.ty.small)).color(k.c.text_faint)),
+                .child(text(ui::dur(m.duration)).font(tnum(k.ty.small)).color(k.c.text_faint)),
         );
     }
 
@@ -177,23 +177,23 @@ fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64,
 
 /// Les autorisations de macOS dont les sources ont besoin, avec de quoi les demander.
 pub fn permissions(s: &App, k: &Kit) -> El {
-    let etats = s.core.autorisations();
+    let states = s.core.permissions();
     let mut c = card(k).key("permissions").child(heading(k, "Autorisations de macOS"));
-    for a in Autorisation::TOUTES {
-        let etat = etats.etat(a);
-        let detail = match etat {
-            EtatDAutorisation::Accordee => "accordée".to_string(),
-            EtatDAutorisation::ADemander => "pas encore demandée".to_string(),
-            EtatDAutorisation::Refusee => format!("refusée : Réglages Système › Confidentialité et sécurité › {}", a.rubrique()),
+    for a in Permission::ALL {
+        let state = states.state(a);
+        let detail = match state {
+            PermissionState::Granted => "accordée".to_string(),
+            PermissionState::ToRequest => "pas encore demandée".to_string(),
+            PermissionState::Denied => format!("refusée : Réglages Système › Confidentialité et sécurité › {}", a.section()),
         };
-        let mut line = row().key(format!("perm-{}", a.nom())).w_full().gap(8.0).center_y().child(check_row(k, etat == EtatDAutorisation::Accordee, a.nom(), &detail).grow(1.0).min_w(0.0));
-        if etat != EtatDAutorisation::Accordee {
-            let label = if etat == EtatDAutorisation::ADemander { "Autoriser" } else { "Ouvrir les Réglages" };
-            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.command(Commande::DemanderAutorisation(a))).build(k));
+        let mut line = row().key(format!("perm-{}", a.name())).w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, a.name(), &detail).grow(1.0).min_w(0.0));
+        if state != PermissionState::Granted {
+            let label = if state == PermissionState::ToRequest { "Autoriser" } else { "Ouvrir les Réglages" };
+            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.command(Command::RequestPermission(a))).build(k));
         }
         c = c.child(line);
     }
-    if etats.ecran != EtatDAutorisation::Accordee {
+    if states.screen != PermissionState::Granted {
         c = c.child(muted(k, "Le son du Mac passe par l'autorisation de l'écran. Une fois accordée, macOS demande de relancer Greffier."));
     }
     c
@@ -201,10 +201,10 @@ pub fn permissions(s: &App, k: &Kit) -> El {
 
 /// Les autorisations en une ligne, pour les vérifications.
 fn permissions_summary(s: &App, k: &Kit) -> El {
-    let etats = s.core.autorisations();
-    let manquantes: Vec<&str> = Autorisation::TOUTES.into_iter().filter(|a| etats.etat(*a) != EtatDAutorisation::Accordee).map(Autorisation::nom).collect();
-    let detail = if manquantes.is_empty() { "écran, micro, son du système".to_string() } else { format!("manquantes : {}", manquantes.join(", ").to_lowercase()) };
-    check_row(k, manquantes.is_empty(), "Autorisations macOS", &detail)
+    let states = s.core.permissions();
+    let missing: Vec<&str> = Permission::ALL.into_iter().filter(|a| states.state(*a) != PermissionState::Granted).map(Permission::name).collect();
+    let detail = if missing.is_empty() { "écran, micro, son du système".to_string() } else { format!("manquantes : {}", missing.join(", ").to_lowercase()) };
+    check_row(k, missing.is_empty(), "Autorisations macOS", &detail)
 }
 
 /// Les touches du raccourci global d'enregistrement (« ⇧⌘R »).
@@ -213,7 +213,7 @@ pub fn shortcut_caps(s: &App) -> Vec<String> {
 }
 
 pub fn recording(s: &App, k: &Kit) -> El {
-    let Some(r) = s.core.enregistrement() else {
+    let Some(r) = s.core.recording() else {
         let caps = shortcut_caps(s);
         let mut start = card(k).gap(14.0).items_center().padding(32.0)
             .child(glyph(&ui::RECORD, 34.0, red()))
@@ -232,7 +232,7 @@ pub fn recording(s: &App, k: &Kit) -> El {
             .child(src(0, "Écran"))
             .child(src(1, "Son du Mac"))
             .child(src(2, "Micro"))
-            .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+            .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
         let subtitle = if caps.is_empty() { "Un clic sur le bouton.".to_string() } else { format!("Un clic ou {}, de n'importe où.", caps.concat()) };
         let body = col().w_full().gap(16.0).child(start).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(sources)).child(col().grow(1.0).min_w(0.0).child(permissions(s, k))));
         return page("recording", "Enregistrer", &subtitle, k, body);
@@ -249,9 +249,9 @@ pub fn recording(s: &App, k: &Kit) -> El {
                 .child(text("Enregistrement en cours").font(k.ty.body_medium).color(k.c.text_base).grow(1.0))
                 .child(text(if s.folder.is_none() { "démo : temps accéléré ×20" } else { "" }).font(k.ty.text_xsmall).color(k.c.text_faint)),
         )
-        .child(text(ui::ts(r.duree)).key("rec-timer").font(tnum(title_style(56.0))).color(k.c.text_base))
-        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", phase, 0.0, r.sources.micro.then_some(r.niveaux.micro)))
-        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", phase, 2.1, r.sources.son_du_mac.then_some(r.niveaux.son_du_mac)))
+        .child(text(ui::ts(r.duration)).key("rec-timer").font(tnum(title_style(56.0))).color(k.c.text_base))
+        .child(meter(k, "lvl-mic", &ui::MIC, "Micro", phase, 0.0, r.sources.micro.then_some(r.levels.micro)))
+        .child(meter(k, "lvl-sys", &ui::SOUND, "Son du Mac", phase, 2.1, r.sources.mac_audio.then_some(r.levels.mac_audio)))
         .child(
             row().w_full().gap(10.0).pt(4.0)
                 .child(Button::new("Arrêter l'enregistrement").icon(&ui::STOP).variant(ButtonVariant::Danger).on_press(|s: &mut App| s.stop_recording()).build(k).key("stop"))
@@ -259,29 +259,29 @@ pub fn recording(s: &App, k: &Kit) -> El {
         );
 
     let mut markers = card(k).child(heading(k, "Repères"));
-    if r.reperes.is_empty() {
+    if r.markers.is_empty() {
         markers = markers.child(muted(k, "⌘M pendant la réunion pour marquer un moment important. Il apparaîtra sur la timeline."));
     }
-    for (i, t) in r.reperes.iter().enumerate() {
+    for (i, t) in r.markers.iter().enumerate() {
         markers = markers.child(row().key(format!("rm{i}")).gap(8.0).center_y().child(glyph(&ui::FLAG, 13.0, k.c.text_accent)).child(text(format!("Repère {} · {}", i + 1, ui::ts(*t))).font(tnum(k.ty.small_medium)).color(k.c.text_base)));
     }
 
-    let people = r.nombre_de_locuteurs;
+    let people = r.speaker_count;
     let setup = card(k)
         .child(heading(k, "Sources et réglages"))
-        .child(check_row(k, r.sources.ecran, "Écran", if r.sources.ecran { "Écran principal · 30 i/s" } else { "coupé" }))
-        .child(check_row(k, r.sources.son_du_mac, "Son du Mac", if r.sources.son_du_mac { "Meet, Zoom, toute l'audio du système" } else { "coupé" }))
+        .child(check_row(k, r.sources.screen, "Écran", if r.sources.screen { "Écran principal · 30 i/s" } else { "coupé" }))
+        .child(check_row(k, r.sources.mac_audio, "Son du Mac", if r.sources.mac_audio { "Meet, Zoom, toute l'audio du système" } else { "coupé" }))
         .child(check_row(k, r.sources.micro, "Micro", if r.sources.micro { "Micro par défaut du Mac" } else { "coupé" }))
         .child(
             row().w_full().gap(10.0).center_y().pt(6.0)
                 .child(text("Nombre de locuteurs").font(k.ty.small_medium).color(k.c.text_muted).grow(1.0))
                 .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(match people { Some(n) if n > 2 => Some(n - 1), _ => None }))).build(k))
+                    .on_press(move |s: &mut App| s.command(Command::RecordingSpeakerCount(match people { Some(n) if n > 2 => Some(n - 1), _ => None }))).build(k))
                 .child(text(people.map_or("Détecté".to_string(), |n| format!("{n}"))).font(k.ty.ui_medium).color(k.c.text_base).w(64.0).align(rune::Align::Center))
                 .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteursEnregistres(Some(people.map_or(2, |n| (n + 1).min(12)))))).build(k)),
+                    .on_press(move |s: &mut App| s.command(Command::RecordingSpeakerCount(Some(people.map_or(2, |n| (n + 1).min(12)))))).build(k)),
         )
-        .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
 
     page("recording", "Enregistrement", "La réunion arrive dans la liste à l'arrêt, avec son traitement.", k,
         col().w_full().gap(16.0).child(timer).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(setup)).child(col().grow(1.0).min_w(0.0).child(markers))))
@@ -304,13 +304,13 @@ pub fn settings(s: &App, k: &Kit) -> El {
                 .child(col().gap(2.0).child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "De n'importe où, pendant l'enregistrement seulement.")))
                 .child(Keybind::new(&["⌘", "M"]).build(k)),
         )
-        .child(Switch::new(s.core.reglages().traiter_a_l_arret).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
     let folder = match (&s.folder, s.needs_folder) {
-        (Some(d), _) => reglages::afficher(d),
+        (Some(d), _) => settings::display(d),
         (None, true) => "Pas encore choisi".to_string(),
         (None, false) => "Données d'exemple du prototype".to_string(),
     };
-    let busy = s.core.occupe();
+    let busy = s.core.busy();
     let mut storage = card(k)
         .child(heading(k, "Dossier de réunions"))
         .child(
@@ -325,20 +325,20 @@ pub fn settings(s: &App, k: &Kit) -> El {
     if let Some(e) = &s.folder_error {
         storage = storage.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
     }
-    let l = &s.lexique;
+    let l = &s.lexicon;
     let ai = card(k)
         .child(heading(k, "IA"))
         .child(
             row().w_full().gap(10.0).center_y()
-                .child(check_row(k, true, "Lexique", &format!("{} erreurs connues, {} personnes, {} mots justes", l.erreurs_connues, l.personnes, l.mots_justes)).grow(1.0).min_w(0.0))
+                .child(check_row(k, true, "Lexique", &format!("{} erreurs connues, {} personnes, {} mots justes", l.known_errors, l.people, l.correct_words)).grow(1.0).min_w(0.0))
                 .child(Button::new("Ouvrir le lexique").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                     .help("Le lexique s'ouvre dans l'éditeur de texte par défaut ; la relecture y ajoute les erreurs qu'elle apprend")
-                    .on_press(|s: &mut App| s.open_lexique()).build(k).key("open-lexique")),
+                    .on_press(|s: &mut App| s.open_lexicon()).build(k).key("open-lexique")),
         )
-        .child(check_row(k, true, "Prompt de relecture", "prompt-relecture.md"))
-        .child(check_row(k, true, "Prompt du bilan", "prompt-bilan.md"));
-    let dossiers = &s.core.reglages().dossiers_de_contexte;
-    let mut contexte = card(k)
+        .child(check_row(k, true, "Prompt de relecture", "prompt-review.md"))
+        .child(check_row(k, true, "Prompt du bilan", "prompt-summary.md"));
+    let folders = &s.core.settings().context_folders;
+    let mut context = card(k)
         .key("context")
         .child(
             row().w_full().justify_between().center_y()
@@ -348,29 +348,29 @@ pub fn settings(s: &App, k: &Kit) -> El {
                     .on_press_tx(|s: &mut App, tx| s.pick_context_folder(tx)).build(k).key("add-context")),
         )
         .child(muted(k, "L'agent du bilan démarre dans le dossier de réunions et peut y relire les bilans précédents. Les dossiers ajoutés ici (notes, projets, documents) lui sont ouverts en plus, pour comprendre un nom ou un projet."));
-    if dossiers.is_empty() {
-        contexte = contexte.child(text("Aucun pour l'instant.").font(k.ty.small).color(k.c.text_faint));
+    if folders.is_empty() {
+        context = context.child(text("Aucun pour l'instant.").font(k.ty.small).color(k.c.text_faint));
     }
-    for (i, d) in dossiers.iter().enumerate() {
-        contexte = contexte.child(
+    for (i, d) in folders.iter().enumerate() {
+        context = context.child(
             row().key(format!("context{i}")).w_full().gap(8.0).center_y()
                 .child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted))
-                .child(text(reglages::afficher(d)).font(k.ty.ui).color(k.c.text_base).truncate_middle().grow(1.0).min_w(0.0))
+                .child(text(settings::display(d)).font(k.ty.ui).color(k.c.text_base).truncate_middle().grow(1.0).min_w(0.0))
                 .child(Button::new("Retirer").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(move |s: &mut App| s.remove_context_folder(i)).build(k).key(format!("remove-context{i}"))),
         );
     }
-    let ressources = s.core.ressources();
-    let place: u64 = ressources.iter().map(|r| r.taille).sum();
+    let resources = s.core.resources();
+    let disk_usage: u64 = resources.iter().map(|r| r.size).sum();
     let mut health = card(k)
-        .child(row().w_full().justify_between().center_y().child(heading(k, "Vérifications")).child(eyebrow(k, &format!("ressources : {}", ui::octets(place)))))
+        .child(row().w_full().justify_between().center_y().child(heading(k, "Vérifications")).child(eyebrow(k, &format!("ressources : {}", ui::bytes(disk_usage)))))
         .child(permissions_summary(s, k));
-    for r in ressources {
-        let detail = match &r.etat {
-            EtatDeRessource::Prete if r.taille > 0 => format!("{} · {}", ui::octets(r.taille), r.detail),
-            EtatDeRessource::Prete => r.detail.clone(),
-            etat => format!("{} · {}", etat_de_ressource(r, etat), r.detail),
+    for r in resources {
+        let detail = match &r.state {
+            ResourceState::Ready if r.size > 0 => format!("{} · {}", ui::bytes(r.size), r.detail),
+            ResourceState::Ready => r.detail.clone(),
+            state => format!("{} · {}", resource_state(r, state), r.detail),
         };
-        health = health.child(check_row(k, r.etat == EtatDeRessource::Prete, &r.nom, &detail));
+        health = health.child(check_row(k, r.state == ResourceState::Ready, &r.name, &detail));
     }
     let health = health
         .child(check_row(k, true, "Espace disque", "811 Go libres"))
@@ -379,105 +379,105 @@ pub fn settings(s: &App, k: &Kit) -> El {
                 .child(muted(k, "Modèles, Python privé et lexique sont dans ~/Library/Application Support/Greffier.").grow(1.0).min_w(0.0))
                 .child(Button::new("Ressources…").variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|s: &mut App| s.page = Page::Installation).build(k).key("open-resources")),
         );
-    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(contexte).child(health))
+    page("settings", "Réglages", "Sources, raccourcis, stockage et santé de l'installation.", k, col().w_full().gap(16.0).child(rec).child(permissions(s, k)).child(storage).child(ai).child(context).child(health))
 }
 
 /// L'état d'une ressource en quelques mots.
-fn etat_de_ressource(r: &Ressource, etat: &EtatDeRessource) -> String {
-    let pourcent = |recu: u64, total: u64| (recu as f64 / total.max(1) as f64 * 100.0).floor() as u64;
-    match etat {
-        EtatDeRessource::Absente if r.total > 0 => format!("À télécharger · {}", ui::octets(r.total)),
-        EtatDeRessource::Absente if r.aide.is_some() => "Introuvable".into(),
-        EtatDeRessource::Absente => "À installer".into(),
-        EtatDeRessource::Interrompue { recu, total } => format!("Interrompu à {} % · reprendra", pourcent(*recu, *total)),
-        EtatDeRessource::EnTelechargement { recu, total } => format!("{} sur {} · {} %", ui::octets(*recu), ui::octets(*total), pourcent(*recu, *total)),
-        EtatDeRessource::EnVerification => "Vérification…".into(),
-        EtatDeRessource::EnInstallation => "Installation…".into(),
-        EtatDeRessource::Prete if r.taille > 0 => format!("Prête · {}", ui::octets(r.taille)),
-        EtatDeRessource::Prete => "Prête".into(),
-        EtatDeRessource::Echec(_) => "Échec".into(),
+fn resource_state(r: &Resource, state: &ResourceState) -> String {
+    let percent = |received: u64, total: u64| (received as f64 / total.max(1) as f64 * 100.0).floor() as u64;
+    match state {
+        ResourceState::Missing if r.total > 0 => format!("À télécharger · {}", ui::bytes(r.total)),
+        ResourceState::Missing if r.help.is_some() => "Introuvable".into(),
+        ResourceState::Missing => "À installer".into(),
+        ResourceState::Interrupted { received, total } => format!("Interrompu à {} % · reprendra", percent(*received, *total)),
+        ResourceState::Downloading { received, total } => format!("{} sur {} · {} %", ui::bytes(*received), ui::bytes(*total), percent(*received, *total)),
+        ResourceState::Verifying => "Vérification…".into(),
+        ResourceState::Installing => "Installation…".into(),
+        ResourceState::Ready if r.size > 0 => format!("Prête · {}", ui::bytes(r.size)),
+        ResourceState::Ready => "Prête".into(),
+        ResourceState::Failed(_) => "Échec".into(),
     }
 }
 
-fn ligne_de_ressource(k: &Kit, i: usize, r: &Ressource) -> El {
-    let marque = match &r.etat {
-        EtatDeRessource::Prete => glyph(&ui::CHECK, 15.0, k.c.success.icon),
-        EtatDeRessource::EnTelechargement { .. } | EtatDeRessource::EnVerification | EtatDeRessource::EnInstallation => Spinner::new().size(14.0).build(k),
-        EtatDeRessource::Echec(_) => glyph(&ui::FLAG, 15.0, k.c.danger.icon),
+fn resource_row(k: &Kit, i: usize, r: &Resource) -> El {
+    let badge = match &r.state {
+        ResourceState::Ready => glyph(&ui::CHECK, 15.0, k.c.success.icon),
+        ResourceState::Downloading { .. } | ResourceState::Verifying | ResourceState::Installing => Spinner::new().size(14.0).build(k),
+        ResourceState::Failed(_) => glyph(&ui::FLAG, 15.0, k.c.danger.icon),
         _ => glyph(&ui::FLAG, 15.0, k.c.warning.icon),
     };
-    let couleur_etat = match &r.etat {
-        EtatDeRessource::Prete => k.c.success.fg,
-        EtatDeRessource::Echec(_) => k.c.danger.fg,
+    let state_color = match &r.state {
+        ResourceState::Ready => k.c.success.fg,
+        ResourceState::Failed(_) => k.c.danger.fg,
         _ => k.c.text_muted,
     };
-    let mut texte = col()
+    let mut body = col()
         .grow(1.0)
         .min_w(0.0)
         .gap(3.0)
         .child(
             row().w_full().gap(10.0).center_y()
-                .child(text(r.nom.clone()).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
-                .child(text(etat_de_ressource(r, &r.etat)).font(tnum(k.ty.small_medium)).color(couleur_etat)),
+                .child(text(r.name.clone()).font(k.ty.ui_medium).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
+                .child(text(resource_state(r, &r.state)).font(tnum(k.ty.small_medium)).color(state_color)),
         )
         .child(text(r.detail.clone()).font(k.ty.small).color(k.c.text_faint).truncate());
-    if let EtatDeRessource::EnTelechargement { recu, total } | EtatDeRessource::Interrompue { recu, total } = r.etat {
-        texte = texte.child(el().h(2.0)).child(Progress::new(Some((recu as f64 / total.max(1) as f64) as f32)).build(k));
+    if let ResourceState::Downloading { received, total } | ResourceState::Interrupted { received, total } = r.state {
+        body = body.child(el().h(2.0)).child(Progress::new(Some((received as f64 / total.max(1) as f64) as f32)).build(k));
     }
-    if let EtatDeRessource::Echec(m) = &r.etat {
-        texte = texte.child(text(m.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
+    if let ResourceState::Failed(m) = &r.state {
+        body = body.child(text(m.clone()).font(k.ty.small).color(k.c.danger.fg).wrap());
     }
-    if let Some(aide) = &r.aide {
-        texte = texte.child(muted(k, aide.clone()));
+    if let Some(help) = &r.help {
+        body = body.child(muted(k, help.clone()));
     }
-    row().key(format!("res{i}")).w_full().gap(12.0).items_start().py(6.0).child(el().w(18.0).pt(2.0).child(marque)).child(texte)
+    row().key(format!("res{i}")).w_full().gap(12.0).items_start().py(6.0).child(el().w(18.0).pt(2.0).child(badge)).child(body)
 }
 
 /// Le premier lancement : l'état de chaque ressource, la progression des téléchargements et le
 /// résultat des vérifications.
 pub fn installation(s: &App, k: &Kit) -> El {
-    let ressources = s.core.ressources();
-    let en_cours = s.core.installation_en_cours();
-    let pretes = ressources.iter().all(|r| r.etat == EtatDeRessource::Prete);
-    let a_installer = ressources.iter().any(|r| !matches!(r.etat, EtatDeRessource::Prete) && (r.total > 0 || r.aide.is_none()));
-    let a_telecharger: u64 = ressources
+    let resources = s.core.resources();
+    let running = s.core.installing();
+    let ready = resources.iter().all(|r| r.state == ResourceState::Ready);
+    let to_install = resources.iter().any(|r| !matches!(r.state, ResourceState::Ready) && (r.total > 0 || r.help.is_none()));
+    let to_download: u64 = resources
         .iter()
-        .map(|r| match r.etat {
-            EtatDeRessource::Prete => 0,
-            EtatDeRessource::Interrompue { recu, total } | EtatDeRessource::EnTelechargement { recu, total } => total.saturating_sub(recu),
+        .map(|r| match r.state {
+            ResourceState::Ready => 0,
+            ResourceState::Interrupted { received, total } | ResourceState::Downloading { received, total } => total.saturating_sub(received),
             _ => r.total,
         })
         .sum();
 
-    let mut liste = card(k).gap(4.0).child(heading(k, "Ressources"));
-    for (i, r) in ressources.iter().enumerate() {
-        liste = liste.child(ligne_de_ressource(k, i, r));
+    let mut list = card(k).gap(4.0).child(heading(k, "Ressources"));
+    for (i, r) in resources.iter().enumerate() {
+        list = list.child(resource_row(k, i, r));
     }
 
-    let installer = if en_cours {
+    let install = if running {
         Button::new("Installation en cours…").variant(ButtonVariant::Loading).disabled(true).build(k)
-    } else if a_installer {
-        let libelle = if a_telecharger > 0 { format!("Tout installer ({} à télécharger)", ui::octets(a_telecharger)) } else { "Tout installer".into() };
-        Button::new(libelle).variant(ButtonVariant::Submit).on_press(|s: &mut App| s.command(Commande::InstallerRessources)).build(k)
+    } else if to_install {
+        let label = if to_download > 0 { format!("Tout installer ({} à télécharger)", ui::bytes(to_download)) } else { "Tout installer".into() };
+        Button::new(label).variant(ButtonVariant::Submit).on_press(|s: &mut App| s.command(Command::InstallResources)).build(k)
     } else {
         Button::new("Commencer").variant(ButtonVariant::Submit).on_press(|s: &mut App| s.page = Page::Overview).build(k)
     };
-    let mut actions = row().w_full().gap(10.0).center_y().child(installer.key("install"));
-    if !en_cours {
+    let mut actions = row().w_full().gap(10.0).center_y().child(install.key("install"));
+    if !running {
         actions = actions.child(
             Button::new("Vérifier à nouveau")
                 .variant(ButtonVariant::Outline)
-                .disabled(s.core.verification_en_cours())
-                .on_press(|s: &mut App| s.command(Commande::VerifierRessources))
+                .disabled(s.core.verification_in_progress())
+                .on_press(|s: &mut App| s.command(Command::CheckResources))
                 .build(k)
                 .key("verify"),
         );
     }
-    if !pretes {
+    if !ready {
         actions = actions.child(el().grow(1.0)).child(Button::new("Plus tard").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.page = Page::Overview).build(k).key("later"));
     }
 
-    let dossier = card(k)
+    let folder = card(k)
         .child(heading(k, "Où vont les fichiers"))
         .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 14.0, k.c.icon_muted)).child(text("~/Library/Application Support/Greffier").font(k.ty.ui).color(k.c.text_base)))
         .child(muted(k, "Les modèles, le Python privé de pyannote et le lexique y sont rangés. Rien n'est installé ailleurs sur ce Mac, ni dans le terminal, ni dans ~/.cache. Un téléchargement interrompu reprend là où il s'est arrêté ; chaque fichier est vérifié par son sha256."));
@@ -487,6 +487,6 @@ pub fn installation(s: &App, k: &Kit) -> El {
         "Bienvenue dans Greffier",
         "Avant la première réunion, Greffier installe ses modèles et son environnement de calcul.",
         k,
-        col().w_full().gap(16.0).child(liste).child(actions).child(dossier),
+        col().w_full().gap(16.0).child(list).child(actions).child(folder),
     )
 }

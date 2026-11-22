@@ -1,0 +1,11 @@
+[package]
+name = "greffier-core"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Greffier's core: the state of meetings, the processing queue and the commands, without a UI."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

@@ -28,96 +28,96 @@ use objc2_core_video::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
 use objc2_foundation::{NSArray, NSError};
 use objc2_screen_capture_kit::{SCContentFilter, SCDisplay, SCShareableContent, SCStream, SCStreamConfiguration, SCStreamDelegate, SCStreamOutput, SCStreamOutputType};
 
-use greffier_coeur::adaptateurs::{Autorisation, Autorisations, Capture, DemandeDeCapture, EtatDAutorisation, EtatDeCapture, Niveaux};
+use greffier_core::adapters::{Permission, Permissions, Capture, CaptureRequest, PermissionState, CaptureState, Levels};
 
-use crate::ecrivain::{Ecrivain, IMAGES_PAR_SECONDE};
-use crate::mixage::{self, Mixeur, Source, FREQUENCE};
+use crate::writer::{Writer, FRAMES_PER_SECOND};
+use crate::mixing::{self, Mixer, Source, SAMPLE_RATE};
 
 /// Taille maximale des images : 1080p (spec #1).
-pub const LARGEUR_MAX: usize = 1920;
-pub const HAUTEUR_MAX: usize = 1080;
+pub const MAX_WIDTH: usize = 1920;
+pub const MAX_HEIGHT: usize = 1080;
 
 /// La taille des images : celle de l'écran en pixels, réduite pour tenir dans
 /// [`LARGEUR_MAX`] × [`HAUTEUR_MAX`] en gardant ses proportions, en dimensions paires.
-pub fn taille_des_images(largeur: usize, hauteur: usize) -> (usize, usize) {
-    let echelle = (LARGEUR_MAX as f64 / largeur as f64).min(HAUTEUR_MAX as f64 / hauteur as f64).min(1.0);
-    let (l, h) = ((largeur as f64 * echelle).round() as usize, (hauteur as f64 * echelle).round() as usize);
-    (l.min(LARGEUR_MAX) & !1, h.min(HAUTEUR_MAX) & !1)
+pub fn image_size(width: usize, height: usize) -> (usize, usize) {
+    let timescale = (MAX_WIDTH as f64 / width as f64).min(MAX_HEIGHT as f64 / height as f64).min(1.0);
+    let (l, h) = ((width as f64 * timescale).round() as usize, (height as f64 * timescale).round() as usize);
+    (l.min(MAX_WIDTH) & !1, h.min(MAX_HEIGHT) & !1)
 }
 
 /// Ce que la file de capture partage avec le fil de l'app.
-struct Partage {
-    etat: Mutex<Etat>,
+struct Shared {
+    state: Mutex<State>,
     /// Secondes écrites (f64 en bits), niveaux (f32 en bits).
-    duree: AtomicU64,
+    duration: AtomicU64,
     micro: AtomicU32,
-    son_du_mac: AtomicU32,
-    ecran: bool,
+    mac_audio: AtomicU32,
+    screen: bool,
     /// Au moins une source audio.
     audio: bool,
-    arrete: AtomicBool,
+    stopped: AtomicBool,
     /// Le flux s'est arrêté de lui-même : l'erreur est dans `Etat::erreur`.
-    en_panne: AtomicBool,
+    broken: AtomicBool,
 }
 
-struct Etat {
-    ecrivain: Option<Ecrivain>,
-    mixeur: Mixeur,
+struct State {
+    writer: Option<Writer>,
+    mixer: Mixer,
     /// La dernière erreur du flux (arrêt imprévu).
-    erreur: Option<String>,
+    error: Option<String>,
 }
 
-impl Partage {
-    fn recevoir(&self, tampon: &CMSampleBuffer, genre: SCStreamOutputType) {
-        if self.arrete.load(Ordering::Relaxed) {
+impl Shared {
+    fn receive(&self, buffer: &CMSampleBuffer, kind: SCStreamOutputType) {
+        if self.stopped.load(Ordering::Relaxed) {
             return;
         }
         unsafe {
-            if !tampon.is_valid() || !tampon.data_is_ready() {
+            if !buffer.is_valid() || !buffer.data_is_ready() {
                 return;
             }
         }
-        let t = unsafe { tampon.presentation_time_stamp() };
+        let t = unsafe { buffer.presentation_time_stamp() };
         if trace() {
-            let n = unsafe { tampon.num_samples() };
-            let image = genre == SCStreamOutputType::Screen && unsafe { tampon.image_buffer() }.is_some();
-            eprintln!("capture {:?} t={:.4} echelle={} n={n} image={image}", genre.0, unsafe { t.seconds() }, t.timescale);
+            let n = unsafe { buffer.num_samples() };
+            let image = kind == SCStreamOutputType::Screen && unsafe { buffer.image_buffer() }.is_some();
+            eprintln!("capture {:?} t={:.4} echelle={} n={n} image={image}", kind.0, unsafe { t.seconds() }, t.timescale);
         }
-        let Ok(mut etat) = self.etat.lock() else { return };
-        let etat = &mut *etat;
-        let Some(ecrivain) = etat.ecrivain.as_mut() else { return };
-        if genre == SCStreamOutputType::Screen {
-            if !self.ecran {
+        let Ok(mut state) = self.state.lock() else { return };
+        let state = &mut *state;
+        let Some(writer) = state.writer.as_mut() else { return };
+        if kind == SCStreamOutputType::Screen {
+            if !self.screen {
                 return;
             }
             // Les images « au repos » (l'écran n'a pas changé) n'ont pas de pixels.
-            if let Some(image) = unsafe { tampon.image_buffer() } {
-                ecrivain.image(&image, t);
+            if let Some(image) = unsafe { buffer.image_buffer() } {
+                writer.image(&image, t);
             }
             // Sans source audio, les pistes audio sont du silence, au rythme des images.
             if !self.audio {
-                let origine = ecrivain.origine(t);
-                let fin = unsafe { t.subtract(origine).seconds() } * f64::from(FREQUENCE);
-                if let Some(bloc) = etat.mixeur.silence_jusqu_a(fin.max(0.0) as u64) {
-                    ecrivain.audio(&bloc);
+                let origin = writer.origin(t);
+                let end = unsafe { t.subtract(origin).seconds() } * f64::from(SAMPLE_RATE);
+                if let Some(block) = state.mixer.silence_until(end.max(0.0) as u64) {
+                    writer.audio(&block);
                 }
             }
         } else {
-            let source = if genre == SCStreamOutputType::Microphone { Source::Micro } else { Source::SonDuMac };
-            let Some(trames) = pcm_stereo_48k(tampon) else { return };
-            let niveau = mixage::niveau(&trames);
-            let jauge = if source == Source::Micro { &self.micro } else { &self.son_du_mac };
+            let source = if kind == SCStreamOutputType::Microphone { Source::Micro } else { Source::MacAudio };
+            let Some(frames) = pcm_stereo_48k(buffer) else { return };
+            let level = mixing::level(&frames);
+            let gauge = if source == Source::Micro { &self.micro } else { &self.mac_audio };
             // Montée immédiate, descente douce.
-            let avant = f32::from_bits(jauge.load(Ordering::Relaxed));
-            jauge.store(niveau.max(avant * 0.8).to_bits(), Ordering::Relaxed);
-            let origine = ecrivain.origine(t);
-            let debut = unsafe { t.subtract(origine).seconds() } * f64::from(FREQUENCE);
-            etat.mixeur.pousser(source, debut.round() as i64, &trames);
-            while let Some(bloc) = etat.mixeur.tirer() {
-                ecrivain.audio(&bloc);
+            let before = f32::from_bits(gauge.load(Ordering::Relaxed));
+            gauge.store(level.max(before * 0.8).to_bits(), Ordering::Relaxed);
+            let origin = writer.origin(t);
+            let start = unsafe { t.subtract(origin).seconds() } * f64::from(SAMPLE_RATE);
+            state.mixer.push(source, start.round() as i64, &frames);
+            while let Some(block) = state.mixer.pull() {
+                writer.audio(&block);
             }
         }
-        self.duree.store(ecrivain.duree().to_bits(), Ordering::Relaxed);
+        self.duration.store(writer.duration().to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -128,59 +128,59 @@ pub(crate) fn trace() -> bool {
 }
 
 /// Les échantillons d'un tampon audio, en stéréo entrelacée à 48 kHz.
-fn pcm_stereo_48k(tampon: &CMSampleBuffer) -> Option<Vec<f32>> {
+fn pcm_stereo_48k(buffer: &CMSampleBuffer) -> Option<Vec<f32>> {
     unsafe {
-        let format = tampon.format_description()?;
+        let format = buffer.format_description()?;
         let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(&format).as_ref()?;
         if asbd.mFormatID != kAudioFormatLinearPCM {
             return None;
         }
-        let flottant = asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0;
-        let separes = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0;
-        let canaux = asbd.mChannelsPerFrame.max(1) as usize;
+        let is_float = asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0;
+        let non_interleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0;
+        let channels = asbd.mChannelsPerFrame.max(1) as usize;
         let bits = asbd.mBitsPerChannel;
-        if !(flottant && bits == 32 || !flottant && bits == 16) {
+        if !(is_float && bits == 32 || !is_float && bits == 16) {
             return None;
         }
-        let mut taille = 0usize;
-        tampon.audio_buffer_list_with_retained_block_buffer(&mut taille, ptr::null_mut(), 0, None, None, 0, ptr::null_mut());
-        if taille == 0 {
+        let mut size = 0usize;
+        buffer.audio_buffer_list_with_retained_block_buffer(&mut size, ptr::null_mut(), 0, None, None, 0, ptr::null_mut());
+        if size == 0 {
             return None;
         }
         // Un AudioBufferList de longueur variable, aligné.
-        let mut place = vec![0u64; taille.div_ceil(8)];
-        let liste = place.as_mut_ptr() as *mut AudioBufferList;
-        let mut bloc: *mut CMBlockBuffer = ptr::null_mut();
+        let mut storage = vec![0u64; size.div_ceil(8)];
+        let list = storage.as_mut_ptr() as *mut AudioBufferList;
+        let mut block: *mut CMBlockBuffer = ptr::null_mut();
         // kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment
-        let s = tampon.audio_buffer_list_with_retained_block_buffer(ptr::null_mut(), liste, taille, None, None, 1, &mut bloc);
-        if s != 0 || bloc.is_null() {
+        let s = buffer.audio_buffer_list_with_retained_block_buffer(ptr::null_mut(), list, size, None, None, 1, &mut block);
+        if s != 0 || block.is_null() {
             return None;
         }
-        let _garde = CFRetained::from_raw(NonNull::new_unchecked(bloc));
-        let n = (*liste).mNumberBuffers as usize;
-        let tampons = std::slice::from_raw_parts((*liste).mBuffers.as_ptr(), n);
-        let lire = |b: &objc2_core_audio_types::AudioBuffer| -> Vec<f32> {
+        let _guard = CFRetained::from_raw(NonNull::new_unchecked(block));
+        let n = (*list).mNumberBuffers as usize;
+        let buffers = std::slice::from_raw_parts((*list).mBuffers.as_ptr(), n);
+        let read = |b: &objc2_core_audio_types::AudioBuffer| -> Vec<f32> {
             if b.mData.is_null() {
                 return Vec::new();
             }
-            if flottant {
+            if is_float {
                 std::slice::from_raw_parts(b.mData as *const f32, b.mDataByteSize as usize / 4).to_vec()
             } else {
                 std::slice::from_raw_parts(b.mData as *const i16, b.mDataByteSize as usize / 2).iter().map(|x| f32::from(*x) / 32768.0).collect()
             }
         };
-        let entrelace: Vec<f32>;
-        let canaux_lus;
-        if separes && n > 1 {
-            let plans: Vec<Vec<f32>> = tampons.iter().map(lire).collect();
-            let trames = plans.iter().map(Vec::len).min().unwrap_or(0);
-            canaux_lus = plans.len();
-            entrelace = (0..trames).flat_map(|i| plans.iter().map(move |p| p[i])).collect();
+        let interleaved: Vec<f32>;
+        let channels_read;
+        if non_interleaved && n > 1 {
+            let planes: Vec<Vec<f32>> = buffers.iter().map(read).collect();
+            let frames = planes.iter().map(Vec::len).min().unwrap_or(0);
+            channels_read = planes.len();
+            interleaved = (0..frames).flat_map(|i| planes.iter().map(move |p| p[i])).collect();
         } else {
-            entrelace = tampons.first().map(lire).unwrap_or_default();
-            canaux_lus = if separes { 1 } else { canaux };
+            interleaved = buffers.first().map(read).unwrap_or_default();
+            channels_read = if non_interleaved { 1 } else { channels };
         }
-        Some(mixage::en_stereo_48k(&entrelace, canaux_lus, asbd.mSampleRate))
+        Some(mixing::to_stereo_48k(&interleaved, channels_read, asbd.mSampleRate))
     }
 }
 
@@ -188,160 +188,160 @@ define_class!(
     // SAFETY : NSObject n'a pas d'exigence de sous-classe ; la classe ne surcharge pas dealloc.
     #[unsafe(super(NSObject))]
     #[name = "GreffierSortieDeCapture"]
-    #[ivars = Arc<Partage>]
-    struct Sortie;
+    #[ivars = Arc<Shared>]
+    struct Output;
 
-    unsafe impl NSObjectProtocol for Sortie {}
+    unsafe impl NSObjectProtocol for Output {}
 
-    unsafe impl SCStreamOutput for Sortie {
+    unsafe impl SCStreamOutput for Output {
         #[unsafe(method(stream:didOutputSampleBuffer:ofType:))]
-        fn recu(&self, _flux: &SCStream, tampon: &CMSampleBuffer, genre: SCStreamOutputType) {
-            self.ivars().recevoir(tampon, genre);
+        fn received(&self, _stream: &SCStream, buffer: &CMSampleBuffer, kind: SCStreamOutputType) {
+            self.ivars().receive(buffer, kind);
         }
     }
 
-    unsafe impl SCStreamDelegate for Sortie {
+    unsafe impl SCStreamDelegate for Output {
         #[unsafe(method(stream:didStopWithError:))]
-        fn arrete(&self, _flux: &SCStream, erreur: &NSError) {
-            if let Ok(mut e) = self.ivars().etat.lock() {
-                e.erreur = Some(erreur.localizedDescription().to_string());
+        fn stopped(&self, _stream: &SCStream, error: &NSError) {
+            if let Ok(mut e) = self.ivars().state.lock() {
+                e.error = Some(error.localizedDescription().to_string());
             }
-            self.ivars().en_panne.store(true, Ordering::Relaxed);
+            self.ivars().broken.store(true, Ordering::Relaxed);
         }
     }
 );
 
-impl Sortie {
-    fn new(partage: Arc<Partage>) -> Retained<Sortie> {
-        let this = Sortie::alloc().set_ivars(partage);
+impl Output {
+    fn new(shared: Arc<Shared>) -> Retained<Output> {
+        let this = Output::alloc().set_ivars(shared);
         unsafe { msg_send![super(this), init] }
     }
 }
 
-struct EnCours {
-    flux: Retained<SCStream>,
-    _sortie: Retained<Sortie>,
-    partage: Arc<Partage>,
-    file: DispatchRetained<DispatchQueue>,
+struct Running {
+    stream: Retained<SCStream>,
+    _output: Retained<Output>,
+    shared: Arc<Shared>,
+    queue: DispatchRetained<DispatchQueue>,
 }
 
 /// La vraie capture.
 #[derive(Default)]
-pub struct CaptureDuMac {
-    en_cours: Option<EnCours>,
+pub struct MacCapture {
+    running: Option<Running>,
     /// L'autorisation de l'écran a été demandée pendant ce lancement : si elle manque encore,
     /// c'est un refus (macOS ne pose la question qu'une fois).
-    ecran_demande: bool,
+    screen_requested: bool,
 }
 
-impl CaptureDuMac {
-    pub fn new() -> CaptureDuMac {
-        CaptureDuMac::default()
+impl MacCapture {
+    pub fn new() -> MacCapture {
+        MacCapture::default()
     }
 }
 
-fn attendre<T>(rx: mpsc::Receiver<T>, secondes: u64, quoi: &str) -> Result<T, String> {
-    rx.recv_timeout(Duration::from_secs(secondes)).map_err(|_| format!("ScreenCaptureKit ne répond pas ({quoi})"))
+fn wait<T>(rx: mpsc::Receiver<T>, seconds: u64, what: &str) -> Result<T, String> {
+    rx.recv_timeout(Duration::from_secs(seconds)).map_err(|_| format!("ScreenCaptureKit ne répond pas ({what})"))
 }
 
 /// Le contenu partageable (les écrans) ; échoue si l'enregistrement de l'écran n'est pas autorisé.
-fn contenu_partageable() -> Result<Retained<SCShareableContent>, String> {
+fn shareable_content() -> Result<Retained<SCShareableContent>, String> {
     let (tx, rx) = mpsc::channel();
-    let fini = RcBlock::new(move |contenu: *mut SCShareableContent, erreur: *mut NSError| {
-        let r = match unsafe { (Retained::retain(contenu), Retained::retain(erreur)) } {
+    let on_done = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
+        let r = match unsafe { (Retained::retain(content), Retained::retain(error)) } {
             (Some(c), _) => Ok(SendRetained(c)),
             (None, Some(e)) => Err(e.localizedDescription().to_string()),
             (None, None) => Err("aucun contenu partageable".into()),
         };
         let _ = tx.send(r);
     });
-    unsafe { SCShareableContent::getShareableContentWithCompletionHandler(&fini) };
-    attendre(rx, 10, "écrans")?.map(|c| c.0)
+    unsafe { SCShareableContent::getShareableContentWithCompletionHandler(&on_done) };
+    wait(rx, 10, "écrans")?.map(|c| c.0)
 }
 
 /// Fait passer un objet d'un fil à l'autre (le bloc de complétion → le fil de l'app).
 struct SendRetained<T>(Retained<T>);
 unsafe impl<T> Send for SendRetained<T> {}
 
-fn completion(appel: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>), quoi: &str) -> Result<(), String> {
+fn completion(call: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>), what: &str) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
-    let fini = RcBlock::new(move |erreur: *mut NSError| {
-        let _ = tx.send(unsafe { Retained::retain(erreur) }.map(|e| e.localizedDescription().to_string()));
+    let on_done = RcBlock::new(move |error: *mut NSError| {
+        let _ = tx.send(unsafe { Retained::retain(error) }.map(|e| e.localizedDescription().to_string()));
     });
-    appel(&fini);
-    match attendre(rx, 10, quoi)? {
+    call(&on_done);
+    match wait(rx, 10, what)? {
         None => Ok(()),
         Some(e) => Err(e),
     }
 }
 
-fn ouvrir_les_reglages(rubrique: &str) {
-    let _ = std::process::Command::new("open").arg(format!("x-apple.systempreferences:com.apple.preference.security?{rubrique}")).spawn();
+fn open_settings(section: &str) {
+    let _ = std::process::Command::new("open").arg(format!("x-apple.systempreferences:com.apple.preference.security?{section}")).spawn();
 }
 
-impl Capture for CaptureDuMac {
-    fn autorisations(&self) -> Autorisations {
-        let ecran = if CGPreflightScreenCaptureAccess() {
-            EtatDAutorisation::Accordee
-        } else if self.ecran_demande {
-            EtatDAutorisation::Refusee
+impl Capture for MacCapture {
+    fn permissions(&self) -> Permissions {
+        let screen = if CGPreflightScreenCaptureAccess() {
+            PermissionState::Granted
+        } else if self.screen_requested {
+            PermissionState::Denied
         } else {
-            EtatDAutorisation::ADemander
+            PermissionState::ToRequest
         };
         let micro = match unsafe { AVCaptureDevice::authorizationStatusForMediaType(AVMediaTypeAudio.expect("audio")) } {
-            AVAuthorizationStatus::Authorized => EtatDAutorisation::Accordee,
-            AVAuthorizationStatus::NotDetermined => EtatDAutorisation::ADemander,
-            _ => EtatDAutorisation::Refusee,
+            AVAuthorizationStatus::Authorized => PermissionState::Granted,
+            AVAuthorizationStatus::NotDetermined => PermissionState::ToRequest,
+            _ => PermissionState::Denied,
         };
-        Autorisations { ecran, micro, son_du_mac: ecran }
+        Permissions { screen, micro, mac_audio: screen }
     }
 
-    fn demander_autorisation(&mut self, autorisation: Autorisation) {
-        match (autorisation, self.autorisations().etat(autorisation)) {
-            (_, EtatDAutorisation::Accordee) => {}
-            (Autorisation::Ecran | Autorisation::SonDuMac, EtatDAutorisation::ADemander) => {
+    fn request_permission(&mut self, permission: Permission) {
+        match (permission, self.permissions().state(permission)) {
+            (_, PermissionState::Granted) => {}
+            (Permission::Screen | Permission::MacAudio, PermissionState::ToRequest) => {
                 CGRequestScreenCaptureAccess();
-                self.ecran_demande = true;
+                self.screen_requested = true;
             }
-            (Autorisation::Ecran | Autorisation::SonDuMac, EtatDAutorisation::Refusee) => ouvrir_les_reglages("Privacy_ScreenCapture"),
-            (Autorisation::Micro, EtatDAutorisation::ADemander) => {
-                let rien = RcBlock::new(|_: Bool| {});
-                unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(AVMediaTypeAudio.expect("audio"), &rien) };
+            (Permission::Screen | Permission::MacAudio, PermissionState::Denied) => open_settings("Privacy_ScreenCapture"),
+            (Permission::Micro, PermissionState::ToRequest) => {
+                let nothing = RcBlock::new(|_: Bool| {});
+                unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(AVMediaTypeAudio.expect("audio"), &nothing) };
             }
-            (Autorisation::Micro, EtatDAutorisation::Refusee) => ouvrir_les_reglages("Privacy_Microphone"),
+            (Permission::Micro, PermissionState::Denied) => open_settings("Privacy_Microphone"),
         }
     }
 
-    fn demarrer(&mut self, demande: DemandeDeCapture) -> Result<(), String> {
-        if self.en_cours.is_some() {
+    fn start(&mut self, request: CaptureRequest) -> Result<(), String> {
+        if self.running.is_some() {
             return Err("une capture est déjà en cours".into());
         }
-        let sources = demande.sources;
-        let contenu = contenu_partageable().map_err(|e| format!("Accès à l'écran impossible : {e}. Autorise Greffier dans Réglages Système › Confidentialité et sécurité › Enregistrement de l'écran et de l'audio du système, puis relance Greffier."))?;
-        let ecrans = unsafe { contenu.displays() };
-        let principal = CGMainDisplayID();
-        let ecran: Retained<SCDisplay> = ecrans.iter().find(|d| unsafe { d.displayID() } == principal).or_else(|| ecrans.firstObject()).ok_or("aucun écran à enregistrer")?;
-        let id = unsafe { ecran.displayID() };
-        let (largeur, hauteur) = taille_des_images(CGDisplayPixelsWide(id), CGDisplayPixelsHigh(id));
+        let sources = request.sources;
+        let content = shareable_content().map_err(|e| format!("Accès à l'écran impossible : {e}. Autorise Greffier dans Réglages Système › Confidentialité et sécurité › Enregistrement de l'écran et de l'audio du système, puis relance Greffier."))?;
+        let screens = unsafe { content.displays() };
+        let main_display = CGMainDisplayID();
+        let screen: Retained<SCDisplay> = screens.iter().find(|d| unsafe { d.displayID() } == main_display).or_else(|| screens.firstObject()).ok_or("aucun écran à enregistrer")?;
+        let id = unsafe { screen.displayID() };
+        let (width, height) = image_size(CGDisplayPixelsWide(id), CGDisplayPixelsHigh(id));
 
-        let ecrivain = Ecrivain::new(&demande.fichier, sources.ecran.then_some((largeur, hauteur)))?;
-        let partage = Arc::new(Partage {
-            etat: Mutex::new(Etat { ecrivain: Some(ecrivain), mixeur: Mixeur::new(sources.micro, sources.son_du_mac), erreur: None }),
-            duree: AtomicU64::new(0),
+        let writer = Writer::new(&request.file, sources.screen.then_some((width, height)))?;
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State { writer: Some(writer), mixer: Mixer::new(sources.micro, sources.mac_audio), error: None }),
+            duration: AtomicU64::new(0),
             micro: AtomicU32::new(0),
-            son_du_mac: AtomicU32::new(0),
-            ecran: sources.ecran,
-            audio: sources.micro || sources.son_du_mac,
-            arrete: AtomicBool::new(false),
-            en_panne: AtomicBool::new(false),
+            mac_audio: AtomicU32::new(0),
+            screen: sources.screen,
+            audio: sources.micro || sources.mac_audio,
+            stopped: AtomicBool::new(false),
+            broken: AtomicBool::new(false),
         });
-        let sortie = Sortie::new(partage.clone());
+        let output = Output::new(shared.clone());
         unsafe {
             let config = SCStreamConfiguration::new();
-            if sources.ecran {
-                config.setWidth(largeur);
-                config.setHeight(hauteur);
-                config.setMinimumFrameInterval(CMTime::new(1, IMAGES_PAR_SECONDE));
+            if sources.screen {
+                config.setWidth(width);
+                config.setHeight(height);
+                config.setMinimumFrameInterval(CMTime::new(1, FRAMES_PER_SECOND));
             } else {
                 // ScreenCaptureKit veut un écran : une image minuscule par seconde, ignorée.
                 config.setWidth(2);
@@ -351,92 +351,92 @@ impl Capture for CaptureDuMac {
             config.setPixelFormat(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
             config.setShowsCursor(true);
             config.setQueueDepth(8);
-            config.setCapturesAudio(sources.son_du_mac);
-            config.setSampleRate(FREQUENCE as isize);
+            config.setCapturesAudio(sources.mac_audio);
+            config.setSampleRate(SAMPLE_RATE as isize);
             config.setChannelCount(2);
             config.setExcludesCurrentProcessAudio(true);
             config.setCaptureMicrophone(sources.micro);
 
-            let filtre = SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &ecran, &NSArray::new());
-            let delegue = ProtocolObject::from_ref(&*sortie);
-            let flux = SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filtre, &config, Some(delegue));
-            let file = DispatchQueue::new("io.github.fredealexandre.greffier.capture", None);
-            let sortie_proto: &ProtocolObject<dyn SCStreamOutput> = ProtocolObject::from_ref(&*sortie);
-            let mut genres = vec![SCStreamOutputType::Screen];
-            if sources.son_du_mac {
-                genres.push(SCStreamOutputType::Audio);
+            let filter = SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &screen, &NSArray::new());
+            let delegate = ProtocolObject::from_ref(&*output);
+            let stream = SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, Some(delegate));
+            let queue = DispatchQueue::new("io.github.fredealexandre.greffier.capture", None);
+            let output_proto: &ProtocolObject<dyn SCStreamOutput> = ProtocolObject::from_ref(&*output);
+            let mut kinds = vec![SCStreamOutputType::Screen];
+            if sources.mac_audio {
+                kinds.push(SCStreamOutputType::Audio);
             }
             if sources.micro {
-                genres.push(SCStreamOutputType::Microphone);
+                kinds.push(SCStreamOutputType::Microphone);
             }
-            for genre in genres {
-                flux.addStreamOutput_type_sampleHandlerQueue_error(sortie_proto, genre, Some(&file)).map_err(|e| format!("sortie de capture : {}", e.localizedDescription()))?;
+            for kind in kinds {
+                stream.addStreamOutput_type_sampleHandlerQueue_error(output_proto, kind, Some(&queue)).map_err(|e| format!("sortie de capture : {}", e.localizedDescription()))?;
             }
-            completion(|b| flux.startCaptureWithCompletionHandler(Some(b)), "démarrage").map_err(|e| format!("La capture ne démarre pas : {e}"))?;
-            self.en_cours = Some(EnCours { flux, _sortie: sortie, partage, file });
+            completion(|b| stream.startCaptureWithCompletionHandler(Some(b)), "démarrage").map_err(|e| format!("La capture ne démarre pas : {e}"))?;
+            self.running = Some(Running { stream, _output: output, shared, queue });
         }
         Ok(())
     }
 
-    fn sonder(&mut self, _ecoule: f64) -> EtatDeCapture {
-        let Some(c) = &self.en_cours else { return EtatDeCapture::default() };
-        let p = &c.partage;
+    fn poll(&mut self, _elapsed: f64) -> CaptureState {
+        let Some(c) = &self.running else { return CaptureState::default() };
+        let p = &c.shared;
         // macOS a coupé le flux (écran débranché, autorisation retirée…) : le cœur finit le fichier.
-        let erreur = if p.en_panne.load(Ordering::Relaxed) {
-            let detail = p.etat.lock().ok().and_then(|e| e.erreur.clone()).unwrap_or_default();
+        let error = if p.broken.load(Ordering::Relaxed) {
+            let detail = p.state.lock().ok().and_then(|e| e.error.clone()).unwrap_or_default();
             Some(format!("La capture s'est arrêtée : {detail}"))
         } else {
             None
         };
-        EtatDeCapture {
-            duree: f64::from_bits(p.duree.load(Ordering::Relaxed)),
-            niveaux: Niveaux { micro: f32::from_bits(p.micro.load(Ordering::Relaxed)), son_du_mac: f32::from_bits(p.son_du_mac.load(Ordering::Relaxed)) },
-            erreur,
+        CaptureState {
+            duration: f64::from_bits(p.duration.load(Ordering::Relaxed)),
+            levels: Levels { micro: f32::from_bits(p.micro.load(Ordering::Relaxed)), mac_audio: f32::from_bits(p.mac_audio.load(Ordering::Relaxed)) },
+            error,
         }
     }
 
-    fn arreter(&mut self) -> Result<f64, String> {
-        let c = self.en_cours.take().ok_or("aucune capture en cours")?;
-        let arret = completion(|b| unsafe { c.flux.stopCaptureWithCompletionHandler(Some(b)) }, "arrêt");
+    fn stop(&mut self) -> Result<f64, String> {
+        let c = self.running.take().ok_or("aucune capture en cours")?;
+        let stop = completion(|b| unsafe { c.stream.stopCaptureWithCompletionHandler(Some(b)) }, "arrêt");
         // Les derniers échantillons déjà dans la file passent, puis plus rien.
-        let partage = c.partage.clone();
+        let shared = c.shared.clone();
         let (tx, rx) = mpsc::channel();
-        c.file.exec_sync(move || {
-            partage.arrete.store(true, Ordering::Relaxed);
-            let mut etat = partage.etat.lock().expect("état de la capture");
-            let etat = &mut *etat;
-            let mut ecrivain = etat.ecrivain.take();
-            if let (Some(e), Some(bloc)) = (ecrivain.as_mut(), etat.mixeur.vider()) {
-                e.audio(&bloc);
+        c.queue.exec_sync(move || {
+            shared.stopped.store(true, Ordering::Relaxed);
+            let mut state = shared.state.lock().expect("état de la capture");
+            let state = &mut *state;
+            let mut writer = state.writer.take();
+            if let (Some(e), Some(block)) = (writer.as_mut(), state.mixer.drain()) {
+                e.audio(&block);
             }
-            let _ = tx.send((ecrivain, etat.erreur.take()));
+            let _ = tx.send((writer, state.error.take()));
         });
-        let (ecrivain, erreur) = rx.recv().map_err(|_| "capture perdue")?;
-        let ecrivain = ecrivain.ok_or("capture déjà arrêtée")?;
-        let duree = ecrivain.finir();
-        if let Err(e) = &arret {
+        let (writer, error) = rx.recv().map_err(|_| "capture perdue")?;
+        let writer = writer.ok_or("capture déjà arrêtée")?;
+        let duration = writer.finish();
+        if let Err(e) = &stop {
             eprintln!("greffier-capture : arrêt du flux : {e}");
         }
-        if let Some(e) = erreur {
+        if let Some(e) = error {
             eprintln!("greffier-capture : le flux s'était arrêté : {e}");
         }
-        duree
+        duration
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::taille_des_images;
+    use super::image_size;
 
     #[test]
-    fn les_images_tiennent_dans_1920_x_1080_en_gardant_les_proportions_et_en_dimensions_paires() {
+    fn frames_fit_in_1920_x_1080_keeping_aspect_ratio_and_even_dimensions() {
         // 1080p : l'écran tient dans 1920 × 1080, proportions gardées.
-        assert_eq!(taille_des_images(2880, 1800), (1728, 1080), "16:10");
-        assert_eq!(taille_des_images(3024, 1964), (1662, 1080));
-        assert_eq!(taille_des_images(5120, 2880), (1920, 1080), "16:9");
-        assert_eq!(taille_des_images(3440, 1440), (1920, 804), "très large : la largeur limite");
+        assert_eq!(image_size(2880, 1800), (1728, 1080), "16:10");
+        assert_eq!(image_size(3024, 1964), (1662, 1080));
+        assert_eq!(image_size(5120, 2880), (1920, 1080), "16:9");
+        assert_eq!(image_size(3440, 1440), (1920, 804), "très large : la largeur limite");
         // Un écran plus petit garde sa taille, rendue paire.
-        assert_eq!(taille_des_images(1920, 1080), (1920, 1080));
-        assert_eq!(taille_des_images(1512, 983), (1512, 982));
+        assert_eq!(image_size(1920, 1080), (1920, 1080));
+        assert_eq!(image_size(1512, 983), (1512, 982));
     }
 }

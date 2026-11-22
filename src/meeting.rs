@@ -7,21 +7,21 @@ use std::rc::Rc;
 use rune::{Cx, El, ScrollSpec, Span, SurfaceFit, col, el, rich, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, Kit, Markdown, Progress, SegmentedControl, Spinner, Switch};
 
-use greffier_coeur::{Commande, Etape, Reunion, Role, Statut, StatutDuPassage, bilan};
+use greffier_core::{Command, Stage, Meeting, Role, Status, PassageStatus, summary};
 
 use crate::ui::{self, card, dot, glyph, heading, muted, spk_color, title_style, tnum, ts_chip};
-use crate::verifier::{self, Cible};
-use crate::{App, TABS, Tab, locuteurs, refaire, reglages, timeline};
+use crate::check::{self, Target};
+use crate::{App, TABS, Tab, speakers, redo, settings, timeline};
 
 /// Il y a de quoi revoir : un enregistrement, une transcription, ou une réunion terminée.
-pub fn playable(m: &Reunion) -> bool {
-    m.statut == Statut::Terminee || m.fichiers.contains(&Role::Enregistrement) || !m.repliques.is_empty()
+pub fn playable(m: &Meeting) -> bool {
+    m.status == Status::Done || m.files.contains(&Role::Recording) || !m.utterances.is_empty()
 }
 
-pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) -> El {
+pub fn page(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) -> El {
     let view_h = cx.layout_size("meeting").map_or(780.0, |v| v[1]);
     let mut inner = col().w_full().px(28.0).pt(24.0).pb(32.0).gap(16.0).child(header(m, k));
-    if m.statut != Statut::Terminee {
+    if m.status != Status::Done {
         inner = inner.child(pending(s, m, k));
     }
     if playable(m) {
@@ -32,8 +32,8 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>
             .child(match s.tab {
                 Tab::Summary => summary(m, k),
                 Tab::Transcript => transcript(s, m, k, view_h),
-                Tab::Doubts => verifier::tab(s, m, k),
-                Tab::Speakers => locuteurs::tab(s, m, k),
+                Tab::Doubts => check::tab(s, m, k),
+                Tab::Speakers => speakers::tab(s, m, k),
                 Tab::Info => info(s, m, k),
             });
     }
@@ -41,18 +41,18 @@ pub fn page(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>
 }
 
 /// Le titre affiché : celui du bilan, sinon « Réunion du sam. 21/11 · 14h02 ».
-pub fn display_title(m: &Reunion, with_time: bool) -> String {
-    match m.titre.as_str() {
-        "Réunion" | "" if with_time => format!("Réunion du {} · {}", m.debut.jour_court(), m.debut.heure_courte()),
-        "Réunion" | "" => format!("Réunion du {}", m.debut.jour_court()),
+pub fn display_title(m: &Meeting, with_time: bool) -> String {
+    match m.title.as_str() {
+        "Réunion" | "" if with_time => format!("Réunion du {} · {}", m.start.short_day(), m.start.short_time()),
+        "Réunion" | "" => format!("Réunion du {}", m.start.short_day()),
         t => t.to_string(),
     }
 }
 
-fn header(m: &Reunion, k: &Kit) -> El {
+fn header(m: &Meeting, k: &Kit) -> El {
     let title = display_title(m, true);
-    let people = m.locuteurs_actifs().count();
-    let mut meta = format!("{} · {} · {}", m.debut.jour_court(), m.debut.heure_courte(), ui::dur(m.duree));
+    let people = m.active_speakers().count();
+    let mut meta = format!("{} · {} · {}", m.start.short_day(), m.start.short_time(), ui::dur(m.duration));
     if people > 0 {
         meta += &format!(" · {people} locuteurs");
     }
@@ -65,12 +65,12 @@ fn header(m: &Reunion, k: &Kit) -> El {
 }
 
 /// L'image simulée de la vidéo, à la taille donnée : locuteur en cours, bouton lecture, sous-titres.
-fn picture(s: &App, m: &Reunion, k: &Kit, w: f32, h: f32, big: bool) -> El {
-    let cur = s.current.map(|i| &m.repliques[i]);
-    let spk = cur.map(|u| &m.locuteurs[m.locuteur_affiche(u.locuteur)]);
-    let caption = cur.filter(|u| s.pos <= u.fin + 1.0).map(|u| u.texte.clone()).unwrap_or_default();
-    let speaking = spk.map(|p| p.affiche()).unwrap_or_else(|| "—".into());
-    let hue = spk.map_or(250.0, |p| p.teinte);
+fn picture(s: &App, m: &Meeting, k: &Kit, w: f32, h: f32, big: bool) -> El {
+    let cur = s.current.map(|i| &m.utterances[i]);
+    let spk = cur.map(|u| &m.speakers[m.displayed_speaker(u.speaker)]);
+    let caption = cur.filter(|u| s.pos <= u.end + 1.0).map(|u| u.text.clone()).unwrap_or_default();
+    let speaking = spk.map(|p| p.display_name()).unwrap_or_else(|| "—".into());
+    let hue = spk.map_or(250.0, |p| p.tint);
     let white = rune::Color::WHITE;
     let play = if big { 84.0 } else { 56.0 };
     let frame = col().key("video").w(w).h(h);
@@ -82,7 +82,7 @@ fn picture(s: &App, m: &Reunion, k: &Kit, w: f32, h: f32, big: bool) -> El {
     frame
         .padding(if big { 28.0 } else { 16.0 })
         .justify_between()
-        .child(if m.repliques.is_empty() {
+        .child(if m.utterances.is_empty() {
             // Pas encore de transcription : personne à nommer.
             row().h(24.0)
         } else {
@@ -110,12 +110,12 @@ fn picture(s: &App, m: &Reunion, k: &Kit, w: f32, h: f32, big: bool) -> El {
 }
 
 /// La barre de contrôle sous la vidéo (ou en bas du plein écran).
-fn controls(s: &App, m: &Reunion, k: &Kit, full: bool) -> El {
-    let cur = s.current.map(|i| &m.repliques[i]);
-    let spk = cur.map(|u| &m.locuteurs[m.locuteur_affiche(u.locuteur)]);
-    let topic = m.sujet_a(s.pos).map(|i| m.sujets[i].titre.clone()).unwrap_or_default();
-    let speaking = spk.map(|p| p.affiche()).unwrap_or_else(|| "—".into());
-    let hue = spk.map_or(250.0, |p| p.teinte);
+fn controls(s: &App, m: &Meeting, k: &Kit, full: bool) -> El {
+    let cur = s.current.map(|i| &m.utterances[i]);
+    let spk = cur.map(|u| &m.speakers[m.displayed_speaker(u.speaker)]);
+    let topic = m.topic_at(s.pos).map(|i| m.topics[i].title.clone()).unwrap_or_default();
+    let speaking = spk.map(|p| p.display_name()).unwrap_or_else(|| "—".into());
+    let hue = spk.map_or(250.0, |p| p.tint);
     let play = Button::new(if s.playing { "Pause" } else { "Lire" })
         .icon(if s.playing { &ui::PAUSE } else { &ui::PLAY })
         .variant(ButtonVariant::Contrast)
@@ -156,7 +156,7 @@ fn controls(s: &App, m: &Reunion, k: &Kit, full: bool) -> El {
         .child(screen)
 }
 
-fn player(s: &App, m: &Reunion, k: &Kit, cx: &mut Cx<App>, view_h: f32) -> El {
+fn player(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>, view_h: f32) -> El {
     // La vidéo prend toute la largeur, sans dépasser un peu plus de la moitié de la hauteur
     // visible : au-delà, l'image garde son format 16:9 avec des bandes noires.
     let frame_w = cx.layout_size("video-frame").map_or(960.0, |v| v[0]);
@@ -187,14 +187,14 @@ pub fn fullscreen(s: &App, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) {
     let vh = (h - bar_h).max(200.0);
     let pic_w = (vh * 16.0 / 9.0).min(w);
     let pic_h = pic_w * 9.0 / 16.0;
-    let d = m.duree.max(1.0);
+    let d = m.duration.max(1.0);
     let mut scrub = row().key("fs-scrub").w_full().h(14.0).gap(2.0).center_y().cursor(rune::Cursor::Pointer);
-    for (i, tp) in m.sujets.iter().enumerate() {
-        let end = m.sujets.get(i + 1).map_or(m.duree, |n| n.debut);
-        let on = m.sujet_a(s.pos) == Some(i);
-        let done = ((s.pos - tp.debut) / (end - tp.debut)).clamp(0.0, 1.0) as f32;
+    for (i, tp) in m.topics.iter().enumerate() {
+        let end = m.topics.get(i + 1).map_or(m.duration, |n| n.start);
+        let on = m.topic_at(s.pos) == Some(i);
+        let done = ((s.pos - tp.start) / (end - tp.start)).clamp(0.0, 1.0) as f32;
         scrub = scrub.child(
-            row().grow((end - tp.debut) as f32).h(if on { 8.0 } else { 5.0 }).radius(3.0).fill(rune::Color::WHITE.alpha(0.22)).help(tp.titre.clone())
+            row().grow((end - tp.start) as f32).h(if on { 8.0 } else { 5.0 }).radius(3.0).fill(rune::Color::WHITE.alpha(0.22)).help(tp.title.clone())
                 .child(el().grow(done.max(0.0001)).h_full().radius(3.0).fill(k.c.text_accent))
                 .child(el().grow((1.0 - done).max(0.0001))),
         );
@@ -221,10 +221,10 @@ pub fn fullscreen(s: &App, k: &Kit, cx: &mut Cx<App>, layer: &mut Vec<El>) {
     );
 }
 
-fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
-    let unconfirmed = m.locuteurs_actifs().filter(|&i| m.locuteurs[i].nom.is_none()).count();
+fn tabs_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
+    let unconfirmed = m.active_speakers().filter(|&i| m.speakers[i].name.is_none()).count();
     let speakers = if unconfirmed > 0 { format!("Locuteurs · {unconfirmed}") } else { "Locuteurs".to_string() };
-    let labels = ["Bilan".to_string(), "Transcription".to_string(), format!("À vérifier · {}", m.passages_en_attente()), speakers, "Infos".to_string()];
+    let labels = ["Bilan".to_string(), "Transcription".to_string(), format!("À vérifier · {}", m.pending_passages()), speakers, "Infos".to_string()];
     let tabs = SegmentedControl::new(&labels, TABS.iter().position(|t| *t == s.tab))
         .label("Vue")
         .fit()
@@ -233,13 +233,13 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
         .key("tabs");
     let id = m.id;
     let trailing = match s.tab {
-        Tab::Summary if !refaire::can_redo(m, Etape::Bilan) => el(),
+        Tab::Summary if !redo::can_redo(m, Stage::Summary) => el(),
         Tab::Summary => Button::new("Refaire le bilan")
             .icon(&ui::SPARK)
             .variant(ButtonVariant::Outline)
             .control_size(ControlSize::Small)
             .help("Relance seulement le bilan IA, avec les noms et corrections actuels")
-            .on_press(move |s: &mut App| s.redo(id, Etape::Bilan))
+            .on_press(move |s: &mut App| s.redo(id, Stage::Summary))
             .build(k)
             .key("redo"),
         Tab::Transcript => {
@@ -249,7 +249,7 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
                 .center_y()
                 .child(text("Clic droit ou C : corriger la réplique").font(k.ty.small).color(k.c.text_faint))
                 .child(follow);
-            match refaire::transcript_menu(s, m, k, layer) {
+            match redo::transcript_menu(s, m, k, layer) {
                 Some(buttons) => row().gap(16.0).center_y().flex_wrap().child(buttons).child(trailing),
                 None => trailing,
             }
@@ -261,11 +261,11 @@ fn tabs_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
 
 /// Le bilan est le Markdown de l'agent, rendu tel quel. Les horodatages deviennent des liens qui
 /// lancent la lecture, et les cases des actions se cochent.
-fn summary(m: &Reunion, k: &Kit) -> El {
-    if m.bilan.trim().is_empty() {
+fn summary(m: &Meeting, k: &Kit) -> El {
+    if m.summary.trim().is_empty() {
         return col().key("bilan").w_full().pt(4.0).child(muted(k, "Pas encore de bilan."));
     }
-    let src = Rc::new(bilan::avec_liens_de_lecture(&m.bilan));
+    let src = Rc::new(summary::with_playback_links(&m.summary));
     let tasks = src.clone();
     let id = m.id;
     let md = Markdown::new(src.as_str())
@@ -275,53 +275,53 @@ fn summary(m: &Reunion, k: &Kit) -> El {
             }
         })
         .on_task(move |s: &mut App, _block: &str, offset: usize, done: bool| {
-            let action = bilan::index_de_la_case(&tasks, offset);
-            s.command(Commande::CocherAction { reunion: id, action, faite: done });
+            let action = summary::checkbox_index(&tasks, offset);
+            s.command(Command::CheckAction { meeting: id, action, done: done });
         })
         .build(k)
         .key("bilan-md");
     col().key("bilan").w_full().pt(4.0).child(md)
 }
 
-pub fn speaker_name(m: &Reunion, i: usize) -> (String, rune::Color, bool) {
-    let p = &m.locuteurs[m.locuteur_affiche(i)];
-    (p.affiche(), spk_color(p.teinte), p.nom.is_some())
+pub fn speaker_name(m: &Meeting, i: usize) -> (String, rune::Color, bool) {
+    let p = &m.speakers[m.displayed_speaker(i)];
+    (p.display_name(), spk_color(p.tint), p.name.is_some())
 }
 
 /// Le texte d'une réplique. Le cœur y a déjà mis ce que ses passages à vérifier sont devenus :
 /// surlignés tant qu'ils sont en attente, soulignés une fois remplacés.
-pub fn utterance_text(m: &Reunion, i: usize, k: &Kit) -> El {
-    let u = &m.repliques[i];
+pub fn utterance_text(m: &Meeting, i: usize, k: &Kit) -> El {
+    let u = &m.utterances[i];
     let ink = k.c.text_base;
     let mut spans: Vec<Span> = Vec::new();
     for d in u.passages.iter().filter_map(|&di| m.passages.get(di)) {
-        let shown = d.texte(&d.statut);
-        let Some(a) = u.texte.find(shown) else { continue };
+        let shown = d.text(&d.status);
+        let Some(a) = u.text.find(shown) else { continue };
         if spans.iter().any(|s| (a as u32) < s.end && s.start < (a + shown.len()) as u32) {
             continue;
         }
-        match &d.statut {
-            StatutDuPassage::HypotheseAcceptee | StatutDuPassage::CorrigeALaMain(_) => spans.push(Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::EnAttente => spans.push(Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
-            StatutDuPassage::OriginalGarde => {}
+        match &d.status {
+            PassageStatus::HypothesisAccepted | PassageStatus::CorrectedManually(_) => spans.push(Span { underline: Some(k.c.success.icon), ..Span::new(a, a + shown.len()) }),
+            PassageStatus::Pending => spans.push(Span { bg: Some(k.c.warning.icon.alpha(0.28)), bg_pad: 2.0, ..Span::new(a, a + shown.len()) }),
+            PassageStatus::OriginalKept => {}
         }
     }
     if spans.is_empty() {
-        return text(u.texte.clone()).font(k.ty.body).color(ink).wrap();
+        return text(u.text.clone()).font(k.ty.body).color(ink).wrap();
     }
     spans.sort_by_key(|s| s.start);
-    rich(u.texte.clone(), spans).font(k.ty.body).color(ink)
+    rich(u.text.clone(), spans).font(k.ty.body).color(ink)
 }
 
-fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
-    if m.repliques.is_empty() {
+fn transcript(s: &App, m: &Meeting, k: &Kit, view_h: f32) -> El {
+    if m.utterances.is_empty() {
         return col().key("transcript-scroll").w_full().child(muted(k, "Pas encore de transcription."));
     }
     let mut lines = col().key("lines").w_full().gap(2.0);
-    for (i, u) in m.repliques.iter().enumerate() {
-        let (name, color, sure) = speaker_name(m, u.locuteur);
+    for (i, u) in m.utterances.iter().enumerate() {
+        let (name, color, sure) = speaker_name(m, u.speaker);
         let on = s.current == Some(i);
-        let start = u.debut;
+        let start = u.start;
         lines = lines.child(
             row()
                 .key(format!("u{i}"))
@@ -337,14 +337,14 @@ fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
                 .cursor(rune::Cursor::Pointer)
                 .on_press(move |s: &mut App| s.seek(start))
                 .on_double_press(move |s: &mut App| s.seek_and_play(start))
-                .on_secondary_press(move |s: &mut App, _, _| s.start_correction(Cible::Replique(i)))
+                .on_secondary_press(move |s: &mut App, _, _| s.start_correction(Target::Utterance(i)))
                 .child(
                     col().w(116.0).gap(2.0)
                         .child(text(name).font(k.ty.small_medium).color(if sure { color } else { color.alpha(0.7) }).truncate())
-                        .child(text(ui::ts(u.debut)).font(tnum(k.ty.text_xsmall)).color(k.c.text_faint)),
+                        .child(text(ui::ts(u.start)).font(tnum(k.ty.text_xsmall)).color(k.c.text_faint)),
                 )
-                .child(if s.correction.as_ref().is_some_and(|c| c.cible == Cible::Replique(i)) {
-                    verifier::editor(s, k, &format!("fix{i}")).grow(1.0).min_w(0.0)
+                .child(if s.correction.as_ref().is_some_and(|c| c.target == Target::Utterance(i)) {
+                    check::editor(s, k, &format!("fix{i}")).grow(1.0).min_w(0.0)
                 } else {
                     utterance_text(m, i, k).grow(1.0).min_w(0.0)
                 }),
@@ -363,39 +363,39 @@ fn transcript(s: &App, m: &Reunion, k: &Kit, view_h: f32) -> El {
         .child(col().w_full().padding(8.0).child(lines))
 }
 
-fn info(s: &App, m: &Reunion, k: &Kit) -> El {
-    let done = |e: Etape| m.etape_faite.is_some_and(|f| f >= e);
+fn info(s: &App, m: &Meeting, k: &Kit) -> El {
+    let done = |e: Stage| m.completed_stage.is_some_and(|f| f >= e);
     let mut processing = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Traitement"));
     for (ok, label, detail) in [
-        (m.fichiers.contains(&Role::Enregistrement), "Enregistrement", ui::dur(m.duree)),
-        (done(Etape::Transcription), "Transcription", format!("{} répliques · {} locuteurs", m.repliques.len(), m.locuteurs_actifs().count())),
-        (done(Etape::Relecture), "Relecture IA", format!("{} corrections · {} à vérifier", m.corrections, m.passages_en_attente())),
-        (done(Etape::Bilan), "Bilan IA", format!("{} sujets · {} décisions", m.sujets.len(), m.decisions.len())),
+        (m.files.contains(&Role::Recording), "Enregistrement", ui::dur(m.duration)),
+        (done(Stage::Transcription), "Transcription", format!("{} répliques · {} locuteurs", m.utterances.len(), m.active_speakers().count())),
+        (done(Stage::Review), "Relecture IA", format!("{} corrections · {} à vérifier", m.corrections, m.pending_passages())),
+        (done(Stage::Summary), "Bilan IA", format!("{} sujets · {} décisions", m.topics.len(), m.decisions.len())),
     ] {
         processing = processing.child(ui::check_row(k, ok, label, &detail));
     }
-    let folder = format!("{}/", s.core.dossier_de_la_reunion(m.id).map(|d| reglages::afficher(&d)).unwrap_or_default());
+    let folder = format!("{}/", s.core.meeting_folder(m.id).map(|d| settings::display(&d)).unwrap_or_default());
     let mut files = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Fichiers dans le dossier de réunions"))
         .child(row().gap(6.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(folder).font(k.ty.small).color(k.c.text_muted).truncate_middle().min_w(0.0)));
-    for role in Role::TOUS {
-        let present = m.fichiers.contains(&role);
-        let name = format!("{} {} - {}", if present { "·" } else { "–" }, m.nom_du_dossier, role.suffixe());
+    for role in Role::ALL {
+        let present = m.files.contains(&role);
+        let name = format!("{} {} - {}", if present { "·" } else { "–" }, m.folder_name, role.suffix());
         files = files.child(text(name).font(k.ty.small).color(if present { k.c.text_muted } else { k.c.text_faint.alpha(0.5) }).truncate_middle().min_w(0.0).pl(20.0));
     }
     let mut marks = card(k).w(0.0).grow(1.0).min_w(320.0).child(heading(k, "Repères"));
-    if m.reperes.is_empty() {
+    if m.markers.is_empty() {
         marks = marks.child(muted(k, "Aucun repère posé pendant l'enregistrement."));
     }
-    for (i, mk) in m.reperes.iter().enumerate() {
-        marks = marks.child(row().gap(8.0).center_y().child(ts_chip(k, mk.instant, format!("mk-ts{i}"))).child(text(mk.libelle.clone()).font(k.ty.ui).color(k.c.text_base)));
+    for (i, mk) in m.markers.iter().enumerate() {
+        marks = marks.child(row().gap(8.0).center_y().child(ts_chip(k, mk.instant, format!("mk-ts{i}"))).child(text(mk.label.clone()).font(k.ty.ui).color(k.c.text_base)));
     }
     row().w_full().gap(12.0).flex_wrap().items_start().child(processing).child(files).child(marks)
 }
 
-fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
+fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
     let id = m.id;
     // Une transcription importée : le traitement reprend à la relecture (#5).
-    if m.statut == Statut::ATraiter && m.etape_faite == Some(Etape::Transcription) {
+    if m.status == Status::ToProcess && m.completed_stage == Some(Stage::Transcription) {
         return card(k)
             .gap(14.0)
             .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, "Transcription importée, pas encore relue")))
@@ -404,14 +404,14 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
                 .child(Button::new("Relire et faire le bilan").icon(&ui::SPARK).variant(ButtonVariant::Submit)
                     .on_press(move |s: &mut App| s.process(id)).build(k).key("process")));
     }
-    if m.statut == Statut::ATraiter {
-        let people = m.nombre_de_locuteurs;
+    if m.status == Status::ToProcess {
+        let people = m.speaker_count;
         let stepper = row().gap(6.0).center_y()
             .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteurs { reunion: id, nombre: match people { Some(n) if n > 2 => Some(n - 1), _ => None } })).build(k).key("ppl-minus"))
+                .on_press(move |s: &mut App| s.command(Command::SpeakerCount { meeting: id, number: match people { Some(n) if n > 2 => Some(n - 1), _ => None } })).build(k).key("ppl-minus"))
             .child(text(people.map_or("Détecté".to_string(), |n| format!("{n} locuteurs"))).font(k.ty.ui_medium).color(k.c.text_base).w(100.0).align(rune::Align::Center))
             .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                .on_press(move |s: &mut App| s.command(Commande::NombreDeLocuteurs { reunion: id, nombre: Some(people.map_or(2, |n| (n + 1).min(12))) })).build(k).key("ppl-plus"));
+                .on_press(move |s: &mut App| s.command(Command::SpeakerCount { meeting: id, number: Some(people.map_or(2, |n| (n + 1).min(12))) })).build(k).key("ppl-plus"));
         return card(k)
             .gap(14.0)
             .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, "Enregistrée, pas encore traitée")))
@@ -422,14 +422,14 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
                 .child(Button::new("Transcrire et faire le bilan").icon(&ui::SPARK).variant(ButtonVariant::Submit)
                     .on_press(move |s: &mut App| s.process(id)).build(k).key("process")));
     }
-    let steps = Etape::TOUTES;
+    let steps = Stage::ALL;
     let details = [
         "Whisper large-v3 et pyannote, sur le Mac",
         "Claude corrige, réécoute les passages douteux",
         "Claude remplit le template du bilan, en Markdown",
     ];
-    let idx = match &m.statut {
-        Statut::EnCours { etape, .. } => steps.iter().position(|x| x == etape),
+    let idx = match &m.status {
+        Status::Running { stage, .. } => steps.iter().position(|x| x == stage),
         _ => None,
     };
     let mut list = col().gap(12.0);
@@ -449,17 +449,17 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
                 .child(text(ui::step(*st)).font(k.ty.ui_medium).color(if state == 0 { k.c.text_faint } else { k.c.text_base }))
                 .child(text(details[i]).font(k.ty.small).color(k.c.text_faint).truncate().min_w(0.0)));
         if state == 1 {
-            col_ = col_.child(Progress::new(Some(m.statut.progres() as f32)).build(k));
+            col_ = col_.child(Progress::new(Some(m.status.progress() as f32)).build(k));
         }
         list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(row().w(18.0).h(18.0).center().child(icon)).child(col_));
     }
     let eta = ui::eta(s, id);
-    let (status, action) = match &m.statut {
-        Statut::EnAttente(_) => match s.core.rang(id).unwrap_or(0) {
+    let (status, action) = match &m.status {
+        Status::Pending(_) => match s.core.rank(id).unwrap_or(0) {
             0 | 1 => (format!("En attente : une autre réunion est en cours de traitement. Environ {eta} avant la fin."), None),
             n => (format!("En attente : {n} réunions passent avant celle-ci. Environ {eta} avant la fin."), None),
         },
-        Statut::Echec { etape, message } => (format!("{} : {message}", ui::step(*etape)), Some("Réessayer cette étape")),
+        Status::Failed { stage, message } => (format!("{} : {message}", ui::step(*stage)), Some("Réessayer cette étape")),
         _ => (format!("Environ {eta} restantes. Une notification arrive à la fin."), None),
     };
     let button = match action {
@@ -468,7 +468,7 @@ fn pending(s: &App, m: &Reunion, k: &Kit) -> El {
     };
     card(k)
         .gap(16.0)
-        .child(row().gap(10.0).center_y().child(heading(k, if matches!(m.statut, Statut::Echec { .. }) { "Traitement en échec" } else { "Traitement en cours" })).child(el().grow(1.0)).child(button))
+        .child(row().gap(10.0).center_y().child(heading(k, if matches!(m.status, Status::Failed { .. }) { "Traitement en échec" } else { "Traitement en cours" })).child(el().grow(1.0)).child(button))
         .child(muted(k, status))
         .child(list)
 }

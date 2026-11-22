@@ -4,19 +4,19 @@ use rune::{El, col, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
 use rune_kit::{Kit, MenuItem, context_menu};
 
-use greffier_coeur::{Etape, Reunion, Statut};
+use greffier_core::{Stage, Meeting, Status};
 
 use crate::ui::{self, glyph, red, tnum};
-use crate::{App, Page, Tab, refaire};
+use crate::{App, Page, Tab, redo};
 
 fn record_button(s: &App, k: &Kit) -> El {
     let r = red();
-    let (label, icon) = match s.core.enregistrement() {
-        Some(rec) => (format!("Arrêter · {}", ui::ts(rec.duree)), &ui::STOP),
+    let (label, icon) = match s.core.recording() {
+        Some(rec) => (format!("Arrêter · {}", ui::ts(rec.duration)), &ui::STOP),
         None => ("Enregistrer une réunion".to_string(), &ui::RECORD),
     };
-    let enregistre = s.enregistre();
-    let pulse = if enregistre { 0.55 + 0.45 * (s.rec_phase * 3.2).cos().abs() as f32 } else { 1.0 };
+    let recorded = s.recorded();
+    let pulse = if recorded { 0.55 + 0.45 * (s.rec_phase * 3.2).cos().abs() as f32 } else { 1.0 };
     row()
         .key("record")
         .w_full()
@@ -25,8 +25,8 @@ fn record_button(s: &App, k: &Kit) -> El {
         .gap(10.0)
         .center_y()
         .radius(10.0)
-        .fill(if enregistre { r.alpha(0.16) } else { k.c.layer_02 })
-        .border(1.0, if enregistre { r.alpha(0.45) } else { k.c.border_muted })
+        .fill(if recorded { r.alpha(0.16) } else { k.c.layer_02 })
+        .border(1.0, if recorded { r.alpha(0.45) } else { k.c.border_muted })
         .hover(k.c.hover)
         .press(k.c.pressed)
         .cursor(rune::Cursor::Pointer)
@@ -36,7 +36,7 @@ fn record_button(s: &App, k: &Kit) -> El {
         .child(text(label).font(tnum(k.ty.ui_medium)).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
         .child(text(crate::pages::shortcut_caps(s).concat()).font(k.ty.small).color(k.c.text_faint))
         .on_press(|s: &mut App| {
-            if s.enregistre() {
+            if s.recorded() {
                 if s.page == Page::Recording { s.stop_recording() } else { s.page = Page::Recording }
             } else {
                 s.start_recording()
@@ -44,13 +44,13 @@ fn record_button(s: &App, k: &Kit) -> El {
         })
 }
 
-fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
+fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
     let id = m.id;
-    let start = m.debut.heure_courte();
-    let subtitle = match &m.statut {
-        Statut::Terminee if m.passages_en_attente() > 0 => format!("{start} · {} · {} à vérifier", ui::dur(m.duree), m.passages_en_attente()),
-        Statut::Terminee => format!("{start} · {}", ui::dur(m.duree)),
-        Statut::ATraiter => format!("{start} · {} · à traiter", ui::dur(m.duree)),
+    let start = m.start.short_time();
+    let subtitle = match &m.status {
+        Status::Done if m.pending_passages() > 0 => format!("{start} · {} · {} à vérifier", ui::dur(m.duration), m.pending_passages()),
+        Status::Done => format!("{start} · {}", ui::dur(m.duration)),
+        Status::ToProcess => format!("{start} · {} · à traiter", ui::dur(m.duration)),
         _ => format!("{start} · {}", ui::status_line(s, m)),
     };
     let title = crate::meeting::display_title(m, false);
@@ -59,11 +59,11 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
         .subtitle(subtitle)
         .selected(s.page == Page::Meeting(id) || s.menu.is_some_and(|(mid, _)| mid == id))
         .on_select(move |s: &mut App, _| s.open(id));
-    if m.statut.dans_la_file() {
+    if m.status.in_queue() {
         r = r.status(RowStatus::Busy);
-    } else if matches!(m.statut, Statut::ATraiter | Statut::Echec { .. } | Statut::EnregistrementInterrompu) {
+    } else if matches!(m.status, Status::ToProcess | Status::Failed { .. } | Status::RecordingInterrupted) {
         r = r.status(RowStatus::Attention);
-    } else if m.nouvelle {
+    } else if m.is_new {
         r = r.status(RowStatus::Unread);
     }
     let el = r.build(k).key(format!("m{id}")).on_secondary_press(move |s: &mut App, p, _| s.menu = Some((id, p)));
@@ -76,38 +76,38 @@ fn meeting_row(s: &App, m: &Reunion, k: &Kit, layer: &mut Vec<El>) -> El {
             s.menu = None;
             s.open(id);
         }));
-    if !m.repliques.is_empty() {
+    if !m.utterances.is_empty() {
         menu = menu.item(MenuItem::new("Lire la transcription").on_select(move |s: &mut App| {
             s.menu = None;
             s.open(id);
             s.tab = Tab::Transcript;
         }));
     }
-    if m.statut == Statut::ATraiter {
+    if m.status == Status::ToProcess {
         menu = menu.item(MenuItem::new("Transcrire et faire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| {
             s.menu = None;
             s.process(id);
         }));
     }
-    if refaire::can_redo(m, Etape::Bilan) {
-        menu = menu.item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| s.redo(id, Etape::Bilan)));
+    if redo::can_redo(m, Stage::Summary) {
+        menu = menu.item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| s.redo(id, Stage::Summary)));
     }
-    if refaire::can_redo(m, Etape::Relecture) {
-        menu = menu.item(MenuItem::new("Refaire la relecture").on_select(move |s: &mut App| s.redo(id, Etape::Relecture)));
+    if redo::can_redo(m, Stage::Review) {
+        menu = menu.item(MenuItem::new("Refaire la relecture").on_select(move |s: &mut App| s.redo(id, Stage::Review)));
     }
-    if refaire::can_redo(m, Etape::Transcription) {
+    if redo::can_redo(m, Stage::Transcription) {
         menu = menu.item(MenuItem::new("Refaire la transcription…").on_select(move |s: &mut App| s.start_redo_transcription(id)));
     }
-    let busy = matches!(m.statut, Statut::EnCours { .. });
+    let busy = matches!(m.status, Status::Running { .. });
     menu.item(MenuItem::new("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))
         .separator()
         .item(MenuItem::new("Afficher dans le Finder").icon(&ui::FOLDER).on_select(move |s: &mut App| {
             s.menu = None;
             s.reveal(id);
         }))
-        .item(MenuItem::new("Copier le bilan en Markdown").disabled(m.bilan.trim().is_empty()).on_select_tx(move |s: &mut App, tx| {
+        .item(MenuItem::new("Copier le bilan en Markdown").disabled(m.summary.trim().is_empty()).on_select_tx(move |s: &mut App, tx| {
             s.menu = None;
-            s.copy_bilan(id, tx);
+            s.copy_summary(id, tx);
         }))
         .separator()
         .item(MenuItem::new("Supprimer…").danger(true).shortcut("⌘⌫").on_select(move |s: &mut App| {
@@ -143,8 +143,8 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
         )
         .footer(nav("Réglages", &ui::SLIDERS, Page::Settings).build(k).key("nav-settings"));
     // Les semaines commencent le lundi : « Cette semaine » s'arrête au lundi d'aujourd'hui.
-    let today = s.core.aujourd_hui();
-    let monday = today.jour_de_la_semaine() as i64;
+    let today = s.core.today();
+    let monday = today.weekday() as i64;
     let groups: [(&str, Box<dyn Fn(i64) -> bool>); 5] = [
         ("Aujourd'hui", Box::new(|a| a <= 0)),
         ("Hier", Box::new(|a| a == 1)),
@@ -153,7 +153,7 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
         ("Plus tôt", Box::new(move |a| a >= 2 && a > monday + 7)),
     ];
     for (gi, (name, pred)) in groups.iter().enumerate() {
-        let rows: Vec<El> = s.core.reunions().iter().filter(|m| pred(m.debut.jours_jusqu_a(today))).map(|m| meeting_row(s, m, k, layer)).collect();
+        let rows: Vec<El> = s.core.meetings().iter().filter(|m| pred(m.start.days_until(today))).map(|m| meeting_row(s, m, k, layer)).collect();
         if rows.is_empty() {
             continue;
         }

@@ -2,7 +2,7 @@
 
 use rune::tok::TextStyle;
 use rune::{Color, El, Icon, col, el, icon, oklch, row, text};
-use greffier_coeur::{Etape, Statut};
+use greffier_core::{Stage, Status};
 use rune_kit::Kit;
 
 use crate::App;
@@ -61,53 +61,53 @@ pub fn dur(t: f64) -> String {
 }
 
 /// 3,1 Go, 33 Mo, 864 Ko (en unités décimales, comme le Finder).
-pub fn octets(n: u64) -> String {
+pub fn bytes(n: u64) -> String {
     let n = n as f64;
-    let (valeur, unite) = match n {
+    let (value, unit) = match n {
         n if n >= 1e9 => (n / 1e9, "Go"),
         n if n >= 1e6 => (n / 1e6, "Mo"),
         n if n >= 1e3 => (n / 1e3, "Ko"),
         n => (n, "octets"),
     };
-    let texte = if valeur >= 10.0 || unite == "octets" { format!("{valeur:.0}") } else { format!("{valeur:.1}") };
-    format!("{} {unite}", texte.replace('.', ","))
+    let text = if value >= 10.0 || unit == "octets" { format!("{value:.0}") } else { format!("{value:.1}") };
+    format!("{} {unit}", text.replace('.', ","))
 }
 
 /// Le nom d'une étape dans l'interface.
-pub fn step(e: Etape) -> &'static str {
+pub fn step(e: Stage) -> &'static str {
     match e {
-        Etape::Transcription => "Transcription",
-        Etape::Relecture => "Relecture IA",
-        Etape::Bilan => "Bilan IA",
+        Stage::Transcription => "Transcription",
+        Stage::Review => "Relecture IA",
+        Stage::Summary => "Bilan IA",
     }
 }
 
 /// Le temps restant d'une réunion dans la file (le sien et celui des réunions d'avant), une
 /// minute au moins.
-pub fn eta(s: &App, id: greffier_coeur::IdReunion) -> String {
-    dur(s.core.temps_restant(id).unwrap_or(0.0).max(60.0))
+pub fn eta(s: &App, id: greffier_core::MeetingId) -> String {
+    dur(s.core.time_remaining(id).unwrap_or(0.0).max(60.0))
 }
 
 /// Le statut d'une réunion en une ligne courte, avec où elle en est dans la file : « 2ᵉ dans la
 /// file · 15 min », « Transcription 40 % · 7 min », sinon [`status`] en minuscules.
-pub fn status_line(s: &App, m: &greffier_coeur::Reunion) -> String {
-    match &m.statut {
-        Statut::EnAttente(_) => format!("{}ᵉ dans la file · {}", s.core.rang(m.id).map_or(1, |r| r + 1), eta(s, m.id)),
-        Statut::EnCours { etape, progres } => format!("{} {:.0} % · {}", step(*etape), progres * 100.0, eta(s, m.id)),
+pub fn status_line(s: &App, m: &greffier_core::Meeting) -> String {
+    match &m.status {
+        Status::Pending(_) => format!("{}ᵉ dans la file · {}", s.core.rank(m.id).map_or(1, |r| r + 1), eta(s, m.id)),
+        Status::Running { stage, progress } => format!("{} {:.0} % · {}", step(*stage), progress * 100.0, eta(s, m.id)),
         st => status(st).to_lowercase(),
     }
 }
 
 /// Le statut d'une réunion dans l'interface.
-pub fn status(s: &Statut) -> String {
+pub fn status(s: &Status) -> String {
     match s {
-        Statut::EnregistrementEnCours => "Enregistrement en cours".into(),
-        Statut::EnregistrementInterrompu => "Enregistrement interrompu".into(),
-        Statut::ATraiter => "À traiter".into(),
-        Statut::EnAttente(_) => "En attente".into(),
-        Statut::EnCours { etape, .. } => step(*etape).into(),
-        Statut::Echec { etape, .. } => format!("Échec : {}", step(*etape)),
-        Statut::Terminee => "Terminée".into(),
+        Status::Recording => "Enregistrement en cours".into(),
+        Status::RecordingInterrupted => "Enregistrement interrompu".into(),
+        Status::ToProcess => "À traiter".into(),
+        Status::Pending(_) => "En attente".into(),
+        Status::Running { stage, .. } => step(*stage).into(),
+        Status::Failed { stage, .. } => format!("Échec : {}", step(*stage)),
+        Status::Done => "Terminée".into(),
     }
 }
 

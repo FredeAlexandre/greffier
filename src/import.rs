@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use rune::{El, FileDialogOptions, Tx, col, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, Kit, TextInput};
 
-use greffier_coeur::dossier::{EXTENSIONS_DE_MEDIA, Import};
-use greffier_coeur::{Commande, DateHeure, IdReunion, Statut};
+use greffier_core::folder::{MEDIA_EXTENSIONS, Import};
+use greffier_core::{Command, DateTime, MeetingId, Status};
 
 use crate::ui::{self, glyph, muted};
 use crate::{App, Toast};
@@ -17,10 +17,10 @@ use crate::{App, Toast};
 pub struct Draft {
     pub import: Import,
     pub date: rune::TextEdit,
-    pub heure: rune::TextEdit,
-    pub titre: rune::TextEdit,
+    pub hour: rune::TextEdit,
+    pub title: rune::TextEdit,
     /// Le titre proposé, pour savoir si l'utilisateur a changé le sien.
-    pub titre_propose: String,
+    pub proposed_title: String,
     pub error: Option<String>,
 }
 
@@ -37,13 +37,13 @@ impl App {
             let i = &d.import;
             let kinds = |p: &PathBuf| kind(p);
             let new_kinds: Vec<u8> = files.iter().map(kinds).collect();
-            for old in [Some(i.enregistrement.clone()), i.transcription.clone(), i.bilan.clone()].into_iter().flatten() {
+            for old in [Some(i.recording.clone()), i.transcription.clone(), i.summary.clone()].into_iter().flatten() {
                 if !new_kinds.contains(&kind(&old)) {
                     all.push(old);
                 }
             }
         }
-        let proposal = match self.core.proposer_import(&all) {
+        let proposal = match self.core.propose_import(&all) {
             Ok(p) => p,
             Err(e) => {
                 match &mut self.import {
@@ -56,19 +56,19 @@ impl App {
         match &mut self.import {
             // Les fichiers changent ; la date et le titre déjà retouchés restent.
             Some(d) => {
-                if d.titre.text.trim() == d.titre_propose {
-                    d.titre = rune::TextEdit::new(proposal.titre.clone());
+                if d.title.text.trim() == d.proposed_title {
+                    d.title = rune::TextEdit::new(proposal.title.clone());
                 }
-                d.titre_propose = proposal.titre.clone();
-                d.import = Import { debut: d.import.debut, titre: d.import.titre.clone(), ..proposal };
+                d.proposed_title = proposal.title.clone();
+                d.import = Import { start: d.import.start, title: d.import.title.clone(), ..proposal };
                 d.error = None;
             }
             None => {
                 self.import = Some(Draft {
-                    date: rune::TextEdit::new(format!("{:04}-{:02}-{:02}", proposal.debut.annee, proposal.debut.mois, proposal.debut.jour)),
-                    heure: rune::TextEdit::new(format!("{:02}:{:02}", proposal.debut.heure, proposal.debut.minute)),
-                    titre: rune::TextEdit::new(proposal.titre.clone()),
-                    titre_propose: proposal.titre.clone(),
+                    date: rune::TextEdit::new(format!("{:04}-{:02}-{:02}", proposal.start.year, proposal.start.month, proposal.start.day)),
+                    hour: rune::TextEdit::new(format!("{:02}:{:02}", proposal.start.hour, proposal.start.minute)),
+                    title: rune::TextEdit::new(proposal.title.clone()),
+                    proposed_title: proposal.title.clone(),
                     import: proposal,
                     error: None,
                 });
@@ -83,7 +83,7 @@ impl App {
         if self.needs_folder {
             return;
         }
-        let options = FileDialogOptions { title: "Importer une réunion".into(), ..Default::default() }.filter("Média", &EXTENSIONS_DE_MEDIA);
+        let options = FileDialogOptions { title: "Importer une réunion".into(), ..Default::default() }.filter("Média", &MEDIA_EXTENSIONS);
         tx.open_file(options, |s: &mut App, answer, _| {
             if let Ok(Some(file)) = answer {
                 s.propose_import(&[file]);
@@ -103,12 +103,12 @@ impl App {
     /// Valide la fenêtre d'import : la réunion est créée, ouverte, et on demande quand la traiter.
     pub fn confirm_import(&mut self) {
         let Some(d) = &mut self.import else { return };
-        let Some(debut) = parse_date(&d.date.text, &d.heure.text) else {
+        let Some(start) = parse_date(&d.date.text, &d.hour.text) else {
             d.error = Some("La date s'écrit AAAA-MM-JJ et l'heure HH:MM.".into());
             return;
         };
-        let import = Import { debut, titre: d.titre.text.trim().to_string(), ..d.import.clone() };
-        match self.core.executer(Commande::Importer(import)) {
+        let import = Import { start, title: d.title.text.trim().to_string(), ..d.import.clone() };
+        match self.core.execute(Command::Import(import)) {
             Ok(events) => {
                 self.import = None;
                 self.handle(events);
@@ -123,9 +123,9 @@ impl App {
 
     /// La réunion vient d'être importée : on l'ouvre et, s'il reste des étapes, on demande quand
     /// lancer le traitement.
-    pub fn imported(&mut self, id: IdReunion) {
+    pub fn imported(&mut self, id: MeetingId) {
         self.open(id);
-        if self.core.reunion(id).is_some_and(|m| m.statut == Statut::ATraiter) {
+        if self.core.meeting(id).is_some_and(|m| m.status == Status::ToProcess) {
             self.process_imported = Some(id);
         }
     }
@@ -140,7 +140,7 @@ impl App {
 /// 0 média, 1 transcription, 2 bilan, 3 autre.
 fn kind(p: &std::path::Path) -> u8 {
     let e = p.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
-    if EXTENSIONS_DE_MEDIA.contains(&e.as_str()) {
+    if MEDIA_EXTENSIONS.contains(&e.as_str()) {
         0
     } else if TRANSCRIPTIONS.contains(&e.as_str()) {
         1
@@ -152,14 +152,14 @@ fn kind(p: &std::path::Path) -> u8 {
 }
 
 /// « 2026-10-02 » et « 09:30 » (ou « 9h30 »).
-fn parse_date(date: &str, heure: &str) -> Option<DateHeure> {
+fn parse_date(date: &str, hour: &str) -> Option<DateTime> {
     let n = |s: &str| s.trim().parse::<u32>().ok();
     let mut d = date.trim().split('-');
     let (a, m, j) = (n(d.next()?)?, n(d.next()?)?, n(d.next()?)?);
-    let (h, mi) = heure.trim().split_once([':', 'h'])?;
+    let (h, mi) = hour.trim().split_once([':', 'h'])?;
     let (h, mi) = (n(h)?, n(mi)?);
     let ok = d.next().is_none() && (1..=12).contains(&m) && (1..=31).contains(&j) && h <= 23 && mi <= 59 && (1900..=9999).contains(&a);
-    ok.then(|| DateHeure::new(a as i32, m as u8, j as u8, h as u8, mi as u8))
+    ok.then(|| DateTime::new(a as i32, m as u8, j as u8, h as u8, mi as u8))
 }
 
 fn file_name(p: &std::path::Path) -> String {
@@ -209,12 +209,12 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
         },
         |s, tx| s.pick_import_part(tx, "Transcription de la réunion", "Transcription", &TRANSCRIPTIONS),
     );
-    let bilan = add_or_remove(
-        i.bilan.is_some(),
+    let summary = add_or_remove(
+        i.summary.is_some(),
         "import-bilan",
         |s| {
             if let Some(d) = &mut s.import {
-                d.import.bilan = None;
+                d.import.summary = None;
             }
         },
         |s, tx| s.pick_import_part(tx, "Bilan de la réunion", "Bilan", &["md", "markdown"]),
@@ -222,7 +222,7 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let input = |edit: &rune::TextEdit, key: &str, width: Option<f32>, get: fn(&mut App) -> &mut rune::TextEdit| {
         TextInput::new(edit).width(width).on_edit(get).build(k).key(key.to_owned())
     };
-    let what = match (&i.transcription, &i.bilan) {
+    let what = match (&i.transcription, &i.summary) {
         (None, _) => "Le traitement passera par la transcription, la relecture et le bilan.",
         (Some(_), None) => "La transcription sera reprise telle quelle, non relue ; le traitement passera par la relecture et le bilan.",
         (Some(_), Some(_)) => "La réunion arrive complète : aucune étape à faire.",
@@ -232,11 +232,11 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .px(16.0)
         .pb(16.0)
         .gap(12.0)
-        .child(file_row(k, "import-media", "Média", Some(&i.enregistrement), None))
+        .child(file_row(k, "import-media", "Média", Some(&i.recording), None))
         .child(file_row(k, "import-transcription", "Transcription", i.transcription.as_ref(), Some(transcription)))
-        .child(file_row(k, "import-bilan", "Bilan", i.bilan.as_ref(), Some(bilan)))
-        .child(field(k, "Date", row().gap(8.0).child(input(&d.date, "import-date", Some(120.0), |s| &mut s.import.as_mut().expect("import ouvert").date)).child(input(&d.heure, "import-heure", Some(72.0), |s| &mut s.import.as_mut().expect("import ouvert").heure))))
-        .child(field(k, "Titre", input(&d.titre, "import-titre", None, |s| &mut s.import.as_mut().expect("import ouvert").titre).grow(1.0)))
+        .child(file_row(k, "import-bilan", "Bilan", i.summary.as_ref(), Some(summary)))
+        .child(field(k, "Date", row().gap(8.0).child(input(&d.date, "import-date", Some(120.0), |s| &mut s.import.as_mut().expect("import ouvert").date)).child(input(&d.hour, "import-heure", Some(72.0), |s| &mut s.import.as_mut().expect("import ouvert").hour))))
+        .child(field(k, "Titre", input(&d.title, "import-titre", None, |s| &mut s.import.as_mut().expect("import ouvert").title).grow(1.0)))
         .child(muted(k, format!("{what} Les fichiers sont copiés dans un nouveau dossier de réunion ; les originaux ne bougent pas.")));
     if let Some(e) = &d.error {
         body = body.child(text(e.clone()).wrap().font(k.ty.small).color(ui::red()));
@@ -262,14 +262,14 @@ pub fn window(s: &App, k: &Kit, layer: &mut Vec<El>) {
 
 pub fn process_window(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(id) = s.process_imported else { return };
-    let Some(m) = s.core.reunion(id) else { return };
+    let Some(m) = s.core.meeting(id) else { return };
     let body = col()
         .w_full()
         .px(16.0)
         .pb(16.0)
         .gap(14.0)
-        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(m.titre.clone()).font(k.ty.ui_medium).color(k.c.text_base).truncate().min_w(0.0)))
-        .child(muted(k, format!("Réunion du {} à {}, {}.", m.debut.jour_court(), m.debut.heure_courte(), ui::dur(m.duree))))
+        .child(row().gap(8.0).center_y().child(glyph(&ui::FOLDER, 13.0, k.c.icon_muted)).child(text(m.title.clone()).font(k.ty.ui_medium).color(k.c.text_base).truncate().min_w(0.0)))
+        .child(muted(k, format!("Réunion du {} à {}, {}.", m.start.short_day(), m.start.short_time(), ui::dur(m.duration))))
         .child(
             row()
                 .w_full()

@@ -11,18 +11,18 @@
 #![forbid(unsafe_code)]
 
 mod import;
-mod locuteurs;
+mod speakers;
 mod meeting;
 mod overlays;
 mod pages;
-mod refaire;
-mod reglages;
+mod redo;
+mod settings;
 mod sidebar;
-mod surveillance;
+mod watch;
 mod timeline;
-mod titre;
+mod title;
 mod ui;
-mod verifier;
+mod check;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -31,11 +31,11 @@ use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent,
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
-use greffier_barre::{Choix, IconeDeLaBarre};
-use greffier_capture::veille::PasDeVeille;
-use greffier_coeur::adaptateurs::EtatDeRessource;
-use greffier_coeur::faux::FaussesRessources;
-use greffier_coeur::{Commande, Etape, Evenement, Greffier, IdReunion, Refus, Reunion, Role, fictif, lexique};
+use greffier_menubar::{Choice, MenubarIcon};
+use greffier_capture::sleep::KeepAwake;
+use greffier_core::adapters::ResourceState;
+use greffier_core::fake::FakeResources;
+use greffier_core::{Command, Stage, Event, Greffier, MeetingId, Rejection, Meeting, Role, demo, lexicon};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -45,7 +45,7 @@ pub enum Page {
     Welcome,
     Overview,
     Recording,
-    Meeting(IdReunion),
+    Meeting(MeetingId),
     Settings,
     /// Le premier lancement : télécharger et vérifier les ressources.
     Installation,
@@ -64,7 +64,7 @@ pub const TABS: [Tab; 5] = [Tab::Summary, Tab::Transcript, Tab::Doubts, Tab::Spe
 
 pub struct Toast {
     pub text: String,
-    pub meeting: Option<IdReunion>,
+    pub meeting: Option<MeetingId>,
     pub until: f64,
 }
 
@@ -85,7 +85,7 @@ pub struct App {
     /// Phase de l'animation de l'enregistrement (pulsation, niveaux).
     pub rec_phase: f64,
     /// La correction du nom ou la fusion d'un locuteur, dans l'onglet Locuteurs.
-    pub picking: Option<locuteurs::Picking>,
+    pub picking: Option<speakers::Picking>,
     pub toast: Option<Toast>,
     pub clock: f64,
     pub last: Option<f64>,
@@ -93,13 +93,13 @@ pub struct App {
     /// Recherche ⌘K : ouverte quand `Some`.
     pub search: Option<TextEdit>,
     /// Menu du clic droit sur une réunion de la barre latérale.
-    pub menu: Option<(IdReunion, PointerPress)>,
-    pub confirm_delete: Option<IdReunion>,
+    pub menu: Option<(MeetingId, PointerPress)>,
+    pub confirm_delete: Option<MeetingId>,
     /// Vidéo en plein écran (la fenêtre passe aussi en plein écran macOS).
     pub fullscreen: bool,
     /// L'enregistrement de la réunion ouverte, quand son dossier en a un. Sans lui (données
     /// fictives), la lecture est simulée.
-    pub video: Option<(IdReunion, Player)>,
+    pub video: Option<(MeetingId, Player)>,
     /// Réveille l'interface quand la vidéo charge, finit ou échoue.
     pub waker: Option<Waker>,
     /// Le dossier de réunions choisi (`None` pour les données fictives du prototype).
@@ -119,40 +119,40 @@ pub struct App {
     /// Pourquoi l'enregistrement n'a pas démarré (autorisation, source…).
     pub record_error: Option<String>,
     /// Un enregistrement de moins d'une minute, proposé à la suppression.
-    pub enregistrement_court: Option<IdReunion>,
+    pub short_recording: Option<MeetingId>,
     /// Ce que compte le lexique, pour les réglages.
-    pub lexique: lexique::Apercu,
+    pub lexicon: lexicon::Overview,
     /// Les personnes du lexique : les noms proposés en un clic pour nommer un locuteur.
     pub people: Vec<String>,
     /// Signale les changements faits dans le dossier de réunions hors de l'app.
-    pub watch: Option<surveillance::Surveillance>,
+    pub watch: Option<watch::FolderWatch>,
     /// La fenêtre d'import, ouverte quand `Some`.
     pub import: Option<import::Draft>,
     /// La réunion qui vient d'être importée : on demande quand lancer son traitement.
-    pub process_imported: Option<IdReunion>,
+    pub process_imported: Option<MeetingId>,
     /// L'icône de la barre des menus (fenêtre seulement, posée au lancement).
-    pub menu_bar: Option<IconeDeLaBarre>,
+    pub menu_bar: Option<MenubarIcon>,
     /// La fenêtre « Changer le titre », ouverte quand `Some`.
-    pub rename: Option<titre::Renaming>,
+    pub rename: Option<title::Renaming>,
     /// La fenêtre « Refaire la transcription », ouverte quand `Some`.
-    pub redo_transcription: Option<refaire::RedoTranscription>,
+    pub redo_transcription: Option<redo::RedoTranscription>,
     /// Le menu « Refaire… » de l'onglet Transcription, ouvert.
     pub redo_menu: bool,
     /// L'assertion de non-veille, tenue pendant un enregistrement ou un traitement (fenêtre
     /// seulement).
-    pub awake: Option<PasDeVeille>,
+    pub awake: Option<KeepAwake>,
     /// Le passage à vérifier sélectionné au clavier (voir `verifier::selected`).
     pub doubt: usize,
     /// La correction à la main en cours (passage à vérifier ou réplique).
-    pub correction: Option<verifier::Correction>,
+    pub correction: Option<check::Correction>,
     /// « Écouter » un passage : la lecture s'arrête à la fin de son extrait.
     pub listen_until: Option<f64>,
 }
 
 impl App {
-    pub fn meeting(&self) -> Option<&Reunion> {
+    pub fn meeting(&self) -> Option<&Meeting> {
         match self.page {
-            Page::Meeting(id) => self.core.reunion(id),
+            Page::Meeting(id) => self.core.meeting(id),
             _ => None,
         }
     }
@@ -165,58 +165,58 @@ impl App {
     }
     /// La durée de la réunion ouverte : celle de ses fichiers, sinon celle de la vidéo.
     pub fn duration(&self) -> f64 {
-        let d = self.meeting().map_or(0.0, |m| m.duree);
+        let d = self.meeting().map_or(0.0, |m| m.duration);
         if d > 0.0 { d } else { self.player().and_then(Player::duration).unwrap_or(0.0) }
     }
     /// Envoie une commande au cœur et donne suite à ses événements.
-    pub fn command(&mut self, c: Commande) {
-        if let Err(refus) = self.try_command(c) {
-            eprintln!("greffier : {refus}");
+    pub fn command(&mut self, c: Command) {
+        if let Err(rejection) = self.try_command(c) {
+            eprintln!("greffier : {rejection}");
         }
     }
-    fn try_command(&mut self, c: Commande) -> Result<(), Refus> {
-        let events = self.core.executer(c);
+    fn try_command(&mut self, c: Command) -> Result<(), Rejection> {
+        let events = self.core.execute(c);
         self.follow_core();
         self.handle(events?);
         Ok(())
     }
-    fn handle(&mut self, events: Vec<Evenement>) {
+    fn handle(&mut self, events: Vec<Event>) {
         for e in events {
             match e {
-                Evenement::ReunionEnregistree(id) => self.open(id),
-                Evenement::EnregistrementInterrompu { reunion, message } => {
+                Event::MeetingRecorded(id) => self.open(id),
+                Event::RecordingInterrupted { meeting, message } => {
                     eprintln!("greffier : {message}");
                     self.register_marker_shortcut(false);
-                    self.open(reunion);
-                    self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(reunion), until: self.clock + 8.0 });
+                    self.open(meeting);
+                    self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(meeting), until: self.clock + 8.0 });
                     if let Some(h) = &self.handle {
                         h.open();
                     }
                 }
-                Evenement::SuppressionProposee(id) => self.enregistrement_court = Some(id),
-                Evenement::ReunionImportee(id) => self.imported(id),
-                Evenement::BilanPret { reunion, titre } => {
-                    if self.page == Page::Meeting(reunion) {
-                        self.command(Commande::MarquerLue(reunion));
+                Event::DeletionProposed(id) => self.short_recording = Some(id),
+                Event::MeetingImported(id) => self.imported(id),
+                Event::SummaryReady { meeting, title } => {
+                    if self.page == Page::Meeting(meeting) {
+                        self.command(Command::MarkRead(meeting));
                     }
-                    self.toast = Some(Toast { text: format!("Bilan prêt : {titre}"), meeting: Some(reunion), until: self.clock + 6.0 });
-                    self.notify_bilan(reunion);
+                    self.toast = Some(Toast { text: format!("Bilan prêt : {title}"), meeting: Some(meeting), until: self.clock + 6.0 });
+                    self.notify_summary(meeting);
                 }
-                Evenement::EtapeTerminee { etape: Etape::Relecture, .. } if !rune::is_headless() => {
+                Event::StageDone { stage: Stage::Review, .. } if !rune::is_headless() => {
                     // La relecture a pu enrichir le lexique.
-                    self.lexique = self.core.lexique();
-                    self.people = reglages::personnes(&self.core);
+                    self.lexicon = self.core.lexicon();
+                    self.people = settings::people(&self.core);
                 }
-                Evenement::EtapeEnEchec { message, .. } | Evenement::EcritureImpossible { message, .. } => eprintln!("greffier : {message}"),
-                Evenement::RessourcesInstallees => {
+                Event::StageFailed { message, .. } | Event::WriteFailed { message, .. } => eprintln!("greffier : {message}"),
+                Event::ResourcesInstalled => {
                     self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
                 }
-                Evenement::InstallationEnEchec(message) => eprintln!("greffier : installation des ressources : {message}"),
-                Evenement::ReunionDisparue(id) => self.forget(id),
-                Evenement::ReunionRelue(id) if self.page == Page::Meeting(id) => {
+                Event::InstallationFailed(message) => eprintln!("greffier : installation des ressources : {message}"),
+                Event::MeetingDisappeared(id) => self.forget(id),
+                Event::MeetingReviewed(id) if self.page == Page::Meeting(id) => {
                     // Les répliques et les locuteurs ont pu changer.
                     self.picking = None;
-                    self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
+                    self.current = self.meeting().and_then(|m| m.utterance_at(self.pos));
                     if self.video.is_none() {
                         self.load_video(id);
                     }
@@ -226,16 +226,16 @@ impl App {
         }
     }
     /// Ouvre le lexique dans l'éditeur de texte par défaut (sans fenêtre, rien).
-    pub fn open_lexique(&mut self) {
+    pub fn open_lexicon(&mut self) {
         if rune::is_headless() {
             return;
         }
-        let Some(chemin) = reglages::chemin_du_lexique() else { return };
-        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-t").arg(&chemin).spawn() {
+        let Some(path) = settings::lexicon_path() else { return };
+        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-t").arg(&path).spawn() {
             eprintln!("greffier : ouvrir le lexique : {e}");
         }
     }
-    pub fn open(&mut self, id: IdReunion) {
+    pub fn open(&mut self, id: MeetingId) {
         if self.page != Page::Meeting(id) {
             self.page = Page::Meeting(id);
             self.redo_menu = false;
@@ -250,41 +250,41 @@ impl App {
             self.fullscreen = false;
             self.load_video(id);
         }
-        if self.core.reunion(id).is_some_and(|m| m.nouvelle) {
-            self.command(Commande::MarquerLue(id));
+        if self.core.meeting(id).is_some_and(|m| m.is_new) {
+            self.command(Command::MarkRead(id));
         }
     }
     /// La notification de macOS « Bilan prêt », quand l'app n'est pas devant (elle a déjà son
     /// bandeau). Un clic ouvre la réunion (`open_folder_named`), retrouvée par son dossier :
     /// l'identifiant ne survit pas à un redémarrage de l'app. Seule l'app installée peut poster.
-    fn notify_bilan(&self, id: IdReunion) {
+    fn notify_summary(&self, id: MeetingId) {
         if rune::is_headless() || rune_notify::app_focused() {
             return;
         }
-        let Some(m) = self.core.reunion(id) else { return };
-        let n = rune_notify::Notification::new(format!("bilan:{}", m.nom_du_dossier), "Bilan prêt")
+        let Some(m) = self.core.meeting(id) else { return };
+        let n = rune_notify::Notification::new(format!("bilan:{}", m.folder_name), "Bilan prêt")
             .body(meeting::display_title(m, true))
-            .info("dossier", m.nom_du_dossier.clone());
+            .info("dossier", m.folder_name.clone());
         rune_notify::post(&n);
     }
     /// Ouvre la réunion dont le dossier porte ce nom (clic sur une notification).
-    pub fn open_folder_named(&mut self, nom: &str) {
-        if let Some(id) = self.core.reunions().iter().find(|r| r.nom_du_dossier == nom).map(|r| r.id) {
+    pub fn open_folder_named(&mut self, name: &str) {
+        if let Some(id) = self.core.meetings().iter().find(|r| r.folder_name == name).map(|r| r.id) {
             self.open(id);
         }
     }
-    pub fn open_at(&mut self, id: IdReunion, t: f64) {
+    pub fn open_at(&mut self, id: MeetingId, t: f64) {
         self.open(id);
         self.seek(t);
     }
     /// Ouvre l'enregistrement de la réunion, son activé, s'il existe.
-    fn load_video(&mut self, id: IdReunion) {
+    fn load_video(&mut self, id: MeetingId) {
         self.video = None;
-        let Some(m) = self.core.reunion(id) else { return };
-        if !m.fichiers.contains(&Role::Enregistrement) {
+        let Some(m) = self.core.meeting(id) else { return };
+        if !m.files.contains(&Role::Recording) {
             return;
         }
-        let Some(file) = self.core.fichier_d_enregistrement(id) else { return };
+        let Some(file) = self.core.recording_file(id) else { return };
         let player = Player::file(file);
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
@@ -299,7 +299,7 @@ impl App {
         if let Some(p) = self.player() {
             p.seek(self.pos);
         }
-        self.current = self.meeting().and_then(|m| m.replique_a(self.pos));
+        self.current = self.meeting().and_then(|m| m.utterance_at(self.pos));
     }
     pub fn seek_and_play(&mut self, t: f64) {
         self.seek(t);
@@ -336,17 +336,17 @@ impl App {
     }
     /// Lit les réunions d'un dossier de réunions et le retient pour les lancements suivants.
     pub fn use_folder(&mut self, dir: PathBuf) {
-        if self.core.occupe() {
+        if self.core.busy() {
             self.folder_error = Some("Impossible de changer de dossier pendant un enregistrement ou un traitement.".into());
             return;
         }
-        if let Err(e) = reglages::choisir_dossier_de_reunions(&dir) {
+        if let Err(e) = settings::choose_meetings_folder(&dir) {
             self.folder_error = Some(e);
             return;
         }
-        let settings = self.core.reglages().clone();
+        let settings = self.core.settings().clone();
         self.core = real_core(&dir, true);
-        self.command(Commande::ChangerReglages(settings));
+        self.command(Command::ChangeSettings(settings));
         self.folder = Some(dir);
         self.watch_folder();
         self.needs_folder = false;
@@ -362,7 +362,7 @@ impl App {
     }
     /// Le sélecteur de dossier de macOS, pour choisir le dossier de réunions.
     pub fn pick_folder(&mut self, tx: &mut Tx) {
-        let directory = self.folder.clone().or_else(|| reglages::dossier_propose().parent().map(Path::to_path_buf));
+        let directory = self.folder.clone().or_else(|| settings::suggested_folder().parent().map(Path::to_path_buf));
         let options = FileDialogOptions { title: "Dossier de réunions".into(), directory, ..Default::default() };
         tx.open_folder(options, |s: &mut App, answer, _| match answer {
             Ok(Some(dir)) => s.use_folder(dir),
@@ -370,18 +370,18 @@ impl App {
             Err(e) => s.folder_error = Some(e.to_string()),
         });
     }
-    pub fn enregistre(&self) -> bool {
-        self.core.enregistrement().is_some()
+    pub fn recorded(&self) -> bool {
+        self.core.recording().is_some()
     }
     /// Pose l'icône de la barre des menus. Ses choix font les mêmes gestes que le raccourci
     /// global, sur le thread de l'interface (`AppHandle::update`), comme lui.
     fn install_menu_bar(&mut self) {
         let Some(h) = self.handle.clone() else { return };
-        self.menu_bar = IconeDeLaBarre::new(move |choix| match choix {
-            Choix::Demarrer => h.update(|s: &mut App, _| if !s.enregistre() { s.toggle_recording() }),
-            Choix::Arreter => h.update(|s: &mut App, _| if s.enregistre() { s.toggle_recording() }),
-            Choix::Ouvrir => h.open(),
-            Choix::Quitter => h.quit(),
+        self.menu_bar = MenubarIcon::new(move |choice| match choice {
+            Choice::Start => h.update(|s: &mut App, _| if !s.recorded() { s.toggle_recording() }),
+            Choice::Stop => h.update(|s: &mut App, _| if s.recorded() { s.toggle_recording() }),
+            Choice::Open => h.open(),
+            Choice::Quit => h.quit(),
         });
         self.show_menu_bar();
     }
@@ -395,13 +395,13 @@ impl App {
     /// traitement : l'assertion suit [`Greffier::garder_le_mac_eveille`] (refaite quand la raison
     /// change).
     fn keep_awake(&mut self) {
-        let eveil = if rune::is_headless() { None } else { self.core.garder_le_mac_eveille() };
-        if self.awake.as_ref().map(|a| (a.raison(), a.ecran())) == eveil.map(|e| (e.raison, e.ecran)) {
+        let keep_awake = if rune::is_headless() { None } else { self.core.keep_mac_awake() };
+        if self.awake.as_ref().map(|a| (a.reason(), a.screen())) == keep_awake.map(|e| (e.reason, e.screen)) {
             return;
         }
         self.awake = None;
-        if let Some(eveil) = eveil {
-            match PasDeVeille::new(eveil.raison, eveil.ecran) {
+        if let Some(keep_awake) = keep_awake {
+            match KeepAwake::new(keep_awake.reason, keep_awake.screen) {
                 Ok(a) => self.awake = Some(a),
                 Err(e) => eprintln!("greffier : {e}"),
             }
@@ -409,22 +409,22 @@ impl App {
     }
     /// Montre l'état de l'enregistrement dans la barre des menus.
     fn show_menu_bar(&mut self) {
-        let etat = match self.core.enregistrement() {
-            Some(r) => greffier_barre::Etat::Enregistrement { duree: r.duree },
-            None => greffier_barre::Etat::Pret { possible: !self.needs_folder },
+        let state = match self.core.recording() {
+            Some(r) => greffier_menubar::State::Recording { duration: r.duration },
+            None => greffier_menubar::State::Ready { possible: !self.needs_folder },
         };
         if let Some(b) = &mut self.menu_bar {
-            b.montrer(etat);
+            b.show(state);
         }
     }
     pub fn start_recording(&mut self) {
         if self.needs_folder {
             return;
         }
-        if !self.enregistre() {
+        if !self.recorded() {
             self.rec_phase = 0.0;
-            self.record_error = self.try_command(Commande::DemarrerEnregistrement).err().map(|r| r.to_string());
-            if self.enregistre() {
+            self.record_error = self.try_command(Command::StartRecording).err().map(|r| r.to_string());
+            if self.recorded() {
                 self.register_marker_shortcut(true);
             } else if let Some(h) = &self.handle {
                 // Parti de la barre des menus ou du raccourci, fenêtre cachée : on montre pourquoi.
@@ -438,13 +438,13 @@ impl App {
         self.page = Page::Recording;
     }
     pub fn stop_recording(&mut self) {
-        if self.enregistre() {
-            self.command(Commande::ArreterEnregistrement);
+        if self.recorded() {
+            self.command(Command::StopRecording);
         }
         self.register_marker_shortcut(false);
     }
     pub fn toggle_recording(&mut self) {
-        if self.enregistre() { self.stop_recording() } else { self.start_recording() }
+        if self.recorded() { self.stop_recording() } else { self.start_recording() }
     }
     /// ⌘M de n'importe où pendant l'enregistrement (rendu aux autres apps à l'arrêt).
     fn register_marker_shortcut(&mut self, on: bool) {
@@ -485,47 +485,47 @@ impl App {
         if rune::is_headless() || self.folder.is_none() && !self.needs_folder {
             return;
         }
-        let raccourci = self.shortcut.shortcut().map(|s| s.to_string()).unwrap_or_default();
-        if let Err(e) = reglages::retenir_enregistrement(self.core.reglages(), &raccourci) {
+        let shortcut = self.shortcut.shortcut().map(|s| s.to_string()).unwrap_or_default();
+        if let Err(e) = settings::remember_recording_settings(self.core.settings(), &shortcut) {
             eprintln!("greffier : réglages : {e}");
         }
     }
-    pub fn process(&mut self, id: IdReunion) {
-        self.command(Commande::Traiter(id));
+    pub fn process(&mut self, id: MeetingId) {
+        self.command(Command::Process(id));
     }
-    pub fn stop_processing(&mut self, id: IdReunion) {
-        self.command(Commande::ArreterTraitement(id));
+    pub fn stop_processing(&mut self, id: MeetingId) {
+        self.command(Command::StopProcessing(id));
     }
     /// Met la réunion à la corbeille (après confirmation) ; si la corbeille refuse, elle reste et
     /// un bandeau dit pourquoi.
-    pub fn delete(&mut self, id: IdReunion) {
+    pub fn delete(&mut self, id: MeetingId) {
         self.confirm_delete = None;
-        match self.try_command(Commande::Supprimer(id)) {
+        match self.try_command(Command::Delete(id)) {
             Ok(()) => self.forget(id),
-            Err(refus) => self.toast = Some(Toast { text: format!("Suppression impossible : {refus}"), meeting: Some(id), until: self.clock + 8.0 }),
+            Err(rejection) => self.toast = Some(Toast { text: format!("Suppression impossible : {rejection}"), meeting: Some(id), until: self.clock + 8.0 }),
         }
     }
     /// Montre le dossier de la réunion dans le Finder (sans fenêtre, rien).
-    pub fn reveal(&mut self, id: IdReunion) {
-        let Some(dossier) = self.core.dossier_de_la_reunion(id) else { return };
+    pub fn reveal(&mut self, id: MeetingId) {
+        let Some(folder) = self.core.meeting_folder(id) else { return };
         if rune::is_headless() {
             return;
         }
-        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-R").arg(&dossier).spawn() {
+        if let Err(e) = std::process::Command::new("/usr/bin/open").arg("-R").arg(&folder).spawn() {
             eprintln!("greffier : afficher dans le Finder : {e}");
         }
     }
     /// Copie le bilan, tel qu'il est écrit (Markdown), dans le presse-papiers.
-    pub fn copy_bilan(&mut self, id: IdReunion, tx: &mut Tx) {
-        let Some(m) = self.core.reunion(id) else { return };
-        if m.bilan.trim().is_empty() {
+    pub fn copy_summary(&mut self, id: MeetingId, tx: &mut Tx) {
+        let Some(m) = self.core.meeting(id) else { return };
+        if m.summary.trim().is_empty() {
             return;
         }
-        tx.copy(m.bilan.clone());
+        tx.copy(m.summary.clone());
         self.toast = Some(Toast { text: "Bilan copié en Markdown.".into(), meeting: Some(id), until: self.clock + 4.0 });
     }
     /// La réunion n'existe plus (supprimée dans l'app ou hors de l'app) : on quitte sa page.
-    fn forget(&mut self, id: IdReunion) {
+    fn forget(&mut self, id: MeetingId) {
         if self.video.as_ref().is_some_and(|(v, _)| *v == id) {
             self.video = None;
         }
@@ -544,34 +544,34 @@ impl App {
     fn watch_folder(&mut self) {
         self.watch = None;
         let (Some(dir), Some(waker)) = (&self.folder, &self.waker) else { return };
-        match surveillance::Surveillance::new(dir, waker.clone()) {
+        match watch::FolderWatch::new(dir, waker.clone()) {
             Ok(w) => self.watch = Some(w),
             Err(e) => eprintln!("greffier : surveillance du dossier de réunions impossible ({e})"),
         }
     }
     pub fn add_marker(&mut self) {
-        if self.enregistre() {
-            self.command(Commande::PoserRepere);
+        if self.recorded() {
+            self.command(Command::AddMarker);
         }
     }
     /// Écran, son du Mac, micro.
     pub fn source(&self, i: usize) -> bool {
-        let s = &self.core.reglages().sources;
-        [s.ecran, s.son_du_mac, s.micro][i]
+        let s = &self.core.settings().sources;
+        [s.screen, s.mac_audio, s.micro][i]
     }
     pub fn toggle_source(&mut self, i: usize) {
-        let mut r = self.core.reglages().clone();
+        let mut r = self.core.settings().clone();
         let s = &mut r.sources;
-        let v = [&mut s.ecran, &mut s.son_du_mac, &mut s.micro];
+        let v = [&mut s.screen, &mut s.mac_audio, &mut s.micro];
         *v[i] = !*v[i];
-        self.command(Commande::ChangerReglages(r));
+        self.command(Command::ChangeSettings(r));
         self.record_error = None;
         self.save_settings();
     }
     pub fn toggle_auto_process(&mut self) {
-        let mut r = self.core.reglages().clone();
-        r.traiter_a_l_arret = !r.traiter_a_l_arret;
-        self.command(Commande::ChangerReglages(r));
+        let mut r = self.core.settings().clone();
+        r.process_on_stop = !r.process_on_stop;
+        self.command(Command::ChangeSettings(r));
         self.save_settings();
     }
     /// Le sélecteur de dossier de macOS, pour ouvrir un dossier de contexte à l'agent.
@@ -579,20 +579,20 @@ impl App {
         let options = FileDialogOptions { title: "Dossier de contexte de l'agent".into(), directory: self.folder.clone(), ..Default::default() };
         tx.open_folder(options, |s: &mut App, answer, _| {
             if let Ok(Some(dir)) = answer {
-                let mut r = s.core.reglages().clone();
-                if !r.dossiers_de_contexte.contains(&dir) {
-                    r.dossiers_de_contexte.push(dir);
-                    s.command(Commande::ChangerReglages(r));
+                let mut r = s.core.settings().clone();
+                if !r.context_folders.contains(&dir) {
+                    r.context_folders.push(dir);
+                    s.command(Command::ChangeSettings(r));
                     s.save_settings();
                 }
             }
         });
     }
     pub fn remove_context_folder(&mut self, i: usize) {
-        let mut r = self.core.reglages().clone();
-        if i < r.dossiers_de_contexte.len() {
-            r.dossiers_de_contexte.remove(i);
-            self.command(Commande::ChangerReglages(r));
+        let mut r = self.core.settings().clone();
+        if i < r.context_folders.len() {
+            r.context_folders.remove(i);
+            self.command(Command::ChangeSettings(r));
             self.save_settings();
         }
     }
@@ -617,17 +617,17 @@ fn prototype_folder() -> std::path::PathBuf {
 
 /// Le cœur du prototype : données fictives, dossier temporaire.
 fn prototype() -> Greffier {
-    Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), fictif::reunions())
+    Greffier::with_meetings(prototype_folder(), demo::adapters(), demo::meetings())
 }
 
 /// Le cœur de la fenêtre sur un dossier de réunions, avec les vraies ressources, dont il lance
 /// tout de suite les vérifications, le lexique et le cache de recherche du dossier de l'app.
-fn real_core(folder: &Path, reunions: bool) -> Greffier {
-    let mut core = if reunions { Greffier::ouvrir(folder, reglages::adaptateurs()) } else { Greffier::avec_reunions(folder, reglages::adaptateurs(), vec![]) };
-    let lexique = reglages::chemin_du_lexique();
-    let cache_de_recherche = Some(reglages::cache_de_recherche());
-    for c in [Commande::ChangerReglages(greffier_coeur::Reglages { lexique, cache_de_recherche, ..core.reglages().clone() }), Commande::VerifierRessources] {
-        if let Err(e) = core.executer(c) {
+fn real_core(folder: &Path, meetings: bool) -> Greffier {
+    let mut core = if meetings { Greffier::open(folder, settings::adapters()) } else { Greffier::with_meetings(folder, settings::adapters(), vec![]) };
+    let lexicon = settings::lexicon_path();
+    let search_cache = Some(settings::search_cache());
+    for c in [Command::ChangeSettings(greffier_core::Settings { lexicon, search_cache, ..core.settings().clone() }), Command::CheckResources] {
+        if let Err(e) = core.execute(c) {
             eprintln!("greffier : {e}");
         }
     }
@@ -636,13 +636,13 @@ fn real_core(folder: &Path, reunions: bool) -> Greffier {
 
 /// L'écran du premier lancement des ressources, tant que la transcription ne peut pas tourner.
 fn resources_missing(core: &Greffier) -> bool {
-    core.ressources().iter().any(|r| r.etapes.contains(&Etape::Transcription) && r.etat != EtatDeRessource::Prete)
+    core.resources().iter().any(|r| r.stages.contains(&Stage::Transcription) && r.state != ResourceState::Ready)
 }
 
 fn init() -> App {
     // Sans fenêtre (scènes, captures), l'app part des données fictives : rendu déterministe, et
     // jamais d'écriture dans le vrai dossier de réunions ni dans le dossier de l'app.
-    let folder = if rune::is_headless() { None } else { reglages::dossier_de_reunions() };
+    let folder = if rune::is_headless() { None } else { settings::meetings_folder() };
     let (mut core, page) = match &folder {
         _ if rune::is_headless() => (prototype(), Page::Overview),
         Some(dir) => {
@@ -650,16 +650,16 @@ fn init() -> App {
             let page = if resources_missing(&core) { Page::Installation } else { Page::Overview };
             (core, page)
         }
-        None => (real_core(&reglages::dossier_propose(), false), Page::Welcome),
+        None => (real_core(&settings::suggested_folder(), false), Page::Welcome),
     };
     // Sans fenêtre, les réglages par défaut : rendu déterministe.
-    let retenus = if rune::is_headless() { greffier_coeur::reglages::ReglagesRetenus::default() } else { reglages::retenus() };
+    let remembered = if rune::is_headless() { greffier_core::settings::PersistedSettings::default() } else { settings::remembered() };
     // Le lexique et le cache viennent du dossier de l'app (`real_core`), pas des réglages retenus.
-    let settings = retenus.appliquer(core.reglages().clone());
-    let _ = core.executer(Commande::ChangerReglages(settings));
-    let shortcut = retenus.raccourci;
-    let lexique = core.lexique();
-    let people = reglages::personnes(&core);
+    let settings = remembered.apply(core.settings().clone());
+    let _ = core.execute(Command::ChangeSettings(settings));
+    let shortcut = remembered.shortcut;
+    let lexicon = core.lexicon();
+    let people = settings::people(&core);
     App {
         core,
         sidebar: PaneState::new(272.0).range(200.0, 420.0),
@@ -692,8 +692,8 @@ fn init() -> App {
         shortcut_id: None,
         marker_id: None,
         record_error: None,
-        enregistrement_court: None,
-        lexique,
+        short_recording: None,
+        lexicon,
         people,
         watch: None,
         import: None,
@@ -740,7 +740,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         if playing {
             active = true;
         }
-        s.current = s.meeting().and_then(|m| m.replique_a(s.pos));
+        s.current = s.meeting().and_then(|m| m.utterance_at(s.pos));
     } else if s.playing {
         active = true;
         changed = true;
@@ -750,7 +750,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         if s.pos >= dur {
             s.playing = false;
         }
-        s.current = s.meeting().and_then(|m| m.replique_a(s.pos));
+        s.current = s.meeting().and_then(|m| m.utterance_at(s.pos));
     }
     // « Écouter » un passage à vérifier s'arrête à la fin de son extrait.
     if s.listen_until.is_some_and(|t| s.playing && s.pos >= t) {
@@ -758,7 +758,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     // Une correction qui n'est plus affichée (autre onglet, autre page) est abandonnée.
-    if s.correction.is_some() && !verifier::correction_shown(s) {
+    if s.correction.is_some() && !check::correction_shown(s) {
         s.correction = None;
         changed = true;
     }
@@ -775,17 +775,17 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         active = true;
     }
 
-    if s.enregistre() {
+    if s.recorded() {
         s.rec_phase += dt;
     }
     // Un fichier a changé dans le dossier de réunions : le cœur relit ce qui a changé hors de l'app.
-    if s.watch.as_ref().is_some_and(surveillance::Surveillance::a_change) {
-        let events = s.core.relire_le_dossier();
+    if s.watch.as_ref().is_some_and(watch::FolderWatch::has_changed) {
+        let events = s.core.rescan_folder();
         changed |= !events.is_empty();
         s.handle(events);
     }
-    let events = s.core.avancer(dt);
-    if s.core.occupe() || !events.is_empty() {
+    let events = s.core.advance(dt);
+    if s.core.busy() || !events.is_empty() {
         active = true;
         changed = true;
     }
@@ -823,7 +823,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.search.is_some() { s.search = None } else { s.open_search() }
         return true;
     }
-    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.enregistrement_court.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
+    if s.search.is_some() || s.confirm_delete.is_some() || s.import.is_some() || s.process_imported.is_some() || s.short_recording.is_some() || s.redo_transcription.is_some() || s.shortcut.is_recording() || s.correction.is_some() {
         return false;
     }
     // Le raccourci global prend ⇧⌘R quand il est posé ; sinon (sans fenêtre, refusé), l'app le garde.
@@ -836,7 +836,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.confirm_delete = Some(id);
         return true;
     }
-    if ev.is_command('m') && s.enregistre() {
+    if ev.is_command('m') && s.recorded() {
         s.add_marker();
         return true;
     }
@@ -849,14 +849,14 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.meeting().is_none() || ev.mods.cmd {
         return false;
     }
-    if s.tab == Tab::Doubts && verifier::on_key(s, ev, tx) {
+    if s.tab == Tab::Doubts && check::on_key(s, ev, tx) {
         return true;
     }
     if s.tab == Tab::Transcript
         && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("c"))
         && let Some(i) = s.current
     {
-        s.start_correction(verifier::Cible::Replique(i));
+        s.start_correction(check::Target::Utterance(i));
         return true;
     }
     match &ev.key {
@@ -901,9 +901,9 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     meeting::fullscreen(s, &k, cx, &mut layer);
     overlays::search(s, &k, &mut layer);
     overlays::confirm_delete(s, &k, &mut layer);
-    overlays::enregistrement_court(s, &k, &mut layer);
-    titre::window(s, &k, &mut layer);
-    refaire::window(s, &k, &mut layer);
+    overlays::short_recording(s, &k, &mut layer);
+    title::window(s, &k, &mut layer);
+    redo::window(s, &k, &mut layer);
     import::window(s, &k, &mut layer);
     import::process_window(s, &k, &mut layer);
     // Des fichiers déposés n'importe où sur la fenêtre ouvrent l'import.
@@ -912,7 +912,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
 
 fn scene_meeting(s: &mut App) {
     s.open(2);
-    s.seek(greffier_coeur::hms(0, 44, 5));
+    s.seek(greffier_core::hms(0, 44, 5));
 }
 fn scene_transcript(s: &mut App) {
     scene_meeting(s);
@@ -925,16 +925,16 @@ fn scene_doubts(s: &mut App) {
 /// Un passage tranché (hypothèse acceptée), et le suivant en cours de correction.
 fn scene_doubt_fix(s: &mut App) {
     scene_doubts(s);
-    s.resolve_doubt(0, greffier_coeur::Tranche::AccepterHypothese);
-    if let Some(i) = s.meeting().and_then(|m| verifier::selected(s, m)) {
-        s.start_correction(verifier::Cible::Passage(i));
+    s.resolve_doubt(0, greffier_core::Resolution::AcceptHypothesis);
+    if let Some(i) = s.meeting().and_then(|m| check::selected(s, m)) {
+        s.start_correction(check::Target::Passage(i));
     }
 }
 /// La correction d'une réplique dans l'onglet Transcription.
 fn scene_transcript_fix(s: &mut App) {
     scene_transcript(s);
     if let Some(i) = s.current {
-        s.start_correction(verifier::Cible::Replique(i));
+        s.start_correction(check::Target::Utterance(i));
     }
 }
 fn scene_people(s: &mut App) {
@@ -949,7 +949,7 @@ fn scene_people_naming(s: &mut App) {
 /// Locuteurs : SPEAKER_02 fusionné dans Jérôme, la fusion de Pablo ouverte.
 fn scene_people_merged(s: &mut App) {
     scene_people(s);
-    s.command(Commande::FusionnerLocuteurs { reunion: 2, locuteur: 2, dans: 0 });
+    s.command(Command::MergeSpeakers { meeting: 2, speaker: 2, into: 0 });
     s.start_merging(4);
 }
 fn scene_info(s: &mut App) {
@@ -959,9 +959,9 @@ fn scene_info(s: &mut App) {
 /// 12 min 34 d'enregistrement (temps accéléré ×20), un repère à 5 min 12.
 fn scene_recording(s: &mut App) {
     s.start_recording();
-    s.core.avancer(312.0 / fictif::VITESSE_D_ENREGISTREMENT);
+    s.core.advance(312.0 / demo::RECORDING_SPEED);
     s.add_marker();
-    s.core.avancer(442.0 / fictif::VITESSE_D_ENREGISTREMENT);
+    s.core.advance(442.0 / demo::RECORDING_SPEED);
     s.rec_phase = 1.3;
 }
 /// La page d'enregistrement avant le démarrage : sources et autorisations.
@@ -970,38 +970,38 @@ fn scene_record_ready(s: &mut App) {
 }
 /// À l'arrêt d'un enregistrement de 12 s (capture au temps réel) : proposé à la suppression.
 fn scene_short_recording(s: &mut App) {
-    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { capture: Box::new(greffier_coeur::faux::FausseCapture::new(1.0, 0.0)), ..fictif::adaptateurs() };
-    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    let adapters = greffier_core::adapters::Adapters { capture: Box::new(greffier_core::fake::FakeCapture::new(1.0, 0.0)), ..demo::adapters() };
+    s.core = Greffier::with_meetings(prototype_folder(), adapters, demo::meetings());
     s.start_recording();
-    s.core.avancer(12.0);
+    s.core.advance(12.0);
     s.stop_recording();
 }
 /// La réunion à traiter, transcrite, à 40 % de la relecture.
 fn scene_processing(s: &mut App) {
     s.open(1);
     s.process(1);
-    s.core.avancer(0.0);
-    s.core.avancer(fictif::duree_simulee(Etape::Transcription));
-    s.core.avancer(0.4 * fictif::duree_simulee(Etape::Relecture));
+    s.core.advance(0.0);
+    s.core.advance(demo::simulated_duration(Stage::Transcription));
+    s.core.advance(0.4 * demo::simulated_duration(Stage::Review));
 }
 /// La file : la réunion du jour en transcription, la revue de release en attente derrière elle.
 fn scene_queue(s: &mut App) {
-    let second = s.core.reunions()[1].id;
+    let second = s.core.meetings()[1].id;
     s.process(1);
-    s.core.avancer(0.0);
-    s.core.avancer(0.5 * fictif::duree_simulee(Etape::Transcription));
-    s.command(Commande::Refaire { reunion: second, etape: Etape::Bilan });
+    s.core.advance(0.0);
+    s.core.advance(0.5 * demo::simulated_duration(Stage::Transcription));
+    s.command(Command::Redo { meeting: second, stage: Stage::Summary });
     s.open(second);
 }
 /// La transcription a échoué : le message et « Réessayer cette étape ».
 fn scene_failed(s: &mut App) {
-    let transcripteur = greffier_coeur::faux::FauxTranscripteur::new(1.0, |_| Err("Le média n'a pas de son.".into()));
-    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { transcripteur: Box::new(transcripteur), ..fictif::adaptateurs() };
-    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    let transcriber = greffier_core::fake::FakeTranscriber::new(1.0, |_| Err("Le média n'a pas de son.".into()));
+    let adapters = greffier_core::adapters::Adapters { transcriber: Box::new(transcriber), ..demo::adapters() };
+    s.core = Greffier::with_meetings(prototype_folder(), adapters, demo::meetings());
     s.open(1);
     s.process(1);
-    s.core.avancer(0.0);
-    s.core.avancer(1.0);
+    s.core.advance(0.0);
+    s.core.advance(1.0);
 }
 /// Le menu « Refaire… » de l'onglet Transcription.
 fn scene_redo(s: &mut App) {
@@ -1013,7 +1013,7 @@ fn scene_redo_transcription(s: &mut App) {
     scene_transcript(s);
     s.start_redo_transcription(2);
     if let Some(r) = &mut s.redo_transcription {
-        r.nombre = Some(4);
+        r.number = Some(4);
     }
 }
 fn scene_unprocessed(s: &mut App) {
@@ -1029,14 +1029,14 @@ fn scene_rename(s: &mut App) {
 }
 /// Les réglages avec deux dossiers de contexte ouverts à l'agent.
 fn scene_context(s: &mut App) {
-    let dossiers = ["/Users/odile/Documents/Notes", "/Users/odile/Projets/Atelier"].map(PathBuf::from).to_vec();
-    s.command(Commande::ChangerReglages(greffier_coeur::Reglages { dossiers_de_contexte: dossiers, ..s.core.reglages().clone() }));
+    let folders = ["/Users/odile/Documents/Notes", "/Users/odile/Projets/Atelier"].map(PathBuf::from).to_vec();
+    s.command(Command::ChangeSettings(greffier_core::Settings { context_folders: folders, ..s.core.settings().clone() }));
     s.page = Page::Settings;
 }
 /// Le premier lancement : un téléchargement, une installation, un sha256 faux, `claude` absente.
 fn scene_installation(s: &mut App) {
-    let adaptateurs = greffier_coeur::adaptateurs::Adaptateurs { ressources: Box::new(FaussesRessources::fixes(fictif::ressources_en_installation())), ..fictif::adaptateurs() };
-    s.core = Greffier::avec_reunions(prototype_folder(), adaptateurs, fictif::reunions());
+    let adapters = greffier_core::adapters::Adapters { resources: Box::new(FakeResources::fixed(demo::installing_resources())), ..demo::adapters() };
+    s.core = Greffier::with_meetings(prototype_folder(), adapters, demo::meetings());
     s.page = Page::Installation;
 }
 fn scene_search(s: &mut App) {
@@ -1057,17 +1057,17 @@ fn scene_delete(s: &mut App) {
     s.confirm_delete = Some(2);
 }
 fn scene_welcome(s: &mut App) {
-    s.core = Greffier::avec_reunions(prototype_folder(), fictif::adaptateurs(), vec![]);
+    s.core = Greffier::with_meetings(prototype_folder(), demo::adapters(), vec![]);
     s.page = Page::Welcome;
     s.needs_folder = true;
 }
 /// Les réunions d'exemple des tests du cœur (une copie), la réunion complète ouverte à 0:00:05.
 fn scene_folder(s: &mut App) {
     let dir = prototype_folder();
-    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("coeur/tests/fixtures/dossier-de-reunions"), &dir);
-    s.core = Greffier::ouvrir(&dir, fictif::adaptateurs());
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("core/tests/fixtures/meetings-folder"), &dir);
+    s.core = Greffier::open(&dir, demo::adapters());
     s.folder = Some(dir);
-    if let Some(id) = s.core.reunions().first().map(|m| m.id) {
+    if let Some(id) = s.core.meetings().first().map(|m| m.id) {
         s.open_at(id, 5.0);
     }
 }
@@ -1085,7 +1085,7 @@ fn copy_dir(from: &Path, to: &Path) {
 /// Les réunions d'exemple : celle qui n'a que son enregistrement.
 fn scene_video_only(s: &mut App) {
     scene_folder(s);
-    if let Some(id) = s.core.reunions().get(1).map(|m| m.id) {
+    if let Some(id) = s.core.meetings().get(1).map(|m| m.id) {
         s.open(id);
     }
 }
@@ -1094,7 +1094,7 @@ fn scene_video_only(s: &mut App) {
 fn scene_import(s: &mut App) {
     scene_folder(s);
     s.page = Page::Overview;
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("coeur/tests/fixtures/dossier-de-reunions/2026-11-18 09h15 - Réunion");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("core/tests/fixtures/meetings-folder/2026-11-18 09h15 - Réunion");
     let dir = std::env::temp_dir().join("greffier-prototype-import");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
@@ -1106,7 +1106,7 @@ fn scene_import(s: &mut App) {
     // La date du fichier copié change à chaque rendu : on la fixe.
     if let Some(d) = &mut s.import {
         d.date = TextEdit::new("2026-11-18");
-        d.heure = TextEdit::new("09:15");
+        d.hour = TextEdit::new("09:15");
     }
 }
 /// Après l'import : la question « maintenant ou plus tard ».
@@ -1157,9 +1157,9 @@ fn main() {
         ],
         ..AppSpec::new("Greffier", (1360.0, 860.0), init, view)
     };
-    let importer = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
+    let import = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("importer").menu("Fichier").key_equivalent("cmd+i".parse().expect("raccourci"));
     // Fermer la fenêtre garde l'app (et l'icône de la barre des menus) : ⌘Q la quitte.
-    let app = rune::App::new(spec).chrome(chrome).menu_item(importer).keep_running();
+    let app = rune::App::new(spec).chrome(chrome).menu_item(import).keep_running();
     let handle = app.handle();
     let shared = handle.clone();
     let shared_for_clicks = handle.clone();
@@ -1171,10 +1171,10 @@ fn main() {
             // Un clic sur « Bilan prêt » ouvre la réunion, même si la fenêtre était fermée.
             let h = shared_for_clicks.clone();
             rune_notify::on_click(move |click| {
-                let Some(nom) = click.get("dossier").map(str::to_owned) else { return };
+                let Some(name) = click.get("dossier").map(str::to_owned) else { return };
                 h.open();
                 h.update(move |s: &mut App, _| {
-                    s.open_folder_named(&nom);
+                    s.open_folder_named(&name);
                     rune_notify::bring_to_front();
                 });
             });
