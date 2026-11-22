@@ -1,13 +1,16 @@
 //! Builds whisper.cpp (pinned version, sources vendored into `whisper.cpp/` by
-//! `scripts/vendor-whisper`) without cmake: ggml, its CPU backend (Accelerate), its Metal backend
+//! `cargo xtask vendor-whisper`) without cmake: ggml, its CPU backend (Accelerate), its Metal backend
 //! (Metal library embedded in the executable) and Accelerate's BLAS, with the default options
 //! cmake would pick on an Apple Silicon Mac (GGML_NATIVE, GGML_METAL, GGML_METAL_EMBED_LIBRARY,
 //! GGML_BLAS, GGML_ACCELERATE, GGML_CPU_REPACK).
 
 use std::path::{Path, PathBuf};
 
-const WHISPER_VERSION: &str = "1.9.5";
-const GGML_VERSION: &str = "0.26.0";
+#[allow(dead_code)]
+mod pinned {
+    include!("whisper-version.rs");
+}
+use pinned::{GGML_VERSION, WHISPER_VERSION};
 
 /// The Metal libraries, one per kernel (order of `GGML_METAL_LIBS`, ggml-metal-device.m).
 const METAL_KERNELS: &[&str] = &[
@@ -21,6 +24,7 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     println!("cargo:rerun-if-changed=whisper.cpp");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=whisper-version.rs");
     println!("cargo:rerun-if-changed=src/transcribe.cpp");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         panic!("greffier-engines only builds on macOS");

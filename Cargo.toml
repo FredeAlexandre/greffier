@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = [".", "core", "tools", "engines", "capture", "menubar"]
-default-members = [".", "core", "tools", "engines", "capture", "menubar"]
+members = [".", "core", "tools", "engines", "capture", "menubar", "xtask"]
+default-members = [".", "core", "tools", "engines", "capture", "menubar", "xtask"]
 
 [dependencies]
 greffier-core = { path = "core" }

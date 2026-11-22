@@ -5,7 +5,7 @@
 //!
 //! Permissions: the screen and the Mac audio depend on the same macOS permission ("Screen & System
 //! Audio Recording"); the microphone on its own. They can only be granted to an installed, signed
-//! `Greffier.app` (scripts/install-app), not through `cargo run` (the terminal asks for them
+//! `Greffier.app` (`cargo xtask install-app`), not through `cargo run` (the terminal asks for them
 //! then).
 
 use std::ptr::{self, NonNull};

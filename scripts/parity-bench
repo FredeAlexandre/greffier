@@ -1,3 +1,0 @@
-#!/bin/sh
-# Engine parity bench (#19), run by hand: see scripts/parity_bench.py.
-exec python3 -I "$(dirname "$0")/parity_bench.py" "$@"

@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audience Greffier</title>
+<style>
+/* Registre de greffe illustré : en-tête collant, 4 vues. Chaque pièce = une scène dessinée en 620 px, mise à l'échelle de son cadre. */
+:root {
+  --paper: #eef0ec; --sheet: #fbfbf9; --chrome: #e6e9e4; --ink: #18212d; --muted: #5d6672; --rule: #d3d7cf; --tint: #e3e7f1;
+  --accent: #2a44a3; --ok: #1f7a48; --redo: #b4501a; --ask: #7a3c9e; --out: #69707a; --rec: #d63a2f;
+  --s1: #2f6fd6; --s2: #d9822b; --s3: #2a9a68; --s4: #a24fc9;
+  --flag-bg: #fbf1dc; --flag-ink: #6e4a07;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #11151b; --sheet: #1a1f27; --chrome: #252c36; --ink: #e6e8e3; --muted: #9aa3ae; --rule: #303845; --tint: #232c42;
+    --accent: #93a6ff; --ok: #5cc48a; --redo: #f0904f; --ask: #c48deb; --out: #a3a8b0; --rec: #ff6b5e;
+    --s1: #6a9cff; --s2: #f0a050; --s3: #4fc58e; --s4: #c886ee;
+    --flag-bg: #2c2411; --flag-ink: #f0cf86; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+code { font-family: var(--mono); font-size: .92em; }
+
+/* ---------- en-tête ---------- */
+header.top { position: sticky; top: 0; z-index: 5; background: var(--sheet); border-bottom: 1px solid var(--rule); }
+.top-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding-block: 12px; }
+.brand h1 { font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+nav.tabs a { text-decoration: none; color: var(--muted); font-weight: 600; font-size: 14px; padding: 6px 12px; border-radius: 999px; }
+nav.tabs a[aria-current="page"] { background: var(--ink); color: var(--sheet); }
+nav.tabs a:hover:not([aria-current]) { color: var(--ink); background: var(--tint); }
+.progress { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: 1 1 220px; max-width: 340px; }
+.progress .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--rule); overflow: hidden; display: flex; }
+.progress .bar span { display: block; height: 100%; }
+.progress .count { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+main { padding-block: 26px 64px; }
+section.view { display: grid; gap: 28px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 22px; min-width: 0; }
+.panel > h2 { font-size: 20px; font-weight: 800; }
+.panel > .lede { color: var(--muted); margin: 4px 0 18px; max-width: 70ch; }
+
+/* ---------- storyboard ---------- */
+.sb-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.sb-head h2 { font-size: 24px; font-weight: 800; }
+.sb-head p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+.sb-sec { display: grid; gap: 12px; }
+.sb-sec > h3 { font-size: 15px; font-weight: 800; display: flex; gap: 10px; align-items: baseline; border-bottom: 2px solid var(--ink); padding-bottom: 5px; }
+.sb-sec > h3 span { font-family: var(--mono); font-weight: 400; color: var(--muted); font-size: 13px; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.tile { position: relative; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px 12px; cursor: pointer; display: grid; grid-template-rows: auto 1fr; gap: 8px; text-align: left; overflow: hidden; }
+.tile:hover { border-color: var(--ink); }
+.tile-h { display: flex; gap: 8px; align-items: baseline; font-weight: 700; font-size: 14px; line-height: 1.3; min-height: 2.6em; }
+.tile-h .num { font-family: var(--mono); font-weight: 700; font-size: 12px; color: var(--muted); flex: none; }
+.tile .dotflag { position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--flag-ink); }
+.tile.v-ok { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.tile.v-redo { border-color: var(--redo); box-shadow: inset 0 0 0 1px var(--redo); }
+.tile.v-ask { border-color: var(--ask); box-shadow: inset 0 0 0 1px var(--ask); }
+.tile.v-out { border-color: var(--out); box-shadow: inset 0 0 0 1px var(--out); opacity: .7; }
+.tile .tmark { position: absolute; right: 10px; bottom: 10px; transform: rotate(-8deg); border: 2px double var(--c); color: var(--c); font-weight: 800; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; background: var(--sheet); }
+.scene-host { width: 100%; overflow: hidden; border-radius: 6px; background: var(--paper); display: flex; justify-content: center; align-items: center; min-height: 150px; }
+.card .scene-host { min-height: 260px; }
+.scene { width: max-content; padding: 16px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--ink); line-height: 1.35; }
+
+/* ---------- audience ---------- */
+.court { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 24px; align-items: start; }
+.deckbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--sheet); }
+.seg button { background: none; border: 0; padding: 6px 12px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.card { position: relative; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 22px 24px 20px; display: grid; gap: 14px; overflow: hidden; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; padding-right: 150px; }
+.card .meta .piece { font-family: var(--mono); font-weight: 700; font-size: 13.5px; }
+.card h2.head { font-size: clamp(22px, 2.6vw, 28px); font-weight: 800; letter-spacing: -.015em; padding-right: 120px; }
+.card .scene-host { border: 1px solid var(--rule); }
+.flag { background: var(--flag-bg); color: var(--flag-ink); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.flag .eyebrow { color: inherit; display: block; margin-bottom: 2px; }
+details.text { border-top: 1px solid var(--rule); padding-top: 8px; font-size: 14px; color: var(--muted); }
+details.text summary { cursor: pointer; font-weight: 600; color: var(--ink); font-size: 13.5px; }
+details.text p { margin: 8px 0 4px; color: var(--ink); max-width: 75ch; }
+details.text ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+.stamps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stamp-btn { border: 2px solid var(--c); color: var(--c); background: transparent; border-radius: 6px; padding: 8px 6px; cursor: pointer; font-weight: 800; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; display: grid; gap: 2px; justify-items: center; }
+.stamp-btn kbd { font-family: var(--mono); font-weight: 400; font-size: 11px; letter-spacing: 0; opacity: .8; }
+.stamp-btn[aria-pressed="true"] { background: var(--c); color: var(--sheet); }
+.stamp-btn:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
+.stamp-btn[aria-pressed="true"]:hover { background: var(--c); }
+.b-ok { --c: var(--ok); } .b-redo { --c: var(--redo); } .b-ask { --c: var(--ask); } .b-out { --c: var(--out); }
+textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; font-size: 14px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+.cardnav { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cardnav button { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 7px 14px; cursor: pointer; font-weight: 600; }
+.cardnav button:disabled { opacity: .4; cursor: default; }
+.cardnav .pos { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mark { position: absolute; top: 18px; right: 18px; transform: rotate(-8deg); border: 3px double var(--c); color: var(--c); font-weight: 800; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; padding: 4px 12px; border-radius: 4px; pointer-events: none; background: var(--sheet); }
+.mark.land { animation: land .32s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes land { from { transform: rotate(-14deg) scale(1.9); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mark.land { animation: none; } }
+.side { display: grid; gap: 16px; position: sticky; top: 76px; }
+.side .panel { padding: 16px; }
+.side h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.keys-help { font-size: 13px; color: var(--muted); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }
+.keys-help dt { font-family: var(--mono); color: var(--ink); }
+.keys-help dd { margin: 0; }
+.mini-sec { margin-top: 8px; }
+.mini-sec .eyebrow { font-size: 10.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.chip { min-width: 28px; height: 25px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--rule); background: var(--paper); font-family: var(--mono); font-size: 11.5px; cursor: pointer; display: grid; place-items: center; position: relative; font-variant-numeric: tabular-nums; }
+.chip:hover { border-color: var(--ink); }
+.chip.flagged::after { content: ""; position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: var(--flag-ink); }
+.chip.v-ok { background: var(--ok); border-color: var(--ok); color: var(--sheet); }
+.chip.v-redo { background: var(--redo); border-color: var(--redo); color: var(--sheet); }
+.chip.v-ask { background: var(--ask); border-color: var(--ask); color: var(--sheet); }
+.chip.v-out { background: var(--out); border-color: var(--out); color: var(--sheet); text-decoration: line-through; }
+.chip.current { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/* ---------- dossier ---------- */
+.brief { display: grid; grid-template-columns: 1fr 1.3fr; gap: 28px; }
+.brief h2 { font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -.02em; }
+.pain { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--muted); }
+.pain li::before { content: "✕"; color: var(--redo); margin-right: 8px; font-weight: 700; }
+.gains { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.gains li { display: grid; grid-template-columns: 140px 1fr; gap: 12px; border-top: 1px solid var(--rule); padding-top: 8px; }
+.cta { display: inline-flex; gap: 8px; margin-top: 16px; background: var(--accent); color: var(--sheet); text-decoration: none; font-weight: 700; padding: 10px 16px; border-radius: 8px; }
+.flags { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.flags li { background: var(--flag-bg); color: var(--flag-ink); border-radius: 8px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+.flags button { background: none; border: 1px solid currentColor; color: inherit; border-radius: 4px; padding: 2px 8px; font-family: var(--mono); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.big-scenes { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+.big-scenes figure { margin: 0; display: grid; gap: 6px; }
+.big-scenes figcaption { font-weight: 700; font-size: 14px; }
+
+/* ---------- procès-verbal ---------- */
+.pv { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; }
+.pv textarea { min-height: 460px; font-family: var(--mono); font-size: 13px; background: var(--sheet); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }
+.actions button { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+.actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--sheet); }
+.actions .msg { font-size: 13px; color: var(--ok); }
+.tally { display: grid; gap: 8px; margin: 0; }
+.tally div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--rule); padding-bottom: 6px; font-size: 14px; }
+.tally dd { margin: 0; font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+.tally dt i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; }
+.danger { color: var(--redo) !important; border-color: var(--redo) !important; }
+
+@media (max-width: 960px) { .brief, .court, .pv { grid-template-columns: 1fr; } .side { position: static; } }
+
+/* =================== composants des scènes =================== */
+.scene .ic { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.18em; flex: none; }
+.scene .ic.red { color: var(--rec); }
+.flow { display: flex; align-items: center; gap: 12px; justify-content: center; }
+.ar { color: var(--muted); font-size: 20px; flex: none; }
+.ar2 { color: var(--muted); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.row.tight, .col.tight { gap: 5px; }
+.col { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.fr { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.cap { font-size: 11.5px; color: var(--muted); text-align: center; max-width: 190px; line-height: 1.3; }
+.lbl { font-size: 11.5px; color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.center { display: flex; justify-content: center; align-items: center; }
+.pad { padding: 26px 10px; }
+.eq { font-size: 28px; font-weight: 300; color: var(--muted); }
+.kc { display: inline-grid; place-items: center; min-width: 36px; height: 36px; padding: 0 9px; border: 1px solid var(--rule); border-bottom-width: 3px; border-radius: 8px; background: var(--sheet); font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--ink); }
+.kc.sm { min-width: 0; height: 20px; font-size: 11px; padding: 0 5px; border-bottom-width: 2px; border-radius: 4px; }
+.keys { display: inline-flex; gap: 5px; }
+.mbw { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.mbw .cm { margin-right: 46px; }
+.mb { width: 280px; height: 26px; background: var(--chrome); border: 1px solid var(--rule); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; padding: 0 8px; font-size: 11.5px; }
+.mb-l b { margin-right: 8px; } .mb-l span { color: var(--muted); margin-right: 8px; }
+.mb-r { display: flex; gap: 8px; align-items: center; }
+.mb-g { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 4px; font-family: var(--mono); font-size: 11px; }
+.mb-g.on { background: var(--rec); color: #fff; }
+.win { border: 1px solid var(--rule); border-radius: 9px; background: var(--sheet); box-shadow: 0 6px 18px rgba(0,0,0,.08); overflow: hidden; }
+.win-t { height: 22px; background: var(--chrome); display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--rule); }
+.win-t i { width: 8px; height: 8px; border-radius: 50%; background: var(--rule); }
+.win-t span { margin: 0 auto; transform: translateX(-12px); }
+.win-b { padding: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); background: var(--sheet); border-radius: 7px; padding: 5px 10px; font-weight: 600; font-size: 12.5px; white-space: nowrap; color: var(--ink); }
+.btn.p { background: var(--accent); border-color: var(--accent); color: var(--sheet); }
+.btn.d { background: var(--rec); border-color: var(--rec); color: #fff; }
+.btn.big { font-size: 16px; padding: 10px 18px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 600; background: var(--tint); color: var(--ink); white-space: nowrap; }
+.pill.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.pill.redo { background: color-mix(in srgb, var(--redo) 16%, transparent); color: var(--redo); }
+.pill.ask { background: color-mix(in srgb, var(--ask) 16%, transparent); color: var(--ask); }
+.pill.acc { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.pill.rec { background: color-mix(in srgb, var(--rec) 15%, transparent); color: var(--rec); }
+.pill.mute { background: var(--chrome); color: var(--muted); }
+.pill.cut { background: var(--chrome); color: var(--muted); text-decoration: line-through; text-decoration-color: var(--rec); text-decoration-thickness: 2px; }
+.big { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); text-align: center; max-width: 110px; }
+.big .ic { width: 40px; height: 40px; color: var(--ink); }
+.xo { position: relative; display: inline-flex; }
+.xo > span { opacity: .45; display: inline-flex; }
+.xo::after { content: ""; position: absolute; inset: -4px; background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--rec) calc(50% - 1.5px), var(--rec) calc(50% + 1.5px), transparent calc(50% + 1.5px)); }
+.clk { position: relative; display: inline-flex; }
+.clk .cu, .tl-cur .cu { position: absolute; right: -10px; bottom: -14px; width: 22px; height: 22px; fill: var(--sheet); color: var(--ink); stroke-width: 1.5; }
+.fi { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; background: var(--sheet); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.who { font-family: var(--sans); font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 3px; padding: 1px 5px; }
+.who.g { background: var(--ink); color: var(--sheet); } .who.a { background: var(--accent); color: var(--sheet); }
+.bx { border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); padding: 8px 12px; text-align: center; font-size: 12px; display: grid; gap: 3px; justify-items: center; }
+.bx b { font-size: 13.5px; } .bx small { color: var(--muted); font-size: 11.5px; }
+.bx.core { border: 2px solid var(--ink); } .bx.fake { border-style: dashed; border-color: var(--accent); }
+.bx.w420 { width: 420px; }
+.cmds, .lst { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.cmds i { font-style: normal; font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--rule); border-radius: 3px; padding: 0 5px; background: var(--paper); }
+.lst { flex-direction: column; align-items: flex-start; gap: 2px; }
+.lst i { font-style: normal; font-size: 11.5px; color: var(--ink); } .lst i::before { content: "· "; color: var(--muted); }
+.md, .term { font-family: var(--mono); font-size: 11.5px; white-space: pre; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; line-height: 1.5; text-align: left; }
+.md .h { color: var(--accent); font-weight: 700; }
+.md mark, .vf mark, .cmd mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 2px; }
+.kv { display: grid; grid-template-columns: auto auto; gap: 10px 14px; align-items: center; }
+.kv-k { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; font-size: 12px; font-weight: 600; text-align: right; max-width: 260px; }
+.kv-v { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cm { border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); box-shadow: 0 6px 18px rgba(0,0,0,.1); padding: 4px; font-size: 12.5px; text-align: left; }
+.cm div { padding: 3px 10px; border-radius: 4px; } .cm .sel { background: var(--accent); color: var(--sheet); }
+.cm .fl { background: var(--flag-bg); color: var(--flag-ink); } .cm .dg { color: var(--rec); }
+.cm hr { border: 0; border-top: 1px solid var(--rule); margin: 3px 0; }
+.dlg { width: 260px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); padding: 14px; box-shadow: 0 8px 22px rgba(0,0,0,.12); text-align: center; display: grid; gap: 8px; justify-items: center; }
+.dlg b { font-size: 13.5px; } .dlg-p { color: var(--muted); font-size: 12.5px; }
+.dlg-b { display: flex; gap: 6px; justify-content: center; }
+.nt { width: 250px; display: flex; gap: 10px; align-items: flex-start; border-radius: 13px; background: var(--chrome); border: 1px solid var(--rule); padding: 10px 12px; box-shadow: 0 6px 18px rgba(0,0,0,.1); text-align: left; }
+.nt-i { width: 30px; height: 30px; border-radius: 8px; background: var(--ink); color: var(--rec); display: grid; place-items: center; flex: none; }
+.nt div { display: grid; } .nt small { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .nt span { font-size: 12px; color: var(--muted); }
+.tl { position: relative; display: grid; gap: 4px; padding: 2px 0; }
+.tl-ch { position: relative; height: 15px; font-size: 10px; color: var(--muted); }
+.tl-ch span { position: absolute; border-left: 1.5px solid var(--muted); padding-left: 3px; white-space: nowrap; line-height: 15px; }
+.tl-row { position: relative; height: 9px; background: var(--chrome); border-radius: 2px; }
+.tl-row i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.tl-ev { position: relative; height: 14px; }
+.tl-ev span { position: absolute; transform: translateX(-50%); font-size: 12px; line-height: 14px; }
+.tl-ev .d { color: var(--accent); } .tl-ev .m { color: var(--rec); }
+.tl-head { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--rec); }
+.tl-cur { position: absolute; top: 50%; }
+.bg-s1 { background: var(--s1); } .bg-s2 { background: var(--s2); } .bg-s3 { background: var(--s3); } .bg-s4 { background: var(--s4); }
+.bg-ok { background: var(--ok); } .bg-acc { background: var(--accent); }
+.c-s1 { color: var(--s1); } .c-s2 { color: var(--s2); } .c-s3 { color: var(--s3); } .c-acc { color: var(--accent); } .c-ask { color: var(--ask); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.pl { background: #0e131a; border-radius: 7px; overflow: hidden; color: #fff; }
+.pl-v { aspect-ratio: 16 / 9; display: grid; place-items: center; position: relative; background: linear-gradient(135deg, #263345, #10161e); }
+.pl-v > .ic { width: 28px; height: 28px; opacity: .65; }
+.pl-sub { position: absolute; bottom: 7px; left: 8px; right: 8px; text-align: center; font-size: 12px; } .pl-sub b { color: #ffc27a; margin-right: 4px; }
+.pl-c { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 10.5px; font-family: var(--mono); background: #161c25; }
+.pl-c .ic { width: 11px; height: 11px; }
+.pb { flex: 1; height: 4px; background: #3a4250; border-radius: 2px; position: relative; } .pb i { position: absolute; left: 0; top: 0; bottom: 0; background: #ff5a4f; border-radius: 2px; }
+.trs { display: grid; gap: 3px; font-size: 12px; text-align: left; }
+.trs-l { display: grid; grid-template-columns: 46px auto 1fr; gap: 6px; padding: 4px 6px; border-radius: 5px; align-items: baseline; }
+.trs-l small { font-family: var(--mono); color: var(--muted); font-size: 10.5px; }
+.trs-l.hl { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.trs-l.dim { opacity: .5; }
+.edit { border: 1.5px solid var(--accent); border-radius: 4px; padding: 0 4px; background: var(--sheet); display: inline-flex; gap: 3px; align-items: center; }
+.spk { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px; background: var(--sheet); font-size: 12.5px; min-width: 250px; }
+.spk code { font-size: 11.5px; color: var(--muted); }
+.spk-b { margin-left: auto; display: flex; gap: 4px; } .spk-b .btn, .spk .btn { padding: 3px 6px; }
+.spk > .pill, .spk > .clk, .spk > .fld { margin-left: auto; }
+.chip2 { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); border-radius: 999px; padding: 3px 10px; background: var(--sheet); font-size: 12px; font-weight: 600; }
+.quote { font-size: 12.5px; background: var(--tint); border-radius: 8px; padding: 6px 10px; display: flex; gap: 6px; align-items: center; }
+.pipe { display: flex; align-items: center; gap: 4px; }
+.ps { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; border: 1.5px solid var(--rule); border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; background: var(--sheet); min-width: 92px; }
+.ps-t { display: inline-flex; gap: 4px; align-items: center; } .ps small { font-weight: 500; font-size: 10.5px; color: var(--muted); }
+.ps-done { color: var(--ok); border-color: var(--ok); }
+.ps-keep { color: var(--ok); border-color: var(--ok); opacity: .5; }
+.ps-run { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--sheet)); }
+.ps-bar { width: 70px; height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; } .ps-bar i { display: block; height: 100%; background: var(--accent); }
+.ps-todo { color: var(--muted); border-style: dashed; }
+.ps-skip { color: var(--muted); opacity: .55; } .ps-skip .ps-t { text-decoration: line-through; }
+.ps-fail { color: var(--redo); border-color: var(--redo); background: color-mix(in srgb, var(--redo) 10%, var(--sheet)); }
+.ps-redo, .ps-go { color: var(--accent); border-color: var(--accent); }
+.pa { color: var(--muted); font-size: 16px; }
+.err { color: var(--redo); font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
+.q { width: 300px; display: grid; gap: 5px; }
+.q-r { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule); border-radius: 7px; padding: 6px 9px; background: var(--sheet); }
+.q-n { font-family: var(--mono); width: 20px; height: 20px; border-radius: 50%; background: var(--chrome); display: grid; place-items: center; font-size: 11px; flex: none; }
+.q-n .ic { width: 10px; height: 10px; color: var(--accent); }
+.q-r b { flex: 1; font-size: 12.5px; }
+.ml { display: grid; gap: 5px; }
+.ml-r { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule); border-radius: 7px; padding: 6px 9px; background: var(--sheet); text-align: left; }
+.ml-t { flex: 1; display: grid; } .ml-t b { font-size: 12.5px; } .ml-t small { color: var(--muted); font-size: 11px; }
+.ml-r.new { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
+.ml-r.gone { opacity: .45; text-decoration: line-through; text-decoration-color: var(--rec); }
+.tog-w { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; }
+.tog { width: 32px; height: 19px; border-radius: 10px; background: var(--rule); position: relative; display: inline-block; }
+.tog i { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--sheet); }
+.tog.on { background: var(--ok); } .tog.on i { left: 15px; }
+.stp { display: grid; gap: 5px; justify-items: center; }
+.stp small { font-size: 11px; color: var(--muted); }
+.stp div { display: flex; align-items: center; border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); overflow: hidden; }
+.stp span { width: 30px; text-align: center; font-size: 16px; color: var(--muted); }
+.stp b { min-width: 46px; text-align: center; font-size: 18px; font-family: var(--mono); padding: 4px 6px; border-inline: 1px solid var(--rule); }
+.stp s { color: var(--muted); font-size: 13px; }
+.fld { display: grid; gap: 3px; text-align: left; }
+.fld small { font-size: 11px; color: var(--muted); }
+.fld div { border: 1.5px solid var(--accent); border-radius: 6px; padding: 5px 8px; background: var(--sheet); display: flex; justify-content: space-between; gap: 6px; font-family: var(--mono); font-size: 12px; }
+.drop { width: 220px; height: 112px; border: 2px dashed var(--accent); border-radius: 12px; display: grid; place-items: center; color: var(--accent); position: relative; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.drop .drag { position: absolute; top: -10px; left: 40px; transform: rotate(-6deg); box-shadow: 0 6px 14px rgba(0,0,0,.15); color: var(--ink); }
+.wv { display: flex; align-items: center; gap: 2px; height: 26px; flex: 1; }
+.wv i { flex: 1; background: var(--muted); border-radius: 1px; opacity: .45; }
+.wv i.on { background: var(--accent); opacity: 1; }
+.vf { width: 360px; border: 1px solid var(--rule); border-radius: 10px; background: var(--sheet); padding: 12px; display: grid; gap: 9px; text-align: left; }
+.vf-h { display: flex; justify-content: space-between; align-items: center; } .vf-h small { font-family: var(--mono); color: var(--muted); font-size: 11px; }
+.vf-t { font-size: 13px; } .vf-t u { text-decoration-color: var(--redo); text-decoration-style: wavy; }
+.vf-y { font-size: 12px; color: var(--muted); display: flex; gap: 5px; align-items: center; } .vf-y b { color: var(--ink); }
+.vf-a { display: flex; align-items: center; gap: 8px; } .vf-a small { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.vf-a.focus { background: var(--tint); border-radius: 8px; padding: 6px; }
+.playb { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--sheet); display: grid; place-items: center; flex: none; }
+.playb .ic { width: 12px; height: 12px; }
+.trk { display: grid; gap: 5px; }
+.trk-r { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; } .trk-r small { font-size: 11px; text-align: right; color: var(--muted); }
+.trk-b { height: 24px; border-radius: 4px; padding: 0 4px; display: flex; align-items: center; }
+.trk-b.v { background: repeating-linear-gradient(90deg, var(--ink) 0 22px, var(--muted) 22px 24px); opacity: .75; }
+.trk-b.acc { background: color-mix(in srgb, var(--accent) 16%, transparent); } .trk-b.acc .wv i { background: var(--accent); opacity: .8; }
+.trk-b.s1 { background: color-mix(in srgb, var(--s1) 14%, transparent); } .trk-b.s1 .wv i { background: var(--s1); opacity: .8; }
+.trk-b.s2 { background: color-mix(in srgb, var(--s2) 14%, transparent); } .trk-b.s2 .wv i { background: var(--s2); opacity: .8; }
+.crash { position: relative; width: 240px; height: 26px; border-radius: 4px; background: var(--chrome); }
+.crash i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--rec); opacity: .8; border-radius: 4px 0 0 4px; }
+.crash span { position: absolute; top: -8px; transform: translateX(-50%); color: var(--redo); } .crash .ic { width: 32px; height: 32px; fill: var(--flag-bg); }
+.chk { display: grid; gap: 5px; text-align: left; }
+.chk div { display: flex; gap: 8px; align-items: center; font-size: 12.5px; border: 1px solid var(--rule); border-radius: 7px; padding: 5px 10px; background: var(--sheet); font-family: var(--mono); }
+.chk .y .ic { color: var(--ok); } .chk .n .ic { color: var(--rec); } .chk .n span { text-decoration: line-through; text-decoration-color: var(--rec); color: var(--muted); }
+.live { width: 300px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); padding: 12px; display: grid; gap: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.live-t { font-family: var(--mono); font-size: 22px; font-weight: 700; display: flex; gap: 8px; align-items: center; }
+.mt { display: grid; grid-template-columns: 80px 1fr; gap: 8px; align-items: center; } .mt small { font-size: 11px; color: var(--muted); }
+.mt-b { height: 8px; border-radius: 4px; background: var(--chrome); overflow: hidden; }
+.mt-b i { display: block; height: 100%; background: linear-gradient(90deg, var(--ok), var(--ok) 70%, var(--s2)); }
+.srows { display: grid; width: 320px; }
+.srow { display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--rule); padding: 7px 2px; font-size: 13px; } .srow span { flex: 1; text-align: left; }
+.hint { font-size: 12px; color: var(--flag-ink); background: var(--flag-bg); border-radius: 7px; padding: 6px 10px; display: flex; gap: 6px; align-items: center; }
+.set { display: grid; font-size: 12px; } .set div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--rule); } .set b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; } .set .kc { min-width: 22px; height: 22px; font-size: 11px; padding: 0 5px; border-bottom-width: 2px; border-radius: 5px; }
+.store { display: grid; gap: 8px; width: 340px; } .store-b { display: flex; height: 22px; border-radius: 5px; overflow: hidden; gap: 2px; } .store-b i { display: block; }
+.words { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+.wd { font-family: var(--mono); font-size: 11.5px; padding: 2px 5px 1px; border-bottom: 3px solid; background: var(--sheet); border-radius: 3px 3px 0 0; }
+.wd.b-s1 { border-color: var(--s1); } .wd.b-s2 { border-color: var(--s2); } .wd.b-cut { border-color: transparent; color: var(--rec); font-weight: 700; background: none; }
+.wd.x { outline: 1.5px dashed var(--s2); }
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 80px; }
+.bars div { display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; }
+.bars i { width: 20px; background: var(--accent); border-radius: 3px 3px 0 0; } .bars small { font-size: 10px; color: var(--muted); }
+.st { display: grid; grid-template-columns: repeat(3, auto); gap: 8px; }
+.st div { border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); padding: 8px 12px; display: grid; } .st b { font-size: 22px; font-variant-numeric: tabular-nums; } .st small { font-size: 11px; color: var(--muted); }
+.fn { display: flex; align-items: flex-start; gap: 4px; font-family: var(--mono); font-size: 14px; }
+.fn > span { display: grid; justify-items: center; gap: 3px; } .fn b { padding: 3px 6px; border-radius: 4px; font-weight: 600; } .fn small { font-family: var(--sans); font-size: 10.5px; color: var(--muted); }
+.fn .t1 b { background: color-mix(in srgb, var(--s1) 18%, transparent); } .fn .t2 b { background: color-mix(in srgb, var(--s2) 20%, transparent); } .fn .t3 b { background: color-mix(in srgb, var(--s3) 20%, transparent); }
+.fn .sep { padding-top: 3px; color: var(--muted); }
+.tree2 { font-family: var(--mono); font-size: 11.5px; display: grid; gap: 3px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; text-align: left; }
+.tree2 > div { display: flex; gap: 6px; align-items: center; } .tree2 .lbl { font-family: var(--sans); }
+.tree2 .gone { color: var(--rec); opacity: .8; }
+.bil { width: 100%; display: grid; gap: 7px; text-align: left; }
+.bil-t { font-size: 15px; } .bil-s { display: grid; gap: 3px; } .bil-s small { font-size: 10.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }
+.bil-s i { display: block; height: 5px; background: var(--rule); border-radius: 3px; }
+.bil.sm { gap: 4px; } .bil.sm .bil-t { font-size: 12px; } .bil.sm .bil-s small { font-size: 9px; } .bil.sm .bil-s i { height: 3px; }
+.todo { display: flex; gap: 8px; align-items: center; font-size: 12.5px; border: 1px solid var(--rule); border-radius: 7px; padding: 6px 10px; background: var(--sheet); }
+.cb { width: 16px; height: 16px; border-radius: 4px; background: var(--ok); color: #fff; display: grid; place-items: center; } .cb .ic { width: 11px; height: 11px; stroke-width: 3; }
+.ts { color: var(--accent); font-family: var(--mono); text-decoration: underline; }
+.seg2 { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; background: var(--sheet); font-family: var(--mono); font-size: 13px; }
+.seg2 span { padding: 6px 12px; } .seg2 .on { background: var(--ink); color: var(--sheet); }
+.ph { width: 150px; border: 1.5px dashed var(--rule); border-radius: 7px; padding: 12px 8px; text-align: center; color: var(--muted); font-size: 11.5px; }
+.side2 { width: 260px; display: grid; gap: 4px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 9px; padding: 10px; text-align: left; }
+.side2 small { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 4px; font-weight: 700; }
+.side2 div { display: grid; grid-template-columns: auto 1fr auto; gap: 7px; align-items: center; font-size: 12px; padding: 3px 4px; } .side2 div span { color: var(--muted); font-size: 11px; } .side2 .dot { width: 7px; height: 7px; }
+.cmd { width: 380px; border: 1px solid var(--rule); border-radius: 11px; background: var(--sheet); box-shadow: 0 8px 22px rgba(0,0,0,.12); overflow: hidden; text-align: left; }
+.cmd.sm { width: 230px; }
+.cmd-i { display: flex; gap: 8px; align-items: center; padding: 9px 11px; border-bottom: 1px solid var(--rule); font-size: 14px; } .cmd-i span { flex: 1; }
+.cmd-r { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 7px 11px; font-size: 12px; align-items: center; } .cmd-r.sel { background: var(--tint); }
+.cmd-r small { grid-column: 2; color: var(--muted); font-size: 10.5px; }
+.dl { width: 400px; display: grid; gap: 7px; }
+.dl > div { display: grid; grid-template-columns: 150px 1fr auto; gap: 10px; align-items: center; font-size: 12px; } .dl .mt-b i { background: var(--accent); }
+.lanes { width: 520px; display: grid; gap: 8px; }
+.ln { display: grid; grid-template-columns: 96px 1fr; align-items: center; } .ln small { font-size: 11px; color: var(--muted); }
+.ln-b { position: relative; height: 26px; background: var(--chrome); border-radius: 5px; }
+.ln-b i { position: absolute; top: 0; bottom: 0; font-style: normal; font-size: 11px; font-weight: 600; display: flex; align-items: center; padding: 0 7px; white-space: nowrap; overflow: hidden; border-radius: 5px; }
+.ln-b i.rec { background: var(--rec); color: #fff; } .ln-b i.acc { background: var(--accent); color: var(--sheet); }
+.ln-b i.pause { background: repeating-linear-gradient(45deg, var(--rule) 0 6px, transparent 6px 12px); color: var(--muted); }
+.ln-note { font-size: 11px; color: var(--muted); }
+.mx { border-collapse: collapse; font-size: 12px; } .mx th { font-size: 11px; color: var(--muted); padding: 4px 10px; } .mx td { padding: 4px 10px; border-top: 1px solid var(--rule); text-align: center; } .mx td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand"><span class="eyebrow">Greffier · issue #1 · Cycle 1</span><h1>Audience de la spec</h1></div>
+    <nav class="tabs" aria-label="Vues">
+      <a href="#storyboard" data-route="storyboard">Le storyboard</a>
+      <a href="#audience" data-route="audience">L'audience</a>
+      <a href="#dossier" data-route="dossier">Le dossier</a>
+      <a href="#proces-verbal" data-route="proces-verbal">Le procès-verbal</a>
+    </nav>
+    <div class="progress" title="Pièces tamponnées"><div class="bar" id="pbar"></div><span class="count" id="pcount">0 / 0</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+<section class="view" id="v-storyboard">
+  <div class="sb-head">
+    <div>
+      <h2>Toute la spec en images</h2>
+      <p>Une vignette par pièce : 83 stories et 23 décisions. Survole-les pour prendre connaissance, clique pour l'ouvrir à l'audience et la tamponner. Un point jaune signale une note du greffier.</p>
+    </div>
+    <a class="cta" href="#audience" style="margin:0">Commencer l'audience →</a>
+  </div>
+  <div id="wall" style="display:grid;gap:30px"></div>
+</section>
+
+<section class="view" id="v-audience" hidden>
+  <div class="court">
+    <div style="min-width:0">
+      <div class="deckbar">
+        <div class="seg" role="group" aria-label="Pièces">
+          <button type="button" data-deck="stories" id="deck-stories">Stories · 83</button>
+          <button type="button" data-deck="decisions" id="deck-decisions">Décisions · 23</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="only-open"> Sauter les pièces déjà tamponnées</label>
+      </div>
+      <article class="card" id="card" aria-live="polite"></article>
+    </div>
+    <aside class="side">
+      <div class="panel">
+        <h3>Raccourcis</h3>
+        <dl class="keys-help">
+          <dt>1 · V</dt><dd>Vu</dd><dt>2 · R</dt><dd>À reprendre</dd><dt>3 · Q</dt><dd>Question</dd><dt>4 · H</dt><dd>Hors cycle</dd>
+          <dt>← →</dt><dd>Pièce précédente, suivante</dd><dt>T</dt><dd>Afficher le texte de la spec</dd><dt>C</dt><dd>Commenter</dd><dt>⌘ ↵</dt><dd>Valider le commentaire</dd>
+        </dl>
+      </div>
+      <div class="panel"><h3 id="mini-title">Pièces</h3><div id="mini"></div></div>
+    </aside>
+  </div>
+</section>
+
+<section class="view" id="v-dossier" hidden>
+  <div class="panel brief">
+    <div>
+      <span class="eyebrow">Le problème</span>
+      <h2>Le montage du vault marche, mais il est pénible.</h2>
+      <ul class="pain">
+        <li>OBS, Raycast, ffmpeg, whisper.cpp, Python et des modèles répandus sur la machine</li>
+        <li>Enregistrement et traitement dans deux outils séparés</li>
+        <li>Des locuteurs qui restent des « SPEAKER_00 »</li>
+        <li>Des passages douteux surlignés dans un long fichier</li>
+        <li>Un index Markdown régénéré pour retrouver une réunion</li>
+      </ul>
+    </div>
+    <div>
+      <span class="eyebrow">La solution</span>
+      <ul class="gains">
+        <li><b>Capture native</b><span>Écran, son du Mac et micro, d'un raccourci global ou de la barre des menus.</span></li>
+        <li><b>Traitement local</b><span>Mêmes modèles, paramètres et étapes que le vault, tout sur le Mac.</span></li>
+        <li><b>Un agent</b><span>Relecture et bilan confiés à Claude Code.</span></li>
+        <li><b>Fichiers explicites</b><span>Une réunion = un dossier de fichiers lisibles sans l'app.</span></li>
+        <li><b>Une vraie interface</b><span>Suivre, revoir, nommer, trancher, chercher.</span></li>
+        <li><b>Import</b><span>Le traitement reprend là où il manque quelque chose.</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Notes du greffier</h2>
+    <p class="lede">Des points repérés par Claude en croisant les stories avec les décisions. Ce sont des pistes à confirmer, pas des verdicts.</p>
+    <ul class="flags" id="flaglist"></ul>
+  </div>
+  <div class="panel">
+    <h2>Les grands schémas</h2>
+    <p class="lede">Les décisions qui structurent tout le reste, en grand.</p>
+    <div class="big-scenes" id="bigscenes"></div>
+  </div>
+</section>
+
+<section class="view" id="v-proces-verbal" hidden>
+  <div><h2 style="font-size:24px;font-weight:800">Le procès-verbal</h2><p style="color:var(--muted);margin:4px 0 0;max-width:70ch">Un commentaire Markdown prêt à coller dans l'issue #1. Il ne reprend que ce qui demande une suite.</p></div>
+  <div class="pv">
+    <div style="min-width:0">
+      <textarea id="pv-text" readonly aria-label="Procès-verbal en Markdown"></textarea>
+      <div class="actions">
+        <button type="button" class="primary" id="pv-copy">Copier</button>
+        <button type="button" id="pv-save">Enregistrer en .md</button>
+        <a href="https://github.com/FredeAlexandre/greffier/issues/1" target="_blank" rel="noopener">Ouvrir l'issue #1 ↗</a>
+        <span class="msg" id="pv-msg" role="status"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <dl class="tally" id="tally"></dl>
+      <p style="font-size:13px;color:var(--muted);margin:14px 0 0">Les tampons sont gardés dans ce navigateur. Tu peux aussi coller le procès-verbal à Claude pour qu'il le poste ou corrige la spec.</p>
+      <div class="actions" style="margin-top:14px"><button type="button" id="reset">Effacer tous les tampons</button></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+// ===================== Bibliothèque visuelle =====================
+const I = {
+  rec:'<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>',
+  ring:'<circle cx="12" cy="12" r="6"/>',
+  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  sound:'<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
+  screen:'<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/>',
+  moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  bell:'<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  folder:'<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  search:'<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  agent:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  play:'<path d="M8 5v14l11-7z" fill="currentColor"/>',
+  check:'<path d="m5 12 5 5 9-10"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  warn:'<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>',
+  lock:'<rect x="5" y="11" width="14" height="10" rx="1.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  download:'<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>',
+  cpu:'<rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  merge:'<path d="M6 3v5a6 6 0 0 0 6 6M18 3v5a6 6 0 0 1-6 6v7"/>',
+  flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  headphones:'<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/>',
+  pencil:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  retry:'<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
+  stop:'<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/>',
+  terminal:'<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="m7 9 3 3-3 3M12 15h5"/>',
+  box:'<path d="M12 3 3 7.5v9L12 21l9-4.5v-9z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
+  shield:'<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  db:'<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  book:'<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>',
+  film:'<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  wave:'<path d="M3 12h1M7 8v8M11 4v16M15 9v6M19 6v12M22 12h-1"/>',
+  eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  calendar:'<rect x="3" y="5" width="18" height="16" rx="1.5"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  cursor:'<path d="M5 3l14 7-6 2-2 6z"/>',
+  plug:'<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+  share:'<path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/>'
+};
+const ic = (n, c = "") => `<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">${I[n] || ""}</svg>`;
+
+const F = (cap, ...c) => `<div class="fr">${c.join("")}${cap ? `<div class="cap">${cap}</div>` : ""}</div>`;
+const flow = (...xs) => `<div class="flow">${xs.join('<div class="ar">→</div>')}</div>`;
+const row = (...xs) => `<div class="row">${xs.join("")}</div>`;
+const col = (...xs) => `<div class="col">${xs.join("")}</div>`;
+const K = (...ks) => `<span class="keys">${ks.map(k => `<kbd class="kc">${k}</kbd>`).join("")}</span>`;
+const L = (t, c = "") => `<span class="lbl ${c}">${t}</span>`;
+const B = (t, tone = "") => `<span class="btn ${tone}">${t}</span>`;
+const P = (t, tone = "") => `<span class="pill ${tone}">${t}</span>`;
+const BIG = (n, t = "", tone = "") => `<div class="big ${tone}">${ic(n)}${t ? `<span>${t}</span>` : ""}</div>`;
+const X = h => `<span class="xo"><span>${h}</span></span>`;
+const CLK = h => `<span class="clk">${h}${ic("cursor", "cu")}</span>`;
+const WHO = k => ({ g: '<span class="who g">Greffier</span>', a: '<span class="who a">Agent</span>' }[k] || "");
+const FI = (n, w = "", i = "file") => `<span class="fi">${ic(i)}<span>${n}</span>${WHO(w)}</span>`;
+const FO = n => FI(n, "", "folder");
+const CHIPS = (a, tone = "mute") => `<div class="row tight">${a.map(x => P(x, tone)).join("")}</div>`;
+const CUT = a => `<div class="row tight">${a.map(x => P(x, "cut")).join("")}</div>`;
+const BX = (t, s = "", cls = "") => `<div class="bx ${cls}"><b>${t}</b>${s ? `<small>${s}</small>` : ""}</div>`;
+const MD = (t, w) => `<div class="md"${w ? ` style="width:${w}px"` : ""}>${t}</div>`;
+const TERM = t => `<div class="term">${t}</div>`;
+const KV = rs => `<div class="kv">${rs.map(([k, v]) => `<div class="kv-k">${k}</div><div class="kv-v">${v}</div>`).join("")}</div>`;
+
+const CMi = (items) => items.map(it => {
+  if (it === "—") return "<hr>";
+  let cls = "", t = it;
+  if (t.startsWith("*")) { cls = "sel"; t = t.slice(1); }
+  if (t.startsWith("!")) { cls = "fl"; t = t.slice(1); }
+  if (t.startsWith("x:")) { cls = "dg"; t = t.slice(2); }
+  return `<div class="${cls}">${t}</div>`;
+}).join("");
+const CM = (items, w = 200) => `<div class="cm" style="width:${w}px">${CMi(items)}</div>`;
+
+const MB = (o = {}) => {
+  const bar = `<div class="mb"><span class="mb-l"><b>Meet</b><span>Fichier</span><span>Édition</span></span><span class="mb-r">${o.rec ? `<span class="mb-g on">${ic("rec")}${o.time || ""}</span>` : `<span class="mb-g">${ic("ring")}</span>`}<span>${ic("search")}</span><span>10:02</span></span></div>`;
+  return o.menu ? `<div class="mbw">${bar}${CM(o.menu, 210)}</div>` : bar;
+};
+const W = (title, body, w = 280) => `<div class="win" style="width:${w}px"><div class="win-t"><i></i><i></i><i></i><span>${title}</span></div><div class="win-b">${body}</div></div>`;
+const DLG = (t, body, bs) => `<div class="dlg"><b>${t}</b>${body ? `<div class="dlg-p">${body}</div>` : ""}<div class="dlg-b">${bs.join("")}</div></div>`;
+const NT = (app, t, b) => `<div class="nt"><span class="nt-i">${ic("rec")}</span><div><small>${app}</small><b>${t}</b><span>${b}</span></div></div>`;
+
+const DEFTR = [["s1", [[0, .12], [.3, .42], [.7, .78]]], ["s2", [[.12, .3], [.55, .7]]], ["s3", [[.42, .55], [.78, 1]]]];
+const TL = (o = {}) => {
+  let h = `<div class="tl" style="width:${o.w || 300}px">`;
+  if (o.ch) h += `<div class="tl-ch">${o.ch.map(([x, t]) => `<span style="left:${x * 100}%">${t}</span>`).join("")}</div>`;
+  h += (o.tr || DEFTR).map(([c, segs]) => `<div class="tl-row">${segs.map(([a, b]) => `<i class="bg-${c}" style="left:${a * 100}%;width:${(b - a) * 100}%"></i>`).join("")}</div>`).join("");
+  if (o.dec || o.mk) h += `<div class="tl-ev">${(o.dec || []).map(x => `<span class="d" style="left:${x * 100}%">◆</span>`).join("")}${(o.mk || []).map(x => `<span class="m" style="left:${x * 100}%">${ic("flag")}</span>`).join("")}</div>`;
+  if (o.head != null) h += `<div class="tl-head" style="left:${o.head * 100}%"></div>`;
+  if (o.cur != null) h += `<span class="tl-cur" style="left:${o.cur * 100}%">${ic("cursor", "cu")}</span>`;
+  return h + "</div>";
+};
+const PL = (o = {}) => `<div class="pl" style="width:${o.w || 220}px"><div class="pl-v">${ic("play")}${o.sub ? `<div class="pl-sub">${o.sub}</div>` : ""}</div><div class="pl-c">${ic("play")}<div class="pb"><i style="width:${(o.p ?? .3) * 100}%"></i></div><span>${o.t || "0:12:04"}</span>${o.speed ? `<span>${o.speed}</span>` : ""}</div></div>`;
+const TRS = (ls, w = 290) => `<div class="trs" style="width:${w}px">${ls.map(([c, who, t, txt, f]) => `<div class="trs-l ${f || ""}"><small>${t}</small><b class="c-${c}">${who}</b><span>${txt}</span></div>`).join("")}</div>`;
+const SPK = (c, code, name, extra = "") => `<div class="spk"><i class="dot bg-${c}"></i><code>${code}</code>${name ? `<span class="ar2">→</span><b>${name}</b>` : ""}${extra}</div>`;
+const CHIP = (c, n) => `<span class="chip2"><i class="dot bg-${c}"></i>${n}</span>`;
+
+const PS = { done: "check", keep: "check", run: "", todo: "", skip: "", fail: "warn", redo: "retry", go: "play" };
+const PSX = { keep: "gardée", skip: "déjà là", redo: "refaite", go: "départ", todo: "à venir" };
+const PIPE = steps => `<div class="pipe">${steps.map(([t, s, x]) => `<span class="ps ps-${s}"><span class="ps-t">${PS[s] ? ic(PS[s]) : ""}${t}</span>${s === "run" ? `<span class="ps-bar"><i style="width:${parseInt(x) || 45}%"></i></span>` : ""}${(x || PSX[s]) ? `<small>${x || PSX[s]}</small>` : ""}</span>`).join('<span class="pa">›</span>')}</div>`;
+
+const Q = rs => `<div class="q">${rs.map(([n, t, p]) => `<div class="q-r"><span class="q-n">${n}</span><b>${t}</b>${p}</div>`).join("")}</div>`;
+const ML = (rs, w = 260) => `<div class="ml" style="width:${w}px">${rs.map(r => `<div class="ml-r ${r.new ? "new" : ""} ${r.gone ? "gone" : ""}"><div class="ml-t"><b>${r.t}</b><small>${r.sub}</small></div>${r.pill || ""}${r.btn || ""}</div>`).join("")}</div>`;
+const TOG = (l, on) => `<span class="tog-w"><span class="tog ${on ? "on" : ""}"><i></i></span>${l}</span>`;
+const STP = (v, from) => `<div class="stp"><small>Nombre de locuteurs</small><div><span>−</span><b>${from ? `<s>${from}</s> ` : ""}${v}</b><span>+</span></div></div>`;
+const FLD = (l, v, w) => `<div class="fld"${w ? ` style="width:${w}px"` : ""}>${l ? `<small>${l}</small>` : ""}<div>${v}${ic("pencil")}</div></div>`;
+const DROP = n => `<div class="drop">${n ? `<span class="fi drag">${ic("film")}${n}</span>` : ""}<span>${ic("download")} Déposer ici</span></div>`;
+const WAVE = (n = 44, seed = 3, hl) => { let s = seed * 997, b = ""; for (let i = 0; i < n; i++) { s = (s * 9301 + 49297) % 233280; const h = 18 + Math.round(s / 233280 * 82); const on = hl && i >= hl[0] * n && i < hl[1] * n; b += `<i style="height:${h}%" class="${on ? "on" : ""}"></i>`; } return `<div class="wv">${b}</div>`; };
+const VERIF = (o = {}) => `<div class="vf"><div class="vf-h">${P("Passage à vérifier · 3 / 7", "redo")}<small>0:31:18</small></div><div class="vf-t"><b class="c-s2">Khalid</b> « On gèle la <u>2.4</u> vendredi. »</div><div class="vf-y">${ic("agent")} Hypothèse de l'IA : <b>la 2.6</b></div><div class="vf-a ${o.audio ? "focus" : ""}">${o.audio ? CLK(`<span class="playb">${ic("play")}</span>`) : `<span class="playb">${ic("play")}</span>`}${WAVE(40, 7, [.3, .7])}<small>±1,5 s</small></div>${o.btn === false ? "" : `<div class="row tight">${B("Accepter")}${B("Garder l'original")}${B(ic("pencil") + " Corriger")}</div>`}</div>`;
+const TRK = (rs, w = 380) => `<div class="trk" style="width:${w}px">${rs.map(([l, c, x]) => `<div class="trk-r"><small>${l}</small><div class="trk-b ${c}">${c === "v" ? "" : WAVE(34, l.length)}${x || ""}</div></div>`).join("")}</div>`;
+const CHK = items => `<div class="chk">${items.map(([t, ok]) => `<div class="${ok ? "y" : "n"}">${ic(ok ? "check" : "x")}<span>${t}</span></div>`).join("")}</div>`;
+const MT = (l, v) => `<div class="mt"><small>${l}</small><div class="mt-b"><i style="width:${v * 100}%"></i></div></div>`;
+const SROWS = rs => `<div class="srows">${rs.map(([i, l, st]) => `<div class="srow">${ic(i)}<span>${l}</span>${st}</div>`).join("")}</div>`;
+const WORDS = ws => `<div class="words">${ws.map(([w, c, x]) => `<span class="wd b-${c} ${x || ""}">${w}</span>`).join("")}</div>`;
+const BARS = (vals, labs) => `<div class="bars">${vals.map((v, i) => `<div><i style="height:${v}%"></i><small>${labs[i]}</small></div>`).join("")}</div>`;
+const FN = () => `<div class="fn"><span class="t1"><b>2026-11-20 09h30</b><small>date et heure</small></span><span class="sep">-</span><span class="t2"><b>Revue de release</b><small>titre</small></span><span class="sep">-</span><span class="t3"><b>bilan</b><small>rôle</small></span><span class="sep">.md</span></div>`;
+const TREE = (ls, w) => `<div class="tree2"${w ? ` style="width:${w}px"` : ""}>${ls.map(([d, i, n, x, c]) => `<div class="${c || ""}" style="padding-left:${d * 14}px">${i ? ic(i) : ""}<span>${n}</span>${x || ""}</div>`).join("")}</div>`;
+const BILAN = (small) => `<div class="bil ${small ? "sm" : ""}"><b class="bil-t">Revue de release</b>${[["En bref", 2], ["Sujets", 3], ["Décisions", 2], ["Actions", 2], ["Questions ouvertes", 1]].map(([h, n]) => `<div class="bil-s"><small>${h}</small>${Array.from({ length: n }, (_, i) => `<i style="width:${92 - i * 17}%"></i>`).join("")}</div>`).join("")}</div>`;
+const LANES = () => `<div class="lanes"><div class="ln"><small>Enregistrement</small><div class="ln-b"><i class="rec" style="left:35%;width:33%">● ça enregistre</i></div></div><div class="ln"><small>File</small><div class="ln-b"><i class="acc" style="left:0;width:44%">Transcription</i><i class="pause" style="left:44%;width:24%">en pause</i><i class="acc" style="left:68%;width:32%">Relecture…</i></div></div><div class="ln-note" style="padding-left:calc(96px + 35%)">↑ l'étape déjà commencée va au bout</div></div>`;
+const IMPORT3 = () => KV([
+  [FI("mp4", "", "film"), PIPE([["Transcription", "go"], ["Relecture", "todo"], ["Bilan", "todo"]])],
+  [FI("mp4", "", "film") + FI("vtt"), PIPE([["Transcription", "skip"], ["Relecture", "go"], ["Bilan", "todo"]])],
+  [FI("mp4", "", "film") + FI("vtt") + FI("bilan"), PIPE([["Transcription", "skip"], ["Relecture", "skip"], ["Bilan", "skip"]])]
+]);
+
+// ===================== Les scènes des stories =====================
+const S = {
+  1: { h: "Un raccourci lance l'enregistrement", s: () => flow(F("raccourci global (touches au choix)", K("⌥", "⌘", "R")), F("depuis n'importe quelle app : ça tourne", MB({ rec: 1, time: "00:00:03" }))) },
+  2: { h: "Le même raccourci l'arrête", s: () => flow(F("ça tourne", MB({ rec: 1, time: "00:41:12" })), F("le même geste", K("⌥", "⌘", "R")), F("arrêté", MB())) },
+  3: { h: "Démarrer ou arrêter depuis la barre des menus", s: () => F("sans ouvrir la fenêtre", MB({ menu: ["*● Démarrer l'enregistrement", "■ Arrêter l'enregistrement", "—", "Ouvrir Greffier"] })) },
+  4: { h: "Un bouton Enregistrer dans l'app", s: () => W("Greffier", `<div class="center pad">${CLK(B(ic("rec", "red") + " Enregistrer", "big"))}</div>`, 300) },
+  5: { h: "Écran, son du Mac et micro : tout est capté", s: () => flow(row(BIG("screen", "Écran"), BIG("sound", "Son du Mac"), BIG("mic", "Micro")), F("Meet, Zoom, Teams… peu importe", FI("enregistrement.mp4", "", "film"))) },
+  6: { h: "Micro et son du Mac aussi sur des pistes à part", s: () => F("un seul fichier, trois pistes audio", TRK([["Vidéo", "v"], ["Mixage", "acc"], ["Micro seul", "s1"], ["Son du Mac seul", "s2"]])) },
+  7: { h: "Une icône visible tant que ça enregistre", s: () => flow(F("au début", MB({ rec: 1, time: "00:00:01" })), F("toujours là une heure après", MB({ rec: 1, time: "01:12:00" }))) },
+  8: { h: "Durée, niveaux et sources en direct", s: () => `<div class="live"><div class="live-t">${ic("rec", "red")} 00:12:47</div>${MT("Micro", .72)}${MT("Son du Mac", .45)}<div class="row tight">${P(ic("screen") + " Écran", "ok")}${P(ic("sound") + " Son du Mac", "ok")}${P(ic("mic") + " Micro", "ok")}</div></div>` },
+  9: { h: "Un raccourci pose un repère", s: () => flow(F("pendant l'enregistrement (touches au choix)", K("⌥", "⌘", "M")), F("le repère sur la timeline", TL({ mk: [.38], w: 260 }))) },
+  10: { h: "À l'arrêt, la réunion est dans la liste", s: () => flow(F("arrêt", BIG("stop")), F("date et durée", ML([{ t: "Réunion", sub: "Aujourd'hui · 10:02 · 41 min", new: 1 }, { t: "Daily", sub: "Aujourd'hui · 09:30 · 15 min" }]))) },
+  11: { h: "Le traitement démarre seul, si activé", s: () => flow(F("arrêt", BIG("stop")), F("réglage activé", TOG("Traiter automatiquement", 1)), F("ça part", PIPE([["Transcription", "run", "5 %"], ["Relecture", "todo"], ["Bilan", "todo"]]))) },
+  12: { h: "Moins d'une minute ? On propose de supprimer", s: () => flow(F("arrêt à 0:42", MB({ rec: 1, time: "00:00:42" })), DLG("Enregistrement de 0:42", "Un faux départ ?", [B("Garder"), B("Supprimer", "d")])) },
+  13: { h: "Un plantage ne fait rien perdre", s: () => flow(F("le Mac plante à 0:37", `<div class="crash"><i style="width:62%"></i><span style="left:62%">${ic("bolt")}</span></div>`), F("déjà écrit, lisible", col(FI("enregistrement.mp4", "", "film"), P(ic("check") + " 0:00 → 0:37", "ok")))) },
+  14: { h: "Au relancement : « enregistrement interrompu »", s: () => flow(F("relancement", BIG("retry")), ML([{ t: "Réunion", sub: "Aujourd'hui · 14:00 · 37 min", pill: P("Enregistrement interrompu", "redo"), btn: B("Traiter", "p") }], 330)) },
+  15: { h: "Pas de veille pendant l'enregistrement", s: () => row(F("ça enregistre", MB({ rec: 1, time: "00:58:10" })), F("le Mac reste éveillé", X(BIG("moon")))) },
+
+  16: { h: "Glisser un fichier pour l'importer", s: () => flow(F("ou Fichier › Importer…", DROP("daily-12-nov.mp4")), ML([{ t: "daily-12-nov", sub: "12 nov. · 09:30 · 18 min", new: 1 }], 220)) },
+  17: { h: "Avec sa transcription : on ne retranscrit pas", s: () => flow(F("Greffier, WebVTT ou SRT", row(FI("daily.mp4", "", "film"), FI("daily.vtt"))), PIPE([["Transcription", "skip"], ["Relecture", "go"], ["Bilan", "todo"]])) },
+  18: { h: "Avec transcription et bilan : rien à recalculer", s: () => flow(col(FI("revue.mp4", "", "film"), FI("revue.vtt"), FI("bilan.md")), PIPE([["Transcription", "skip"], ["Relecture", "skip"], ["Bilan", "skip"]]), P("Terminée", "ok")) },
+  19: { h: "Les locuteurs reconnus sous trois formes", s: () => flow(col(MD("&lt;v Khalid&gt; On gèle la 2.4"), MD("[Khalid]: On gèle la 2.4"), MD("Khalid : On gèle la 2.4")), F("même locuteur", CHIP("s2", "Khalid"))) },
+  20: { h: "La date vient du média, et se corrige", s: () => flow(F("lue dans le média", col(FI("revue.mp4", "", "film"), L("créé le 12/11 · 09:30"))), F("modifiable à l'import", FLD("Date", "12/11/2026 09:30", 200))) },
+  21: { h: "Le titre vient du bilan, sinon du fichier", s: () => KV([[MD("# Revue de release"), `<span class="ar">→</span>${P("Revue de release", "acc")}`], [L("pas de bilan : ") + FI("daily-12-nov.mp4", "", "film"), `<span class="ar">→</span>${P("daily-12-nov", "acc")}`]]) },
+  22: { h: "Traiter maintenant ou plus tard ?", s: () => DLG("Import terminé", "Lancer le traitement ?", [B("Plus tard"), B("Traiter maintenant", "p")]) },
+  23: { h: "On reprend à la première étape manquante", s: () => IMPORT3() },
+  24: { h: "Les anciennes réunions du vault, par le même import", s: () => flow(F("ancien vault", col(FI("daily.mp4", "", "film"), FI("daily.vtt"), FI("daily - bilan.md"))), F("import générique", BIG("download", "Importer")), ML([{ t: "Daily", sub: "03/10 · 09:30 · 16 min", pill: P("Terminée", "ok") }], 220)) },
+
+  25: { h: "Dire combien de locuteurs, ou laisser détecter", s: () => row(F("avant le traitement", STP("3")), L("ou"), F("", P("détecté", "mute"))) },
+  26: { h: "Chaque étape avec sa progression et le temps restant", s: () => col(F("dans la liste", ML([{ t: "Revue de release", sub: "Aujourd'hui · 10:02", pill: P("Relecture · 62 % · ≈ 3 min", "acc") }], 360)), F("dans la réunion", PIPE([["Transcription", "done"], ["Relecture", "run", "62 % · ≈ 3 min"], ["Bilan", "todo"]]))) },
+  27: { h: "Une file, une réunion à la fois", s: () => F("on voit son rang", Q([[ic("play"), "Revue de release", P("Transcription", "acc")], ["1", "Daily", P("En attente", "mute")], ["2", "Point produit", P("En attente", "mute")]])) },
+  28: { h: "Arrêter un traitement", s: () => flow(col(PIPE([["Transcription", "run", "41 %"]]), CLK(B(ic("stop") + " Arrêter", "d"))), F("le Mac est libre", P("À traiter", "mute"))) },
+  29: { h: "La file se met en pause pendant un enregistrement", s: () => LANES() },
+  30: { h: "Pas de veille pendant le traitement", s: () => row(F("ça traite", PIPE([["Transcription", "run", "41 %"]])), F("le Mac reste éveillé", X(BIG("moon")))) },
+  31: { h: "Une notification quand le bilan est prêt", s: () => flow(CLK(NT("Greffier", "Bilan prêt", "Revue de release")), F("ouvre la réunion", W("Revue de release", BILAN(1), 200))) },
+  32: { h: "Une étape en échec se relance", s: () => col(PIPE([["Transcription", "done"], ["Relecture", "done"], ["Bilan", "fail", "échec"]]), `<div class="err">${ic("warn")} Section « Décisions » manquante</div>`, CLK(B(ic("retry") + " Réessayer cette étape", "p"))) },
+  33: { h: "Refaire le bilan seul", s: () => flow(F("j'ai nommé un locuteur", SPK("s2", "SPEAKER_01", "Jérôme")), PIPE([["Transcription", "keep"], ["Relecture", "keep"], ["Bilan", "redo"]])) },
+  34: { h: "Refaire depuis la relecture", s: () => flow(F("le lexique s'est enrichi", BIG("book", "Lexique")), PIPE([["Transcription", "keep"], ["Relecture", "redo"], ["Bilan", "redo"]])) },
+  35: { h: "Retranscrire avec un autre nombre de locuteurs", s: () => flow(F("mauvaise séparation", STP("3", "2")), PIPE([["Transcription", "redo"], ["Relecture", "redo"], ["Bilan", "redo"]])) },
+  36: { h: "Même qualité que le vault", s: () => row(F("vault", CHIPS(["large-v3", "français", "beam 5", "VAD Silero", "Vocabulaire"]).replace('class="row tight"', 'class="col tight"')), `<span class="eq">=</span>`, F("Greffier", CHIPS(["large-v3", "français", "beam 5", "VAD Silero", "Vocabulaire"], "acc").replace('class="row tight"', 'class="col tight"'))) },
+  37: { h: "La relecture trie : sûr, prouvé, douteux", s: () => KV([[P("sûr", "ok"), `<span class="mono"><s>Qubernetes</s> → Kubernetes</span>${L("corrigé seul")}`], [P("prouvé", "acc"), `${CHIP("s2", "SPEAKER_01")}<span class="ar">→</span>${CHIP("s3", "SPEAKER_02")}${L("locuteur changé")}`], [P("douteux", "ask"), `<span class="mono">« la 2.4 ? »</span>${ic("headphones")}${L("réécouté")}<span class="ar">→</span>${P("à vérifier par moi", "redo")}`]]) },
+  38: { h: "Chaque erreur apprise enrichit le lexique", s: () => flow(F("erreur corrigée", MD("<s>Gréfier</s> → Greffier")), F("Erreurs connues +1", BIG("book", "Lexique")), F("prochaines transcriptions", P(ic("check") + " meilleures", "ok"))) },
+  39: { h: "Un agent qui raisonne et cherche du contexte", s: () => flow(col(FI("transcription"), FI("bilans précédents"), FO("dossiers que je lui ouvre")), F("raisonne", BIG("agent", "Agent")), FI("bilan.md", "a")) },
+  40: { h: "Bilan incomplet = étape en échec", s: () => flow(F("Greffier vérifie", CHK([["Sujets horodatés", 1], ["Décisions", 1], ["Actions", 0]])), P(ic("warn") + " Bilan en échec", "redo")) },
+
+  41: { h: "Un nom proposé, avec sa preuve", s: () => col(SPK("s2", "SPEAKER_01", "Jérôme ?", `<span class="spk-b">${B(ic("check"))}${B(ic("pencil"))}</span>`), `<div class="quote">${ic("agent")} « Khalid l'appelle Jérôme à 0:44:00 »</div>`) },
+  42: { h: "Confirmer ou corriger en un clic", s: () => col(SPK("s1", "SPEAKER_00", "Alexandre", P(ic("check") + " confirmé", "ok")), SPK("s2", "SPEAKER_01", "Jérôme ?", CLK(B(ic("check")))), SPK("s3", "SPEAKER_02", "", FLD("", "Khalid", 140))) },
+  43: { h: "Le nom se propage dans les fichiers", s: () => flow(SPK("s2", "SPEAKER_01", "Jérôme"), col(F("fiche", MD("SPEAKER_01 → <mark>Jérôme</mark>")), F("transcription lisible", MD("<mark>Jérôme</mark> (0:44:02) On part…")))) },
+  44: { h: "Fusionner deux voix qui sont la même", s: () => flow(col(SPK("s2", "SPEAKER_02", ""), SPK("s4", "SPEAKER_04", "")), F("même voix", BIG("merge", "Fusionner")), SPK("s2", "SPEAKER_02", "Khalid")) },
+  45: { h: "Les passages à vérifier, un par un", s: () => VERIF() },
+  46: { h: "Écouter l'extrait pour trancher", s: () => VERIF({ audio: 1, btn: false }) },
+  47: { h: "Accepter, garder ou corriger", s: () => KV([[B("Accepter l'hypothèse"), MD("On gèle la <mark>2.6</mark> vendredi.")], [B("Garder l'original"), MD("On gèle la <mark>2.4</mark> vendredi.")], [B(ic("pencil") + " Ma correction"), MD("On gèle la <mark>2.5</mark> vendredi.")]]) },
+  48: { h: "Corriger un mot dans la transcription", s: () => TRS([["s1", "Alexandre", "0:12:01", "Et l'infra ?"], ["s2", "Khalid", "0:12:04", `On migre sur <span class="edit">Kubernetes${ic("pencil")}</span> en janvier.`, "hl"], ["s1", "Alexandre", "0:12:09", "Ok."]], 360) },
+
+  49: { h: "En ouvrant une réunion, le bilan d'abord", s: () => W("Revue de release", BILAN(), 320) },
+  50: { h: "Le bilan rendu tel que l'agent l'a écrit", s: () => row(F("bilan.md", MD(`<span class="h"># Revue de release</span>\n<span class="h">## En bref</span>\nOn gèle la 2.4…\n<span class="h">## Décisions</span>\n- On gèle la 2.4 (0:31:20)`)), `<span class="eq">=</span>`, F("dans l'app, sans restructurer", BILAN(1))) },
+  51: { h: "Cocher une action, cochée dans le fichier", s: () => flow(F("dans l'app", CLK(`<div class="todo"><span class="cb">${ic("check")}</span>Alexandre — note de gel — ven.</div>`)), F("dans bilan.md", MD("- [<mark>x</mark>] Alexandre — note de gel — ven."))) },
+  52: { h: "Un horodatage du bilan lance la lecture", s: () => flow(F("dans le bilan", CLK(`<div class="todo">On gèle la 2.4 <a class="ts">(0:31:20)</a></div>`)), PL({ t: "0:31:20", p: .2 })) },
+  53: { h: "Vidéo pleine largeur, réplique en sous-titre", s: () => PL({ w: 400, sub: "<b>Khalid</b> On gèle la 2.4 vendredi.", t: "0:31:22", p: .2, speed: "1×" }) },
+  54: { h: "La timeline : locuteurs, sujets, décisions, repères", s: () => col(TL({ w: 440, ch: [[0, "Bilan Q3"], [.3, "Gel de la 2.4"], [.7, "Recrutement"]], dec: [.36, .74], mk: [.52], head: .4 }), row(CHIP("s1", "Alexandre"), CHIP("s2", "Khalid"), CHIP("s3", "Jérôme"), L("◆ décision"), L(ic("flag") + " repère"))) },
+  55: { h: "Cliquer ou glisser sur la timeline", s: () => F("la lecture saute là", TL({ w: 380, ch: [[0, "Bilan Q3"], [.3, "Gel de la 2.4"], [.7, "Recrutement"]], head: .62, cur: .62 })) },
+  56: { h: "La transcription suit la lecture", s: () => flow(PL({ w: 180, t: "0:12:04" }), TRS([["s1", "Alexandre", "0:12:01", "Et l'infra ?"], ["s2", "Khalid", "0:12:04", "On migre en janvier.", "hl"], ["s3", "Jérôme", "0:12:08", "Avec quel budget ?", "dim"]], 280)) },
+  57: { h: "Cliquer une réplique pour y sauter", s: () => flow(CLK(TRS([["s2", "Khalid", "0:31:18", "On gèle la 2.4 vendredi.", "hl"]], 260)), PL({ w: 180, t: "0:31:18", p: .2 })) },
+  58: { h: "1×, 1,5×, 2× et ±10 s au clavier", s: () => row(F("vitesse", `<div class="seg2"><span>1×</span><span class="on">1,5×</span><span>2×</span></div>`), F("−10 s / +10 s", K("←", "→"))) },
+  59: { h: "Une réunion incomplète s'affiche quand même", s: () => W("Daily (importée)", row(PL({ w: 150 }), col(`<div class="ph">pas de bilan</div>`, `<div class="ph">pas de timeline</div>`)), 340) },
+
+  60: { h: "Les réunions rangées par période", s: () => `<div class="side2">${[["Aujourd'hui", [["Revue de release", "10:02 · 1 h 12", "acc"], ["Daily", "09:30 · 15 min", "ok"]]], ["Cette semaine", [["Point produit", "mar. · 45 min", "ok"]]], ["Plus tôt", [["Daily", "12 nov. · 16 min", "ok"]]]].map(([g, rs]) => `<small>${g}</small>${rs.map(([t, s, c]) => `<div><i class="dot bg-${c}"></i><b>${t}</b><span>${s}</span></div>`).join("")}`).join("")}</div>` },
+  61: { h: "Une vue d'ensemble de ma charge", s: () => flow(`<div class="st">${[["42", "réunions"], ["31 h", "en réunion"], ["2", "en attente"]].map(([v, l]) => `<div><b>${v}</b><small>${l}</small></div>`).join("")}</div>`, F("temps en réunion par jour (exemple)", BARS([40, 75, 55, 90, 30], ["L", "M", "M", "J", "V"]))) },
+  62: { h: "⌘K cherche dans toutes les réunions", s: () => `<div class="cmd"><div class="cmd-i">${ic("search")}<span>gel de la 2.4</span><kbd class="kc sm">⌘K</kbd></div>${[["Bilan", "On <mark>gèle la 2.4</mark> vendredi", "Revue de release · Décisions", "sel"], ["Transcription", "Khalid : on <mark>gèle la 2.4</mark>…", "Revue de release · 0:31:18"], ["Transcription", "…le <mark>gel</mark> tient ?", "Daily · 0:04:10"]].map(([k, t, s, c]) => `<div class="cmd-r ${c || ""}"><span class="pill mute">${k}</span><span>${t}</span><small>${s}</small></div>`).join("")}</div>` },
+  63: { h: "Un résultat ouvre au bon moment", s: () => flow(CLK(`<div class="cmd sm"><div class="cmd-r sel"><span class="pill mute">Transcription</span><span>on <mark>gèle la 2.4</mark>…</span><small>Revue · 0:31:18</small></div></div>`), col(PL({ w: 180, t: "0:31:18", p: .2 }), TRS([["s2", "Khalid", "0:31:18", "On gèle la 2.4.", "hl"]], 220))) },
+  64: { h: "Clic droit : les actions courantes", s: () => flow(CLK(ML([{ t: "Revue de release", sub: "Aujourd'hui · 10:02" }], 200)), CM(["*Ouvrir", "Lire la transcription", "Refaire le bilan", "Afficher dans le Finder", "!Copier le bilan", "—", "x:Supprimer"])) },
+  65: { h: "Supprimer envoie à la corbeille", s: () => flow(DLG("Supprimer « Revue de release » ?", "Le dossier part à la corbeille.", [B("Annuler"), B("Supprimer", "d")]), F("récupérable", BIG("trash", "Corbeille"))) },
+  66: { h: "Changer le titre renomme tout", s: () => flow(F("nouveau titre", FLD("Titre", "Revue de release", 180)), TREE([[0, "folder", "<s>… 09h30 - Réunion/</s>", "", "gone"], [0, "folder", "… 09h30 - Revue de release/"], [1, "file", "… - Revue de release - bilan.md"], [1, "file", "… - Revue de release - réunion.md"], [1, "link", "liens internes à jour"]], 300)) },
+
+  67: { h: "Choisir son dossier de réunions au premier lancement", s: () => DLG("Où ranger les réunions ?", FLD("", "~/Documents/Réunions", 230), [B("Choisir…"), B("Continuer", "p")]) },
+  68: { h: "Un dossier par réunion, cinq fichiers", s: () => TREE([[0, "folder", "2026-11-20 09h30 - Revue de release/"], [1, "file", "… - réunion.md", L("la fiche")], [1, "file", "… - bilan.md"], [1, "file", "… - transcription.md", L("lisible")], [1, "file", "… - transcription.json", L("structurée")], [1, "film", "… - enregistrement.mp4"]], 400) },
+  69: { h: "Chaque fichier porte la date et le titre", s: () => col(FN(), F("partageable seul, sans le renommer", BIG("share"))) },
+  70: { h: "Rien d'autre dans le dossier de réunions", s: () => TREE([[0, "folder", "~/Documents/Réunions/"], [1, "folder", "2026-11-20 09h30 - Revue de release/"], [1, "folder", "2026-11-20 09h30 - Daily/"], [1, "folder", "2026-11-18 14h00 - Point produit/"], [1, "x", "<s>.greffier/</s>", "", "gone"], [1, "x", "<s>index.db</s>", "", "gone"]], 340) },
+  71: { h: "Modifié hors de l'app, pris en compte", s: () => flow(F("moi ou un agent", row(BIG("user"), BIG("agent"))), F("modifie", FI("bilan.md")), F("l'app recharge", BIG("retry", "à jour"))) },
+  72: { h: "Supprimé dans le Finder, disparu de l'app", s: () => flow(F("dans le Finder", row(FO("… - Daily"), BIG("trash"))), F("dans l'app", ML([{ t: "Daily", sub: "Aujourd'hui · 09:30", gone: 1 }, { t: "Revue de release", sub: "Aujourd'hui · 10:02" }], 220))) },
+  73: { h: "Un agent lit les fichiers sans l'app", s: () => flow(BIG("agent", "Agent IA"), col(FI("bilan.md"), FI("transcription.md"), FI("transcription.json")), F("pas besoin de l'app", X(BIG("box", "Greffier")))) },
+  74: { h: "Noms et passages fragiles visibles dans le texte", s: () => F("transcription.md", MD(`<b>Jérôme</b> (0:44:02) On part sur la 2.4.\n<b>Khalid</b> (0:44:09) Ok, on gèle\n  <mark>⚠ à vérifier : « la 2.6 » ?</mark>`, 340)) },
+  75: { h: "Les métadonnées dans la fiche", s: () => F("réunion.md (aperçu)", MD(`---\n<span class="h">titre:</span> Revue de release\n<span class="h">date:</span> 2026-11-20\n<span class="h">durée:</span> 1:12:40\n<span class="h">statut:</span> terminée\n<span class="h">locuteurs:</span>\n  SPEAKER_00: Alexandre\n  SPEAKER_01: Jérôme\n---`, 280)) },
+
+  76: { h: "Les autorisations macOS, avec un état clair", s: () => col(SROWS([["screen", "Écran", P(ic("check") + " accordée", "ok")], ["mic", "Micro", P(ic("check") + " accordée", "ok")], ["sound", "Son du système", P("manquante", "redo")]]), B("Ouvrir les Réglages Système", "p")) },
+  77: { h: "Les modèles se téléchargent seuls", s: () => `<div class="dl">${[["whisper large-v3", 1], ["Silero VAD", 1], ["pyannote community-1", .62], ["Environnement Python", 0]].map(([n, v]) => `<div><span>${n}</span><div class="mt-b"><i style="width:${v * 100}%"></i></div>${v === 1 ? P(ic("check") + " sha256", "ok") : v ? P(Math.round(v * 100) + " %", "acc") : P("en attente", "mute")}</div>`).join("")}</div>` },
+  78: { h: "La CLI claude est-elle prête ?", s: () => col(SROWS([["terminal", "<code>claude</code> installée", P(ic("check"), "ok")], ["user", "connectée", P(ic("x") + " non", "redo")]]), `<div class="hint">${ic("warn")} Greffier dit quoi faire avant d'échouer</div>`) },
+  79: { h: "Les réglages", s: () => W("Réglages", `<div class="set">${[["Dossier de réunions", "~/Documents/Réunions"], ["Dossiers de contexte", "2 dossiers"], ["Raccourci", K("⌥", "⌘", "R")], ["Sources", "Écran · Mac · Micro"], ["Traiter automatiquement", TOG("", 1)]].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>`, 380) },
+  80: { h: "La place prise par les modèles", s: () => F("dans le dossier de l'app", `<div class="store"><div class="store-b"><i style="flex:5;background:var(--accent)"></i><i style="flex:2;background:var(--ask)"></i><i style="flex:3;background:var(--s3)"></i></div><div class="row tight">${L("■ whisper", "c-acc")}${L("■ pyannote", "c-ask")}${L("■ Python", "c-s3")}</div></div>`) },
+  81: { h: "Ouvrir le lexique dans mon éditeur", s: () => flow(CLK(B(ic("book") + " Ouvrir le lexique")), W("lexique.md", MD(`<span class="h">## Personnes</span>\n<span class="h">## Mots justes</span>\n<span class="h">## Erreurs connues</span>\n<span class="h">## Vocabulaire</span>`), 220)) },
+  82: { h: "Aucun fichier ailleurs que ces deux dossiers", s: () => CHK([["~/Documents/Réunions", 1], ["~/Library/Application Support/Greffier", 1], ["~/.cache", 0], ["n'importe où ailleurs", 0]]) },
+  83: { h: "Une commande : construire, signer, installer", s: () => flow(F("une commande", BIG("terminal")), F("construit", BIG("box", "Greffier.app")), F("signe", BIG("shield", "« Greffier Dev »")), F("installe", BIG("folder", "/Applications"))) }
+};
+
+// ===================== Les scènes des décisions =====================
+const DS = {
+  D1: () => col(flow(F("pas de base de données", X(BIG("db"))), F("une réunion = un dossier", TREE([[0, "folder", "… - Revue de release/"], [1, "file", "… - réunion.md"], [1, "file", "… - bilan.md"], [1, "file", "…"]], 200)), F("seul cache, reconstructible", BIG("search", "index"))), L("modifié dehors → rechargé · aucune compatibilité vault")),
+  D2: () => col(BX("Interface Rune", "appelle des commandes, affiche l'état"), L("commandes ↓ · état ↑"), BX("Cœur", `<span class="cmds">${["enregistrer", "arrêter", "importer", "traiter", "refaire une étape", "nommer", "fusionner", "trancher", "corriger un mot", "repère", "titre", "supprimer"].map(c => `<i>${c}</i>`).join("")}</span>`, "core w420")),
+  D3: () => col(row(BX("Capture", "niveaux, enregistrement"), BX("Transcripteur", "audio → mots + confiance"), BX("Séparateur", "audio → tours de parole")), L("↕ interfaces étroites"), BX("Cœur", "ne connaît que ces interfaces", "core"), L("↕"), row(BX("Agent", "relecture · bilan"), BX("Ressources", "modèles · Python"))),
+  D4: () => col(L("le module Dossier de réunions"), row(BIG("pencil", "Nommer"), BIG("retry", "Renommer, atomique"), BIG("file", "Écrire"), BIG("eye", "Lire, même incomplet"), BIG("search", "Surveiller"), BIG("trash", "Corbeille"))),
+  D5: () => col(FN(), KV([[L("avant le bilan"), MD("… 09h30 - Réunion/")], [L("caractères interdits"), MD("Release 2.4 / 2.5  →  Release 2.4 - 2.5")]])),
+  D6: () => `<table class="mx"><thead><tr><th></th><th>Greffier</th><th>Agent</th></tr></thead><tbody>${[["réunion.md", "✓ seul", ""], ["bilan.md", "cases [ ] seulement", "✓ écrit"], ["transcription.md", "✓ régénérée", ""], ["transcription.json", "✓", ""], ["enregistrement.mp4", "✓ capture", ""]].map(([f, g, a]) => `<tr><td>${FI(f)}</td><td>${g}</td><td>${a}</td></tr>`).join("")}</tbody></table>`,
+  D7: () => col(TRK([["Vidéo · H.264 · 1080p · 30 i/s", "v"], ["Mixage · AAC 160 kbps", "acc"], ["Micro seul", "s1"], ["Son du Mac seul", "s2"]], 440), L("MP4 fragmenté, écrit au fil de l'eau : lisible même coupé")),
+  D8: () => flow(TREE([[0, "folder", "~/Library/Application Support/Greffier/"], [1, "cpu", "modèles"], [1, "terminal", "Python privé"], [1, "book", "lexique", L("4 sections")], [1, "search", "index de recherche"]], 320), F("interdit", X(MD("~/.cache")))),
+  D9: () => col(flow(P("● Enregistrement en cours", "rec"), P("À traiter", "mute"), P("En attente", "mute")), flow(P("Transcription", "acc"), P("Relecture", "acc"), P("Bilan", "acc"), P("Terminée", "ok")), row(P("Enregistrement interrompu", "redo"), P("Échec · rattaché à l'étape", "redo"), P(ic("retry") + " refaire = les suivantes aussi", "acc")), L("une à la fois · pause pendant un enregistrement · pas de veille")),
+  D10: () => col(IMPORT3(), L("transcription importée = non relue · sans locuteurs = un seul locuteur")),
+  D11: () => col(flow(F("piste de mixage", BIG("wave")), F("wav mono 16 kHz", BIG("file")), F("whisper.cpp sur Metal", BIG("cpu"))), CHIPS(["large-v3 · sha256 figé", "français", "6 threads", "Vocabulaire en prompt", "1 segment par mot", "VAD Silero v5.1.2", "beam 5 · best-of 5", "temp. 0, repli 0,2", "bruits [ ] retirés"]), L("AVFoundation si le banc ne perd rien, sinon ffmpeg statique · aucun choix de modèle")),
+  D12: () => col(flow(F("audio", BIG("wave")), F("pyannote 4.0.7 · community-1", BIG("cpu", "MPS, sinon CPU")), F("un seul locuteur à la fois", TL({ w: 200 }))), L("Python privé installé avec uv · lockfile du vault · nombre transmis s'il est connu")),
+  D13: () => KV([[L("décalé de +0,2 s, puis au tour qui chevauche le plus"), WORDS([["on", "s1"], ["gèle", "s1"], ["la", "s1"], ["2.4", "s1"]])], [L("interruption ≤ 2 mots : rendue"), `${WORDS([["on", "s1"], ["gèle", "s1"], ["ouais", "s2", "x"], ["la", "s1"], ["2.4", "s1"]])}<span class="ar">→</span>${WORDS([["on", "s1"], ["gèle", "s1"], ["ouais", "s1"], ["la", "s1"], ["2.4", "s1"]])}`], [L("changement recalé sur la fin de phrase (± 3 mots)"), WORDS([["…", "s1"], ["vendredi.", "s1"], ["|", "cut"], ["Moi", "s2"], ["je", "s2"]])], [L("nouvelle réplique"), CHIPS(["changement de locuteur", "pause de 2 s", "fin de phrase après 220 car."])]]),
+  D14: () => col(flow(F("passe 1", BIG("agent")), F("réécoute ±1,5 s, ≤ 28 s", BIG("headphones")), F("passe 2, même session", BIG("agent")), F("Greffier applique", BIG("check"))), row(P("claude · opus", "acc"), P("≤ 30 passages douteux", "ask"), P("outils : lecture seule", "mute"))),
+  D15: () => col(flow(F("claude · opus", BIG("agent")), F("écrit lui-même", FI("bilan.md", "a")), F("renvoie", col(P("titre"), P("résumé"), P("≤ 3 actions")))), row(P("lecture + écriture", "ok"), P("Bash", "cut"), P("web", "cut")), L("démarre dans le dossier de réunions + dossiers de contexte · sessions gardées dans la fiche")),
+  D16: () => col(KV([[MD("### Gel de la 2.4 (0:31:20)"), `<span class="ar">→</span>${TL({ w: 180, tr: [], ch: [[.2, "Gel de la 2.4"]] })}${L("chapitre")}`], [MD("- On gèle la 2.4 (0:31:20)"), `<span class="ar">→</span>${TL({ w: 180, tr: [], dec: [.2] })}${L("décision")}`], [MD("(0:31:20)"), `<span class="ar">→</span>${B(ic("play") + " 0:31:20")}${L("lien de lecture")}`]]), L("s'il manque sujets, décisions ou actions : Bilan en échec")),
+  D17: () => col(KV([[`${ic("film")} Médias`, CHIPS(["tout ce qu'AVFoundation lit", "vidéo", "audio seul"])], [`${ic("file")} Transcriptions`, CHIPS(["Greffier", "WebVTT", "SRT"])], [`${ic("user")} Locuteur`, CHIPS(["&lt;v Nom&gt;", "[Nom]:", "Nom :"])], [`${ic("file")} Bilans`, CHIPS(["tout Markdown, tel quel"])], [`${ic("calendar")} Date`, CHIPS(["création du média", "sinon modification", "modifiable"])]]), L("les fichiers sont copiés : originaux intacts")),
+  D18: () => col(KV([[CHIPS(["whisper large-v3", "Silero VAD"]), `<span class="ar">←</span>${L("dépôts publics")}`], [CHIPS(["pyannote community-1"]), `<span class="ar">←</span>${L("release GitHub du dépôt + attribution CC-BY-4.0")}`], [CHIPS(["Python"]), `<span class="ar">←</span>${L("uv embarqué")}`]]), row(P(ic("lock") + " sha256 figé partout", "ok"), P("compte Hugging Face", "cut"))),
+  D19: () => row(BX("Rune fournit", `<span class="lst">${["raccourci global", "lecture AVPlayer (à démuter)", "notifications (app empaquetée)", "menus contextuels", "glisser-déposer", "sélecteur de dossier"].map(x => `<i>${x}</i>`).join("")}</span>`), BX("On écrit nous-mêmes", `<span class="lst">${["icône barre des menus (objc2)", "capture ScreenCaptureKit"].map(x => `<i>${x}</i>`).join("")}</span>`, "core"), col(L("Rune épinglé"), P("Personnes → Locuteurs", "acc"))),
+  D20: () => col(flow(F("un script", BIG("terminal")), F("Info.plist, entitlements", BIG("box", "Greffier.app")), F("identité stable", BIG("shield", "« Greffier Dev »")), F("installée", BIG("folder", "/Applications"))), row(P("notarisation", "cut"), L("pas pendant les cycles"))),
+  D21: () => col(row(BX("fausse capture", "petit média", "fake"), BX("faux transcripteur", "mots écrits main", "fake"), BX("faux séparateur", "tours écrits main", "fake"), BX("faux agent", "bilan donné", "fake")), L("↓ dans un dossier temporaire"), BX("Cœur réel", "on appelle des commandes", "core"), L("↓ on vérifie"), row(P("l'état exposé", "acc"), P("les fichiers écrits", "acc"), P("fonctions privées", "cut"))),
+  D22: () => col(flow(F("3 extraits de 5 min", row(BIG("wave"), BIG("wave"), BIG("wave"))), F("vrais moteurs", col(P("vault", "mute"), P("Greffier", "acc"))), F("on compare", CHIPS(["taux d'erreur", "termes clés", "erreurs de locuteur", "durée"]).replace('class="row tight"', 'class="col tight"'))), L("lancé à la main · valide ffmpeg → AVFoundation")),
+  D23: () => CUT(["agenda, Meet, Zoom", "audio seul", "annoncer ce qui part vers Claude", "réattribuer une réplique", "lexique nourri par les corrections", "voix d'Alexandre", "chercher dans une réunion", "reprendre le bilan avec Claude", "filtres, étiquettes", "copier, exporter le bilan", "SRT, VTT, texte", "tâches", "éditer lexique et prompts", "DMG notarisé", "autres Mac", "compatibilité vault", "choix du modèle", "API Claude, LLM locaux"])
+};
+
+</script>
+<script>
+const STORIES = [{"n": 1, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux démarrer un enregistrement d'un raccourci global, pour lancer la capture sans chercher l'app."}, {"n": 2, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux arrêter l'enregistrement avec le même raccourci, pour n'avoir qu'un geste à retenir."}, {"n": 3, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux démarrer et arrêter un enregistrement depuis la barre des menus, pour le faire sans ouvrir la fenêtre."}, {"n": 4, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux démarrer un enregistrement depuis un bouton de l'app, pour le faire quand la fenêtre est ouverte."}, {"n": 5, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux que l'enregistrement capture l'écran, le son du Mac et mon micro, pour avoir toute la réunion, quel que soit l'outil de visio."}, {"n": 6, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux que le micro seul et le son du Mac seul soient aussi gardés sur des pistes séparées, pour pouvoir les exploiter plus tard."}, {"n": 7, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux qu'une icône reste visible dans la barre des menus pendant tout l'enregistrement, pour ne jamais oublier qu'il tourne."}, {"n": 8, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux voir pendant l'enregistrement la durée, les niveaux du micro et du son du Mac, et les sources actives, pour savoir que ça enregistre bien."}, {"n": 9, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux poser un repère d'un raccourci pendant l'enregistrement, pour retrouver un moment important sur la timeline."}, {"n": 10, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux qu'à l'arrêt la réunion apparaisse dans la liste avec sa date et sa durée, pour la retrouver tout de suite."}, {"n": 11, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux que le traitement démarre seul à l'arrêt si je l'ai activé dans les réglages, pour ne rien avoir à faire."}, {"n": 12, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux qu'un enregistrement de moins d'une minute me soit proposé à la suppression, pour ne pas encombrer ma liste avec des faux départs."}, {"n": 13, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux qu'un plantage de l'app ou du Mac pendant un enregistrement ne me fasse pas perdre ce qui a déjà été capturé, pour ne jamais perdre une réunion."}, {"n": 14, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux qu'une réunion interrompue par un plantage apparaisse au relancement, marquée « enregistrement interrompu », et puisse être traitée, pour en tirer quand même un bilan."}, {"n": 15, "s": "Enregistrer", "t": "En tant qu'Alexandre, je veux que le Mac ne se mette pas en veille pendant un enregistrement, pour ne pas couper la capture."}, {"n": 16, "s": "Importer", "t": "En tant qu'Alexandre, je veux importer une vidéo ou un audio existant par glisser-déposer ou par un menu, pour traiter une réunion enregistrée ailleurs."}, {"n": 17, "s": "Importer", "t": "En tant qu'Alexandre, je veux importer un média avec sa transcription (fichier de Greffier, WebVTT ou SRT), pour ne pas retranscrire ce qui l'a déjà été."}, {"n": 18, "s": "Importer", "t": "En tant qu'Alexandre, je veux importer un média avec sa transcription et son bilan, pour ramener mes réunions passées sans rien recalculer."}, {"n": 19, "s": "Importer", "t": "En tant qu'Alexandre, je veux que les locuteurs d'une transcription importée soient reconnus quand une réplique commence par `<v Nom>`, `[Nom]:` ou `Nom :`, pour garder la séparation des locuteurs."}, {"n": 20, "s": "Importer", "t": "En tant qu'Alexandre, je veux que la date d'une réunion importée vienne du fichier média, en la corrigeant au besoin, pour qu'elle se range au bon endroit."}, {"n": 21, "s": "Importer", "t": "En tant qu'Alexandre, je veux que le titre d'une réunion importée vienne de son bilan ou, à défaut, du nom du fichier, pour la reconnaître dans la liste."}, {"n": 22, "s": "Importer", "t": "En tant qu'Alexandre, je veux qu'une fenêtre me demande à la fin de l'import si je lance le traitement maintenant ou plus tard, pour choisir quand mon Mac travaille."}, {"n": 23, "s": "Importer", "t": "En tant qu'Alexandre, je veux que le traitement d'une réunion importée reprenne à la première étape manquante, pour ne faire que ce qui manque."}, {"n": 24, "s": "Importer", "t": "En tant qu'Alexandre, je veux pouvoir importer mes anciennes réunions du vault (vidéo, `.vtt`, bilan) avec le même import que n'importe quel fichier, pour retrouver mon historique dans Greffier."}, {"n": 25, "s": "Traiter", "t": "En tant qu'Alexandre, je veux indiquer le nombre de locuteurs avant le traitement, ou le laisser détecter, pour que la séparation des locuteurs soit meilleure."}, {"n": 26, "s": "Traiter", "t": "En tant qu'Alexandre, je veux voir l'avancement de chaque étape (Transcription, Relecture, Bilan), avec une progression et une estimation du temps restant, dans la liste et dans la réunion, pour savoir quand ce sera prêt."}, {"n": 27, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que les réunions à traiter attendent dans une file et passent une à la fois, en voyant leur rang, pour ne pas saturer mon Mac."}, {"n": 28, "s": "Traiter", "t": "En tant qu'Alexandre, je veux pouvoir arrêter un traitement, pour libérer le Mac ou corriger un réglage."}, {"n": 29, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que la file se mette en pause pendant un enregistrement et reprenne après, pour que la capture ne perde pas d'images."}, {"n": 30, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que le Mac ne se mette pas en veille pendant un traitement, pour qu'il aille jusqu'au bout."}, {"n": 31, "s": "Traiter", "t": "En tant qu'Alexandre, je veux une notification macOS quand un bilan est prêt, qui ouvre la réunion d'un clic, pour y aller directement."}, {"n": 32, "s": "Traiter", "t": "En tant qu'Alexandre, je veux qu'une étape en échec soit marquée avec son message et un bouton « Réessayer cette étape », pour comprendre et relancer."}, {"n": 33, "s": "Traiter", "t": "En tant qu'Alexandre, je veux refaire le bilan seul, après avoir nommé des locuteurs ou corrigé la transcription, pour que le bilan en tienne compte sans tout retranscrire."}, {"n": 34, "s": "Traiter", "t": "En tant qu'Alexandre, je veux refaire le traitement depuis la relecture, pour profiter d'un lexique enrichi."}, {"n": 35, "s": "Traiter", "t": "En tant qu'Alexandre, je veux refaire la transcription avec un autre nombre de locuteurs, pour corriger une mauvaise séparation des locuteurs."}, {"n": 36, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que la transcription soit aussi bonne que dans le vault (mêmes modèles, mêmes paramètres), pour ne rien perdre en changeant d'outil."}, {"n": 37, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que la relecture corrige les erreurs sûres, change les locuteurs quand la conversation le prouve, réécoute les passages douteux et me laisse les passages à vérifier, pour ne relire que ce qui le mérite."}, {"n": 38, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que la relecture enrichisse le lexique de chaque erreur apprise, pour que les transcriptions suivantes soient meilleures."}, {"n": 39, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que le bilan soit fait par un agent qui peut raisonner, relire les bilans précédents et chercher du contexte dans des dossiers que je lui ouvre, pour qu'il ne se contente pas de résumer la transcription."}, {"n": 40, "s": "Traiter", "t": "En tant qu'Alexandre, je veux que Greffier vérifie que le bilan contient bien les sujets horodatés, les décisions et les actions, et marque l'étape en échec sinon, pour que la timeline et la lecture restent fiables."}, {"n": 41, "s": "Corriger", "t": "En tant qu'Alexandre, je veux voir chaque locuteur détecté avec le nom proposé par l'IA et sa justification (« Khalid l'appelle Jérôme à 0:44:00 »), pour nommer les locuteurs en confiance."}, {"n": 42, "s": "Corriger", "t": "En tant qu'Alexandre, je veux confirmer ou corriger le nom d'un locuteur en un clic, pour que la transcription affiche de vrais noms."}, {"n": 43, "s": "Corriger", "t": "En tant qu'Alexandre, je veux que nommer un locuteur mette à jour la fiche et la transcription lisible, pour que mes agents voient les noms aussi."}, {"n": 44, "s": "Corriger", "t": "En tant qu'Alexandre, je veux fusionner deux locuteurs qui sont la même voix, pour corriger l'erreur de séparation des locuteurs la plus fréquente."}, {"n": 45, "s": "Corriger", "t": "En tant qu'Alexandre, je veux parcourir un par un les passages à vérifier, avec le texte, l'hypothèse de l'IA et la réécoute, pour les trancher vite."}, {"n": 46, "s": "Corriger", "t": "En tant qu'Alexandre, je veux écouter l'extrait d'un passage à vérifier, pour trancher à l'oreille."}, {"n": 47, "s": "Corriger", "t": "En tant qu'Alexandre, je veux accepter l'hypothèse, garder l'original ou taper ma correction pour chaque passage à vérifier, pour fixer la bonne version."}, {"n": 48, "s": "Corriger", "t": "En tant qu'Alexandre, je veux corriger un mot directement dans la transcription, pour réparer une erreur que la relecture a ratée."}, {"n": 49, "s": "Revoir", "t": "En tant qu'Alexandre, je veux voir d'abord le bilan en ouvrant une réunion (titre, en bref, sujets, décisions, actions, questions ouvertes), pour saisir l'essentiel en quelques secondes."}, {"n": 50, "s": "Revoir", "t": "En tant qu'Alexandre, je veux que le bilan soit rendu tel que l'agent l'a écrit, sans être restructuré, pour lire exactement ce qui a été produit."}, {"n": 51, "s": "Revoir", "t": "En tant qu'Alexandre, je veux cocher les actions du bilan, et que la case soit cochée dans le fichier, pour suivre ce que j'ai fait."}, {"n": 52, "s": "Revoir", "t": "En tant qu'Alexandre, je veux que chaque horodatage du bilan lance la lecture à ce moment, pour vérifier une citation."}, {"n": 53, "s": "Revoir", "t": "En tant qu'Alexandre, je veux voir la vidéo en pleine largeur avec les contrôles dessous et la réplique en cours en sous-titre, pour revoir la réunion confortablement."}, {"n": 54, "s": "Revoir", "t": "En tant qu'Alexandre, je veux une timeline sous le lecteur avec une piste par locuteur, les sujets en chapitres, les décisions et mes repères, pour naviguer dans la réunion d'un coup d'œil."}, {"n": 55, "s": "Revoir", "t": "En tant qu'Alexandre, je veux cliquer ou glisser n'importe où sur la timeline pour y déplacer la lecture, pour aller droit au passage voulu."}, {"n": 56, "s": "Revoir", "t": "En tant qu'Alexandre, je veux que la transcription défile avec la lecture et mette en avant la réplique en cours, pour suivre qui dit quoi."}, {"n": 57, "s": "Revoir", "t": "En tant qu'Alexandre, je veux cliquer une réplique pour y sauter, pour réécouter un passage lu."}, {"n": 58, "s": "Revoir", "t": "En tant qu'Alexandre, je veux régler la vitesse de lecture (1×, 1,5×, 2×) et avancer ou reculer de 10 s au clavier, pour revoir plus vite."}, {"n": 59, "s": "Revoir", "t": "En tant qu'Alexandre, je veux qu'une réunion à laquelle il manque des données (pas de timeline, pas de relecture…) s'affiche quand même avec ce qui existe, pour revoir mes réunions importées."}, {"n": 60, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux une barre latérale qui liste les réunions par période (Aujourd'hui, Cette semaine, Plus tôt), avec titre, heure, durée et état du traitement, pour m'y retrouver."}, {"n": 61, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux une vue d'ensemble avec le total de réunions et d'heures, le temps passé en réunion par jour et les réunions en attente, pour mesurer ma charge."}, {"n": 62, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux chercher (⌘K) dans les titres, bilans et transcriptions de toutes les réunions, pour retrouver ce qui a été dit sans savoir quand."}, {"n": 63, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux qu'un résultat de recherche ouvre la réunion au bon moment (la réplique, ou le sujet pour une ligne du bilan), pour arriver directement au passage."}, {"n": 64, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux un menu au clic droit sur une réunion (Ouvrir, Lire la transcription, Refaire le bilan, Afficher dans le Finder, Copier le bilan, Supprimer), pour agir vite."}, {"n": 65, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux supprimer une réunion après confirmation, et que son dossier parte à la corbeille, pour pouvoir me rattraper."}, {"n": 66, "s": "Retrouver", "t": "En tant qu'Alexandre, je veux changer le titre d'une réunion et que son dossier et ses fichiers soient renommés, pour que le nom reste juste partout."}, {"n": 67, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux choisir mon dossier de réunions au premier lancement (proposé : `~/Documents/Réunions`), pour savoir où sont mes données."}, {"n": 68, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux que chaque réunion soit un dossier `AAAA-MM-JJ HHhMM - Titre` contenant la fiche, le bilan, la transcription lisible, la transcription structurée et l'enregistrement, pour tout trouver au même endroit."}, {"n": 69, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux que chaque fichier porte la date et le titre de la réunion dans son nom, pour pouvoir le partager seul sans le renommer."}, {"n": 70, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux qu'il n'y ait rien d'autre dans le dossier de réunions que les dossiers des réunions, pour garder un dossier propre."}, {"n": 71, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux qu'une modification faite hors de l'app (par moi ou par un agent) soit prise en compte, pour que les fichiers restent la référence."}, {"n": 72, "s": "Des fichiers ouverts", "t": "En tant qu'Alexandre, je veux qu'un dossier de réunion supprimé dans le Finder disparaisse de l'app, pour que l'app reflète toujours le dossier."}, {"n": 73, "s": "Des fichiers ouverts", "t": "En tant qu'agent IA sur la machine d'Alexandre, je veux des fichiers Markdown et JSON aux noms explicites, pour lire un bilan ou une transcription sans passer par l'app."}, {"n": 74, "s": "Des fichiers ouverts", "t": "En tant qu'agent IA, je veux trouver dans la transcription lisible les noms des locuteurs et les passages encore à vérifier, pour savoir où le texte est fragile."}, {"n": 75, "s": "Des fichiers ouverts", "t": "En tant qu'agent IA, je veux trouver dans la fiche les métadonnées de la réunion (date, durée, locuteurs nommés, statut), pour filtrer les réunions sans tout lire."}, {"n": 76, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux qu'au premier lancement l'app me demande les autorisations macOS (écran, micro, son du système), avec un état clair pour chacune, pour savoir ce qui manque."}, {"n": 77, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux qu'au premier lancement l'app télécharge les modèles et son environnement de calcul dans son propre dossier, avec une progression et une vérification, pour être prêt sans rien installer moi-même."}, {"n": 78, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux que l'app vérifie que la CLI `claude` est installée et connectée, et me dise quoi faire sinon, pour que la relecture et le bilan ne tombent pas en échec sans raison."}, {"n": 79, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux régler le dossier de réunions, les dossiers de contexte de l'agent, le raccourci, les sources et le démarrage automatique du traitement, pour adapter l'app à ma façon de travailler."}, {"n": 80, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux voir la place prise par les modèles, pour savoir ce que l'app occupe."}, {"n": 81, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux ouvrir le lexique dans mon éditeur depuis les réglages, pour le consulter et le corriger."}, {"n": 82, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre, je veux que Greffier ne crée aucun fichier ailleurs que dans mon dossier de réunions et dans son propre dossier de l'app, pour ne pas trouver de fichiers inexpliqués sur mon Mac."}, {"n": 83, "s": "Réglages, santé et installation", "t": "En tant qu'Alexandre développeur, je veux une commande qui construit l'app, la signe avec une identité stable et l'installe dans `/Applications`, pour que les autorisations macOS survivent aux recompilations."}];
+const SECTIONS = ["Enregistrer","Importer","Traiter","Corriger","Revoir","Retrouver","Des fichiers ouverts","Réglages, santé et installation"];
+const SHORT = {"Des fichiers ouverts":"Fichiers ouverts","Réglages, santé et installation":"Réglages & installation"};
+
+// Ce que les décisions d'implémentation disent de chaque story (repris de la spec).
+const SPEC = {
+  1:["Le raccourci global est fourni nativement par Rune."],
+  3:["L'icône de la barre des menus est écrite à la main, avec objc2, depuis le thread principal."],
+  5:["La capture de l'écran et du son du système passe par ScreenCaptureKit, écrite à la main."],
+  6:["L'enregistrement porte trois pistes audio : mixage, micro seul, son du Mac seul."],
+  7:["Même icône que #3, écrite avec objc2."],
+  8:["L'adaptateur Capture fournit les niveaux en direct."],
+  9:["Les repères sont gardés dans le frontmatter de la fiche et affichés sur la timeline."],
+  11:["Le démarrage automatique du traitement est un réglage (#79)."],
+  13:["L'enregistrement est écrit au fil de l'eau dans un MP4 fragmenté, lisible même après une interruption."],
+  14:["Nouvel état « Enregistrement interrompu ».","Testé : la récupération d'un enregistrement interrompu."],
+  15:["Pendant un enregistrement ou un traitement, la veille automatique est empêchée."],
+  16:["Médias acceptés : tout ce qu'AVFoundation sait lire.","Le glisser-déposer de fichiers est fourni par Rune.","L'import copie les fichiers ; les originaux ne sont pas touchés."],
+  17:["Formats : fichier structuré de Greffier, WebVTT, SRT."],
+  18:["Bilan : n'importe quel Markdown, conservé tel quel.","Média + transcription + bilan ne passe par aucune étape."],
+  19:["Le [SPEAKER_00]: … des anciennes réunions du vault est couvert.","Sans locuteurs, une transcription importée est attribuée à un seul locuteur.","Testé : lecture des VTT et SRT avec les trois formes."],
+  20:["Date de création inscrite dans le média, sinon date de modification du fichier. Modifiable dans la fenêtre d'import."],
+  21:["Avant le bilan, le titre vaut « Réunion »."],
+  23:["Média seul : Transcription, Relecture, Bilan. Avec transcription : Relecture, Bilan. Avec bilan : rien.","Une transcription importée est réputée non relue."],
+  24:["Aucun code propre au vault : c'est l'import générique."],
+  25:["Le nombre de locuteurs est transmis à pyannote s'il a été indiqué."],
+  26:["Mesure de référence sur 2 h 34 : transcription 36 min, relecture 6 min, bilan 2 min."],
+  27:["La file est globale et traite une réunion à la fois."],
+  29:["Une étape déjà commencée va jusqu'au bout.","Testé : la pause de la file pendant un enregistrement."],
+  30:["Même règle que #15."],
+  31:["Les notifications cliquables ne marchent que si l'app est empaquetée (#83)."],
+  32:["L'état d'échec est rattaché à l'étape, avec son message, et écrit dans la fiche."],
+  33:["Refaire une étape remet la réunion en file à partir de cette étape. Les étapes suivantes sont refaites aussi."],
+  34:["Même règle que #33 : la relecture puis le bilan sont refaits."],
+  35:["Même règle que #33 : tout est refait."],
+  36:["whisper.cpp, large-v3 (sha256 figé), Metal, français, 6 threads, Vocabulaire en prompt, beam 5, VAD Silero v5.1.2.","Validé par le banc de parité, lancé à la main."],
+  37:["Passe 1, réécoute (±1,5 s, 28 s au plus), passe 2 dans la même session.","30 passages douteux au plus. Greffier applique les résultats, pas l'agent.","Outils de l'agent : lecture seule."],
+  38:["Les ajouts au lexique sont écrits par Greffier."],
+  39:["CLI claude, modèle opus. L'agent démarre dans le dossier de réunions, avec les dossiers de contexte en plus.","Lecture et écriture autorisées, Bash et web interdits."],
+  40:["Sujets en ### Titre (h:mm:ss), décisions horodatées, actions en - [ ] Qui — quoi — échéance.","Testé : vérification des sections et mise en échec de l'étape."],
+  42:["La fiche garde SPEAKER_xx → Nom."],
+  43:["La transcription lisible est régénérée quand on nomme un locuteur.","Testé : nommage et fusion répercutés dans la fiche et la transcription lisible."],
+  44:["Les fusions sont gardées dans la fiche."],
+  45:["transcription.json garde pour chaque passage : extrait, hypothèse, réécoute, statut."],
+  47:["Statuts : en attente, hypothèse acceptée, original gardé, corrigé à la main."],
+  48:["Les corrections faites à la main sont gardées dans transcription.json."],
+  50:["Le bilan est écrit par l'agent seul."],
+  51:["Greffier ne modifie dans le bilan que l'état des cases - [ ].","Testé : le cochage d'une action dans le bilan."],
+  52:["Chaque (h:mm:ss) du bilan devient un lien de lecture."],
+  53:["Lecture via AVPlayer fourni par Rune, à démuter explicitement."],
+  54:["Les ### Titre (h:mm:ss) de « Sujets » deviennent les chapitres ; les puces horodatées de « Décisions » deviennent les ◆."],
+  59:["Le module Dossier de réunions lit tout ce qui existe, y compris les réunions incomplètes.","Testé : affichage d'une réunion incomplète."],
+  62:["L'index de recherche est un cache reconstructible, dans le dossier de l'app."],
+  64:["Les menus contextuels natifs sont fournis par Rune."],
+  65:["Le module Dossier de réunions passe les fichiers supprimés à la corbeille."],
+  66:["Renommage atomique du dossier et des fichiers, liens internes compris.","Testé : nommage et renommage, liens compris."],
+  67:["Le sélecteur de dossier est fourni par Rune."],
+  68:["Fichiers : - réunion.md, - bilan.md, - transcription.md, - transcription.json, - enregistrement.mp4.","Les caractères interdits dans un titre deviennent des tirets."],
+  70:["Rien d'autre n'est écrit à la racine du dossier de réunions."],
+  71:["Le module Dossier de réunions surveille les changements.","Testé : prise en compte de modifications faites hors de l'app."],
+  73:["Pas de base de données : les fichiers font foi (ADR 0001)."],
+  74:["La transcription lisible porte les noms des locuteurs et marque les passages à vérifier."],
+  75:["Frontmatter de la fiche : titre, date, début, durée, statut, étape en cours, locuteurs, repères, sessions de l'agent."],
+  76:["Le script d'empaquetage écrit l'Info.plist avec les descriptions d'usage de l'écran et du micro."],
+  77:["whisper et Silero depuis leurs dépôts publics ; pyannote depuis une release GitHub du dépôt. Tous avec un sha256 figé.","Aucun compte Hugging Face demandé. uv embarqué."],
+  81:["Le lexique est un Markdown à quatre sections. L'éditer dans l'app est au Cycle 2."],
+  82:["Tout va dans ~/Library/Application Support/Greffier/. Rien dans ~/.cache."],
+  83:["Identité locale stable « Greffier Dev ». Installée dans /Applications. Pas de notarisation pendant les cycles."]
+};
+
+// Notes du greffier : pistes repérées par Claude en croisant stories et décisions.
+const FLAGS = {
+  41:"Aucune décision ne dit quelle étape propose le nom d'un locuteur, ni où sa justification est stockée. La sortie de la relecture n'a pas de champ pour ça, et le bilan ne renvoie que titre, résumé et actions.",
+  64:"Le menu contient « Copier le bilan », alors que « Copier ou exporter un bilan » est listé hors périmètre (Cycle 2).",
+  70:"L'agent du bilan a le droit d'écrire et démarre dans le dossier de réunions. Rien ne dit ce qui l'empêche d'écrire autre chose à la racine.",
+  82:"uv, Hugging Face et torch écrivent par défaut dans ~/.cache. Il faudra les rediriger explicitement vers le dossier de l'app.",
+  26:"La spec ne dit pas comment l'estimation du temps restant est calculée. La mesure de référence (36, 6 et 2 min pour 2 h 34) pourrait servir de base."
+};
+
+const DECISIONS = [
+  {id:"D1", g:"Architecture", t:"Les fichiers font foi", adr:"ADR 0001", b:["Greffier n'a pas de base de données. Une réunion est un dossier de fichiers lisibles dans le dossier de réunions.","L'app ne garde qu'un cache reconstructible, l'index de recherche, dans son dossier d'application.","Elle surveille le dossier de réunions et recharge ce qui change dehors.","Aucune compatibilité n'est due au vault : formats et structure sont propres à Greffier."]},
+  {id:"D2", g:"Architecture", t:"Un cœur sans interface", b:["Le cœur possède l'état des réunions et de la file de traitement, et expose des commandes (enregistrer, importer, traiter, refaire une étape, nommer, fusionner, trancher, corriger, poser un repère, changer le titre, supprimer…).","L'interface Rune ne fait qu'appeler ces commandes et afficher l'état.","Le prototype mélange état, simulation et vue dans une même structure : on en sort le cœur."]},
+  {id:"D3", g:"Architecture", t:"Des adaptateurs pour tout ce qui sort du processus", b:["Capture : démarrer et arrêter, niveaux en direct, écriture de l'enregistrement.","Transcripteur : un audio et un vocabulaire en entrée ; des mots horodatés avec leur confiance en sortie.","Séparateur de locuteurs : un audio et un nombre éventuel en entrée ; des tours de parole exclusifs en sortie.","Agent : la relecture en deux passes dans une même session, et le bilan, qui écrit son fichier et renvoie titre, résumé et 3 actions.","Ressources : télécharger et vérifier les modèles et l'environnement Python.","Le cœur ne connaît que ces interfaces."]},
+  {id:"D4", g:"Architecture", t:"Le module Dossier de réunions", b:["Nommage des dossiers et des fichiers, et renommage atomique quand le titre change, liens internes compris.","Écriture de la fiche, de la transcription lisible et de la transcription structurée.","Lecture de tout ce qui existe, y compris les réunions incomplètes.","Surveillance des changements.","Passage des fichiers supprimés à la corbeille."]},
+  {id:"D5", g:"Fichiers", t:"Nommer les dossiers et les fichiers", b:["Le dossier s'appelle AAAA-MM-JJ HHhMM - Titre. Avant le bilan, le titre vaut « Réunion ».","Chaque fichier reprend ce nom suivi de son rôle : - réunion.md, - bilan.md, - transcription.md, - transcription.json, - enregistrement.mp4.","Les caractères interdits dans un titre deviennent des tirets.","Rien d'autre n'est écrit à la racine du dossier de réunions."]},
+  {id:"D6", g:"Fichiers", t:"Qui écrit quel fichier", b:["La fiche est écrite par Greffier seul : frontmatter (titre, date, début, durée, statut, étape en cours et erreur, nombre de locuteurs, SPEAKER_xx → Nom, repères, sessions de l'agent) et corps (résumé, 3 actions, liens).","Le bilan est écrit par l'agent seul. Greffier n'y modifie que l'état des cases - [ ].","La transcription lisible est régénérée quand on nomme un locuteur ou qu'on corrige.","La transcription structurée contient les mots, les tours de parole, les répliques, la transcription brute, le journal de la relecture, les passages à vérifier et les corrections à la main."]},
+  {id:"D7", g:"Fichiers", t:"Le format de l'enregistrement", b:["Vidéo H.264 en 1080p à 30 i/s, environ 1200 kbps.","Audio AAC 160 kbps à 48 kHz, trois pistes : mixage, micro seul, son du Mac seul.","Écrit au fil de l'eau dans un MP4 fragmenté, lisible même après une interruption."]},
+  {id:"D8", g:"Fichiers", t:"Le dossier de l'application", b:["Tout ce qui n'est pas une réunion va dans ~/Library/Application Support/Greffier/ : modèles, Python privé, lexique, cache de recherche.","Rien ne va dans ~/.cache ni dans l'environnement de l'utilisateur.","Le lexique est un Markdown à quatre sections : Personnes, Mots justes, Erreurs connues, Vocabulaire. Vocabulaire est la phrase donnée à Whisper (environ 220 tokens). Il est initialisé depuis le vault.","Les prompts de relecture et de bilan sont livrés avec l'app et versionnés avec le code."], flag:FLAGS[82]},
+  {id:"D9", g:"Traitement", t:"États d'une réunion et file", b:["États du prototype : À traiter, En attente, Transcription, Relecture, Bilan, Terminée. On ajoute Enregistrement en cours, Enregistrement interrompu, et un échec rattaché à l'étape, avec son message.","La file est globale et traite une réunion à la fois.","Elle se met en pause pendant un enregistrement. Une étape déjà commencée va jusqu'au bout.","Refaire une étape remet la réunion en file à partir de cette étape. Les suivantes sont refaites aussi.","Pendant un enregistrement ou un traitement, la veille automatique est empêchée."]},
+  {id:"D10", g:"Traitement", t:"Reprise après import", b:["Un média seul passe par Transcription, Relecture, puis Bilan.","Un média avec sa transcription passe par Relecture, puis Bilan.","Un média avec sa transcription et son bilan ne passe par aucune étape.","Une transcription importée est réputée non relue. Sans locuteurs, elle est attribuée à un seul locuteur."]},
+  {id:"D11", g:"Traitement", t:"Audio et transcription", b:["La piste de mixage est convertie en wav mono 16 kHz, PCM 16 bits. Par AVFoundation si le banc de parité ne perd rien ; sinon, ffmpeg en binaire statique.","whisper.cpp intégré, large-v3 (sha256 figé), sur Metal. Français, 6 threads, section Vocabulaire en prompt sur toute la durée.","Un segment par mot avec sa confiance. VAD Silero v5.1.2. Beam 5, best-of 5, température 0 avec repli de 0,2.","Les bruits entre crochets sont retirés. Tourne en parallèle de la séparation des locuteurs.","Aucun choix de modèle n'est proposé."]},
+  {id:"D12", g:"Traitement", t:"Séparation des locuteurs", adr:"ADR 0003", b:["pyannote.audio 4.0.7, pipeline speaker-diarization-community-1.","Hors ligne, sur MPS, avec repli sur le CPU. Sortie exclusive : un seul locuteur à la fois.","Le nombre de locuteurs est transmis s'il a été indiqué.","Tourne dans un Python privé installé par l'app avec uv, dépendances figées par le lockfile du vault."]},
+  {id:"D13", g:"Traitement", t:"Attribution des mots aux locuteurs", b:["Chaque mot est décalé de +0,2 s, puis attribué au locuteur dont le tour de parole le chevauche le plus.","Une interruption de 2 mots ou moins, au milieu de la phrase de quelqu'un d'autre, est rendue à ce locuteur.","Un changement de locuteur est recalé sur la fin de phrase la plus proche, à 3 mots près.","Nouvelle réplique à chaque changement de locuteur, après une pause de 2 s, ou à une fin de phrase passé 220 caractères."]},
+  {id:"D14", g:"Traitement", t:"La relecture", adr:"ADR 0002", b:["CLI claude installée sur le Mac, modèle opus.","Passe 1 : répliques numérotées, lexique et contexte en entrée. Sortie : corrections sûres, changements de locuteur prouvés, passages douteux (30 au plus), ajouts au lexique.","Réécoute : chaque passage douteux est extrait (±1,5 s, 28 s au plus) et retranscrit avec les mêmes réglages.","Passe 2 dans la même session : chaque passage devient corrigé ou à vérifier.","Greffier applique les résultats, pas l'agent. Outils autorisés : lecture seule."]},
+  {id:"D15", g:"Traitement", t:"Le bilan", b:["CLI claude, modèle opus, prompt du bilan. L'agent écrit le fichier lui-même et renvoie titre, résumé et 3 actions au plus.","Sections : En bref ; Participants ; Sujets abordés, un sous-titre horodaté par sujet ; Décisions horodatées ; Actions - [ ] Qui — quoi — échéance, celles d'Alexandre d'abord ; Questions ouvertes.","Lecture et écriture autorisées ; Bash et web interdits.","L'agent démarre dans le dossier de réunions, avec les dossiers de contexte en plus. Les identifiants de session sont gardés dans la fiche."], flag:FLAGS[70]},
+  {id:"D16", g:"Traitement", t:"Ce que l'interface lit du bilan", b:["Les ### Titre (h:mm:ss) de la section « Sujets » deviennent les chapitres de la timeline.","Les puces horodatées de la section « Décisions » deviennent ses ◆.","Chaque (h:mm:ss) devient un lien de lecture.","Si les sujets horodatés, les décisions ou les actions manquent, l'étape Bilan est en échec."]},
+  {id:"D17", g:"Import et ressources", t:"Ce que l'import accepte", b:["Médias : tout ce qu'AVFoundation sait lire, vidéo ou audio seul.","Transcriptions : le fichier structuré de Greffier, WebVTT ou SRT. Locuteur lu en tête de réplique : <v Nom>, [Nom]: ou Nom :.","Bilans : n'importe quel Markdown, conservé tel quel.","Date : création inscrite dans le média, sinon modification du fichier ; modifiable à l'import.","L'import copie les fichiers dans un nouveau dossier de réunion. Les originaux ne sont pas touchés."]},
+  {id:"D18", g:"Import et ressources", t:"Les ressources téléchargées", b:["whisper large-v3 et Silero VAD sont téléchargés depuis leurs dépôts publics, avec un sha256 figé.","Les fichiers de pyannote community-1 (CC-BY-4.0, protégés sur Hugging Face) sont publiés en release GitHub du dépôt, avec un fichier d'attribution, puis téléchargés de là.","Aucun compte Hugging Face n'est demandé.","L'environnement Python est installé par l'app, avec un uv embarqué, dans son propre dossier."]},
+  {id:"D19", g:"Interface et macOS", t:"Rune et l'intégration macOS", adr:"ADR 0004", b:["Rune reste, épinglé sur sa révision actuelle. Ses données fictives sont remplacées par le cœur réel.","L'onglet « Personnes » devient « Locuteurs ».","Rune fournit : raccourci global, lecture vidéo et audio (AVPlayer, à démuter), notifications cliquables (si app empaquetée), menus contextuels, glisser-déposer, sélecteur de dossier.","On écrit nous-mêmes : l'icône de la barre des menus (objc2, thread principal) et la capture avec ScreenCaptureKit."]},
+  {id:"D20", g:"Interface et macOS", t:"L'empaquetage", b:["Un script construit Greffier.app : Info.plist, descriptions d'usage de l'écran et du micro, entitlements.","Il la signe avec une identité locale stable, « Greffier Dev », et l'installe dans /Applications.","Pas de notarisation pendant les cycles."]},
+  {id:"D21", g:"Tests", t:"Tester le cœur, pas l'intérieur", b:["Un bon test vérifie un comportement observable : l'état exposé par le cœur et le contenu des fichiers écrits.","Chaque test crée un dossier de réunions temporaire, branche de faux adaptateurs, appelle des commandes, vérifie l'état et les fichiers.","Les scènes et parcours de Rune sans fenêtre servent de tests visuels, sur le cœur réel nourri des mêmes faux adaptateurs.","On ne teste pas les adaptateurs réels (ScreenCaptureKit, whisper.cpp, pyannote, CLI claude) dans la suite automatique."]},
+  {id:"D22", g:"Tests", t:"Le banc de parité", b:["Les vrais moteurs tournent sur les trois extraits de 5 minutes du banc d'essai existant.","On compare au pipeline du vault : taux d'erreur, termes clés, erreurs de locuteur, durée.","Lancé à la main : lent, et dépend des modèles téléchargés.","C'est lui qui valide le passage de ffmpeg à AVFoundation et la parité des paramètres."]},
+  {id:"D23", g:"Périmètre", t:"Hors périmètre", b:["Toutes les stories du Cycle 2 (agenda, audio seul, réattribuer une réplique, filtres, export, tâches, édition du lexique…).","Les critères de la 1.0.0 : guide d'installation, DMG Developer ID notarisé, autres Mac.","Toute compatibilité avec le vault Obsidian.","Le choix d'un modèle ou de paramètres : on garde large-v3, même si large-v3-turbo est à égalité au banc.","L'API Claude et les LLM locaux.","Un autre Mac que celui d'Alexandre, sans écrire en dur de chemin propre à sa machine."], flag:FLAGS[64]}
+];
+
+
+</script>
+<script>
+const VERDICTS = {
+  ok: { label: "Vu", key: ["1", "v"] },
+  redo: { label: "À reprendre", key: ["2", "r"] },
+  ask: { label: "Question", key: ["3", "q"] },
+  out: { label: "Hors cycle", key: ["4", "h"] }
+};
+const KEY = "audience-greffier-v2";
+let state = { v: {}, c: {}, deck: "stories", idx: { stories: 0, decisions: 0 }, onlyOpen: false, showText: false };
+try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) state = Object.assign(state, s); } catch (e) {}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+const ITEMS = {
+  stories: STORIES.map(s => ({ id: "S" + s.n, kind: "story", s, h: S[s.n].h, scene: S[s.n].s, flag: FLAGS[s.n] })),
+  decisions: DECISIONS.map(d => ({ id: d.id, kind: "decision", d, h: d.t, scene: DS[d.id], flag: d.flag }))
+};
+const ALL = ITEMS.stories.concat(ITEMS.decisions);
+const BYID = Object.fromEntries(ALL.map(i => [i.id, i]));
+
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>");
+const label = i => i.kind === "story" ? "#" + i.s.n : i.d.id;
+
+// ---------- mise à l'échelle des scènes ----------
+const ro = new ResizeObserver(entries => entries.forEach(e => fit(e.target)));
+function fit(host) {
+  const sc = host.firstElementChild; if (!sc) return;
+  const max = parseFloat(host.dataset.max || "1");
+  sc.style.zoom = 1;
+  const w = sc.offsetWidth || 620;
+  sc.style.zoom = Math.min(max, (host.clientWidth - 4) / w);
+}
+function hostHTML(item, max) { return `<div class="scene-host" data-max="${max}"><div class="scene">${item.scene()}</div></div>`; }
+function observe(root) { root.querySelectorAll(".scene-host").forEach(h => { fit(h); ro.observe(h); }); }
+
+// ---------- progression ----------
+function counts() {
+  const c = { ok: 0, redo: 0, ask: 0, out: 0 };
+  ALL.forEach(i => { const v = state.v[i.id]; if (v) c[v]++; });
+  return c;
+}
+function renderProgress() {
+  const n = ALL.length, c = counts(), done = c.ok + c.redo + c.ask + c.out;
+  document.getElementById("pbar").innerHTML = Object.keys(c).map(k => c[k] ? `<span style="width:${c[k] / n * 100}%;background:var(--${k})"></span>` : "").join("");
+  document.getElementById("pcount").textContent = `${done} / ${n} pièces`;
+}
+
+// ---------- storyboard ----------
+let wallBuilt = false;
+function tileHTML(i) {
+  const v = state.v[i.id];
+  return `<div class="tile${v ? " v-" + v : ""}" role="button" tabindex="0" data-go="${i.id}" id="tile-${i.id}">
+    <div class="tile-h"><span class="num">${label(i)}</span><span>${esc(i.h)}</span></div>
+    ${hostHTML(i, 1.15)}
+    ${i.flag ? '<span class="dotflag" title="Note du greffier"></span>' : ""}
+    ${v ? `<span class="tmark" style="--c:var(--${v})">${VERDICTS[v].label}</span>` : ""}
+  </div>`;
+}
+function renderWall() {
+  const wall = document.getElementById("wall");
+  if (!wallBuilt) {
+    let html = "";
+    SECTIONS.forEach(sec => {
+      const items = ITEMS.stories.filter(i => i.s.s === sec);
+      html += `<div class="sb-sec"><h3>${esc(sec)}<span>${items.length} stories</span></h3><div class="wall">${items.map(tileHTML).join("")}</div></div>`;
+    });
+    [...new Set(DECISIONS.map(d => d.g))].forEach(g => {
+      const items = ITEMS.decisions.filter(i => i.d.g === g);
+      html += `<div class="sb-sec"><h3>Décisions · ${esc(g)}<span>${items.length}</span></h3><div class="wall">${items.map(tileHTML).join("")}</div></div>`;
+    });
+    wall.innerHTML = html; observe(wall); wallBuilt = true;
+  } else {
+    ALL.forEach(i => {
+      const el = document.getElementById("tile-" + i.id); if (!el) return;
+      const v = state.v[i.id];
+      el.className = "tile" + (v ? " v-" + v : "");
+      const m = el.querySelector(".tmark"); if (m) m.remove();
+      if (v) el.insertAdjacentHTML("beforeend", `<span class="tmark" style="--c:var(--${v})">${VERDICTS[v].label}</span>`);
+    });
+  }
+}
+
+// ---------- audience ----------
+let justStamped = false;
+function chip(i) {
+  const v = state.v[i.id];
+  const cur = ITEMS[state.deck][state.idx[state.deck]]?.id === i.id;
+  return `<button type="button" class="chip${v ? " v-" + v : ""}${i.flag ? " flagged" : ""}${cur ? " current" : ""}" data-go="${i.id}" title="${esc(i.h)}">${i.kind === "story" ? i.s.n : i.d.id}</button>`;
+}
+function renderMini() {
+  const deck = state.deck;
+  document.getElementById("mini-title").textContent = deck === "stories" ? "Stories par parcours" : "Décisions par thème";
+  let html = "";
+  if (deck === "stories") SECTIONS.forEach(sec => { html += `<div class="mini-sec"><span class="eyebrow">${esc(SHORT[sec] || sec)}</span><div class="chips">${ITEMS.stories.filter(i => i.s.s === sec).map(chip).join("")}</div></div>`; });
+  else [...new Set(DECISIONS.map(d => d.g))].forEach(g => { html += `<div class="mini-sec"><span class="eyebrow">${esc(g)}</span><div class="chips">${ITEMS.decisions.filter(i => i.d.g === g).map(chip).join("")}</div></div>`; });
+  document.getElementById("mini").innerHTML = html;
+}
+function renderCard() {
+  const deck = state.deck, list = ITEMS[deck];
+  const idx = Math.min(state.idx[deck], list.length - 1), item = list[idx], v = state.v[item.id];
+  let b = "";
+  if (item.kind === "story") {
+    b += `<div class="meta"><span class="piece">Story n° ${item.s.n}</span><span class="eyebrow">${esc(item.s.s)}</span></div>`;
+  } else {
+    b += `<div class="meta"><span class="piece">Décision ${item.d.id}</span><span class="eyebrow">${esc(item.d.g)}</span>${item.d.adr ? `<span class="eyebrow">${item.d.adr}</span>` : ""}</div>`;
+  }
+  b += `<h2 class="head">${esc(item.h)}</h2>`;
+  b += hostHTML(item, 1.45);
+  if (item.flag) b += `<div class="flag"><span class="eyebrow">Note du greffier (Claude)</span>${esc(item.flag)}</div>`;
+  if (item.kind === "story") {
+    const notes = SPEC[item.s.n] || [];
+    b += `<details class="text" id="txt"${state.showText ? " open" : ""}><summary>Le texte de la spec</summary><p>${fmt(item.s.t)}</p>${notes.length ? `<span class="eyebrow">Dans les décisions</span><ul>${notes.map(n => `<li>${fmt(n)}</li>`).join("")}</ul>` : ""}</details>`;
+  } else {
+    b += `<details class="text" id="txt"${state.showText ? " open" : ""}><summary>Le texte de la spec</summary><ul>${item.d.b.map(x => `<li>${fmt(x)}</li>`).join("")}</ul></details>`;
+  }
+  b += `<div class="stamps" role="group" aria-label="Tampon">${Object.entries(VERDICTS).map(([k, o]) => `<button type="button" class="stamp-btn b-${k}" data-stamp="${k}" aria-pressed="${v === k}">${o.label}<kbd>${o.key[0]} · ${o.key[1].toUpperCase()}</kbd></button>`).join("")}</div>`;
+  b += `<textarea id="comment" placeholder="Commentaire pour le procès-verbal (facultatif)">${esc(state.c[item.id] || "")}</textarea>`;
+  b += `<div class="cardnav"><button type="button" id="prev" ${idx === 0 ? "disabled" : ""}>← Précédente</button><span class="pos">${idx + 1} / ${list.length}</span><button type="button" id="next" ${idx === list.length - 1 ? "disabled" : ""}>Suivante →</button></div>`;
+  if (v) b += `<div class="mark${justStamped ? " land" : ""}" style="--c:var(--${v})">${VERDICTS[v].label}</div>`;
+  justStamped = false;
+  const card = document.getElementById("card");
+  card.innerHTML = b; card.dataset.id = item.id; observe(card);
+  document.getElementById("txt").addEventListener("toggle", e => { state.showText = e.target.open; save(); });
+  document.getElementById("comment").addEventListener("input", e => { const t = e.target.value; if (t.trim()) state.c[item.id] = t; else delete state.c[item.id]; save(); });
+  document.getElementById("deck-stories").setAttribute("aria-pressed", deck === "stories");
+  document.getElementById("deck-decisions").setAttribute("aria-pressed", deck === "decisions");
+  document.getElementById("only-open").checked = !!state.onlyOpen;
+  renderMini();
+}
+function move(dir) {
+  const list = ITEMS[state.deck]; let i = state.idx[state.deck];
+  do { i += dir; } while (state.onlyOpen && i >= 0 && i < list.length && state.v[list[i].id]);
+  if (i < 0 || i >= list.length) return false;
+  state.idx[state.deck] = i; save(); renderCard(); return true;
+}
+function stamp(k) {
+  const item = ITEMS[state.deck][state.idx[state.deck]];
+  if (state.v[item.id] === k) delete state.v[item.id]; else { state.v[item.id] = k; justStamped = true; }
+  save(); renderProgress(); renderCard();
+  const v = state.v[item.id];
+  if (v === "redo" || v === "ask") document.getElementById("comment").focus();
+  else if (v) { const id = item.id; setTimeout(() => { if (document.getElementById("card").dataset.id === id) move(1); }, 420); }
+}
+function goTo(id) {
+  const deck = id.startsWith("S") ? "stories" : "decisions";
+  state.deck = deck; state.idx[deck] = ITEMS[deck].findIndex(i => i.id === id); save();
+  if (location.hash !== "#audience") location.hash = "audience"; else renderCard();
+}
+
+// ---------- dossier ----------
+let dossierBuilt = false;
+function renderDossier() {
+  if (dossierBuilt) return;
+  const rows = Object.keys(FLAGS).map(Number).sort((a, b) => a - b).map(n => `<li><button type="button" data-go="S${n}">#${n}</button><span>${esc(FLAGS[n])}</span></li>`);
+  document.getElementById("flaglist").innerHTML = rows.join("");
+  const big = ["D3", "D9", "D10", "D14", "D6", "D16"].map(id => BYID[id]);
+  const host = document.getElementById("bigscenes");
+  host.innerHTML = big.map(i => `<figure><figcaption>${i.d.id} · ${esc(i.h)}</figcaption>${hostHTML(i, 1.2)}</figure>`).join("");
+  observe(host); dossierBuilt = true;
+}
+
+// ---------- procès-verbal ----------
+function summary(i) {
+  if (i.kind === "decision") return `**${i.d.id}** ${i.d.t}`;
+  return `**#${i.s.n}** (${i.s.s}) ${i.h}`;
+}
+function renderPV() {
+  const c = counts(), n = ALL.length, done = c.ok + c.redo + c.ask + c.out;
+  const d = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  let md = `## Revue de la spec du ${d}\n\n${n} pièces (83 stories, ${DECISIONS.length} décisions) : ✅ ${c.ok} vues · ✏️ ${c.redo} à reprendre · ❓ ${c.ask} questions · ✂️ ${c.out} hors cycle`;
+  if (n - done) md += ` · ${n - done} pas encore vues`;
+  md += "\n";
+  const quote = id => state.c[id] ? state.c[id].trim().split("\n").map(l => `  > ${l}`).join("\n") + "\n" : "";
+  const block = (k, title) => {
+    const items = ALL.filter(i => state.v[i.id] === k && (k !== "ok" || state.c[i.id]));
+    if (!items.length) return;
+    md += `\n### ${title}\n\n`;
+    items.forEach(i => { md += `- ${summary(i)}\n` + quote(i.id); });
+  };
+  block("redo", "✏️ À reprendre"); block("ask", "❓ Questions"); block("out", "✂️ Hors cycle"); block("ok", "✅ Remarques sur les pièces vues");
+  const loose = ALL.filter(i => !state.v[i.id] && state.c[i.id]);
+  if (loose.length) { md += `\n### 💬 Commentaires sans tampon\n\n`; loose.forEach(i => { md += `- ${summary(i)}\n` + quote(i.id); }); }
+  if (!c.redo && !c.ask && !c.out && !Object.keys(state.c).length) md += `\nRien à reprendre pour l'instant.\n`;
+  document.getElementById("pv-text").value = md;
+  const rows = [["ok", "Vu"], ["redo", "À reprendre"], ["ask", "Question"], ["out", "Hors cycle"]].map(([k, l]) => `<div><dt><i style="background:var(--${k})"></i>${l}</dt><dd>${c[k]}</dd></div>`);
+  rows.push(`<div><dt><i style="background:var(--rule)"></i>Pas encore vue</dt><dd>${n - done}</dd></div>`);
+  document.getElementById("tally").innerHTML = rows.join("");
+}
+
+// ---------- routage ----------
+const ROUTES = ["storyboard", "audience", "dossier", "proces-verbal"];
+const current = () => ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "storyboard";
+function route() {
+  const r = current();
+  ROUTES.forEach(x => { document.getElementById("v-" + x).hidden = x !== r; });
+  document.querySelectorAll("nav.tabs a").forEach(a => { if (a.dataset.route === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  renderProgress();
+  if (r === "storyboard") renderWall();
+  if (r === "audience") renderCard();
+  if (r === "dossier") renderDossier();
+  if (r === "proces-verbal") renderPV();
+  if (r !== "storyboard") window.scrollTo(0, 0);
+}
+
+// ---------- événements ----------
+document.addEventListener("click", e => {
+  const go = e.target.closest("[data-go]"); if (go) { goTo(go.dataset.go); return; }
+  const st = e.target.closest("[data-stamp]"); if (st) { stamp(st.dataset.stamp); return; }
+  const dk = e.target.closest("[data-deck]"); if (dk) { state.deck = dk.dataset.deck; save(); renderCard(); return; }
+  if (e.target.id === "prev") move(-1);
+  if (e.target.id === "next") move(1);
+});
+document.getElementById("only-open").addEventListener("change", e => { state.onlyOpen = e.target.checked; save(); });
+document.addEventListener("keydown", e => {
+  if (current() === "storyboard" && e.key === "Enter" && e.target.dataset && e.target.dataset.go) { goTo(e.target.dataset.go); return; }
+  if (current() !== "audience") return;
+  const inText = e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT";
+  if (inText) {
+    if (e.key === "Escape") e.target.blur();
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.target.blur(); move(1); }
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowright" || k === "j") { e.preventDefault(); move(1); return; }
+  if (k === "arrowleft" || k === "k") { e.preventDefault(); move(-1); return; }
+  if (k === "c") { e.preventDefault(); document.getElementById("comment").focus(); return; }
+  if (k === "t") { e.preventDefault(); const d = document.getElementById("txt"); d.open = !d.open; return; }
+  for (const [v, o] of Object.entries(VERDICTS)) if (o.key.includes(k)) { e.preventDefault(); stamp(v); return; }
+});
+document.getElementById("pv-copy").addEventListener("click", () => {
+  const ta = document.getElementById("pv-text"), msg = document.getElementById("pv-msg");
+  const fallback = () => { ta.focus(); ta.select(); try { document.execCommand("copy"); msg.textContent = "Copié."; } catch (err) { msg.textContent = "Texte sélectionné : ⌘C pour copier."; } };
+  try { navigator.clipboard.writeText(ta.value).then(() => { msg.textContent = "Copié. Colle-le en commentaire de l'issue."; }, fallback); } catch (err) { fallback(); }
+});
+document.getElementById("pv-save").addEventListener("click", () => {
+  const blob = new Blob([document.getElementById("pv-text").value], { type: "text/markdown" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "proces-verbal-spec-1.md"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+let armed = false;
+document.getElementById("reset").addEventListener("click", e => {
+  const b = e.target;
+  if (!armed) { armed = true; b.textContent = "Confirmer : tout effacer"; b.classList.add("danger"); setTimeout(() => { armed = false; b.textContent = "Effacer tous les tampons"; b.classList.remove("danger"); }, 4000); return; }
+  armed = false; state.v = {}; state.c = {}; state.idx = { stories: 0, decisions: 0 }; save();
+  b.textContent = "Effacer tous les tampons"; b.classList.remove("danger"); renderProgress(); renderPV();
+});
+window.addEventListener("hashchange", route);
+route();
+
+</script>
+</body>
+</html>

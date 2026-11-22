@@ -85,7 +85,7 @@ const RELEASE_PYANNOTE: &str = "https://github.com/FredeAlexandre/greffier/relea
 
 impl Catalogue {
     /// Greffier's resources, with pinned sha256s (the vault's for whisper and Silero; those of
-    /// pyannote revision 3533c8c, republished as a release of the repository by `scripts/publish-pyannote`).
+    /// pyannote revision 3533c8c, republished as a release of the repository by `cargo xtask publish-pyannote`).
     pub fn for_greffier() -> Catalogue {
         let pyannote = |path: &str, asset: &str, size: u64, sha: &str| ResourceFile::new(&format!("{PYANNOTE_MODEL}/{path}"), &format!("{RELEASE_PYANNOTE}/{asset}"), size, sha);
         Catalogue(vec![

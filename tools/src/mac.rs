@@ -19,8 +19,11 @@ use greffier_core::resources::{ClaudeState, Tools, hex};
 
 use crate::subprocess::{Interruption, Progression, wait, on_thread};
 
-/// The uv version shipped with the app (`scripts/install_app.py` downloads it).
+/// The uv shipped with the app (`cargo xtask install-app` downloads it and checks its sha256):
+/// change the three together.
 pub const UV_VERSION: &str = "0.13.7";
+pub const UV_ARCHIVE: &str = "uv-aarch64-apple-darwin.tar.gz";
+pub const UV_ARCHIVE_SHA256: &str = "81b811b57e4624df7ed3aac148e0359100d9962f3d9dce00aec533dc2e086731";
 
 pub struct MacTools {
     uv: Option<PathBuf>,
@@ -43,7 +46,7 @@ impl Default for MacTools {
 }
 
 /// The uv shipped with the app: next to the executable in `Greffier.app/Contents/MacOS/`, or, for
-/// `cargo run`, in `target/uv-<version>/` where `scripts/install-app` puts it.
+/// `cargo run`, in `target/uv-<version>/` where `cargo xtask install-app` puts it.
 pub fn bundled_uv() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let folder = exe.parent()?;
@@ -244,7 +247,7 @@ impl Tools for MacTools {
     fn install_python(&mut self, project: &Path, folder: &Path) -> BoxedTask<()> {
         let (uv, project, folder) = (self.uv.clone(), project.to_path_buf(), folder.to_path_buf());
         on_thread("uv", Progression::Exact, move |stop, _| {
-            let uv = uv.ok_or("uv embarqué introuvable : installer l'app avec scripts/install-app.")?;
+            let uv = uv.ok_or("uv embarqué introuvable : installer l'app avec cargo xtask install-app.")?;
             let env = python_env(&folder);
             std::fs::create_dir_all(folder.join("tmp")).map_err(|e| e.to_string())?;
             let mut sync = Command::new(&uv);

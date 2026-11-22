@@ -1,3 +1,0 @@
-#!/bin/sh
-# Builds Greffier.app, signs it as "Greffier Dev" and installs it in /Applications.
-exec python3 "$(dirname "$0")/install_app.py" "$@"

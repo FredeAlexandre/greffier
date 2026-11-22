@@ -7,7 +7,7 @@
 //!   in the app's private Python ([`pyannote`]), while whisper transcribes.
 //!
 //! These engines are not tested by the automated suite (the core is, with fake adapters); they
-//! are checked with the parity bench and with
+//! are checked by hand with
 //! `cargo run -p greffier-engines --example transcribe -- <media>` (and `--example diarize`).
 
 pub mod audio;

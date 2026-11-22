@@ -3,7 +3,7 @@
 //!     cargo run -p greffier-tools --example install_resources [-- --check]
 //!
 //! The folder is the app's (`~/Library/Application Support/Greffier`). The bundled uv is taken
-//! from `target/uv-<version>/uv`, where `scripts/install-app` puts it. `--check` only runs the
+//! from `target/uv-<version>/uv`, where `cargo xtask install-app` puts it. `--check` only runs the
 //! checks, without downloading anything.
 
 use std::time::{Duration, Instant};
