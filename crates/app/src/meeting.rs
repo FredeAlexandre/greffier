@@ -404,7 +404,10 @@ fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
                 .child(Button::new("Relire et faire le bilan").icon(&ui::SPARK).variant(ButtonVariant::Submit)
                     .on_press(move |s: &mut App| s.process(id)).build(k).key("process")));
     }
-    if m.status == Status::ToProcess {
+    // A recording cut by a crash or a write failure is processed like any other: what was
+    // captured is kept.
+    let interrupted = m.status == Status::RecordingInterrupted;
+    if m.status == Status::ToProcess || interrupted {
         let people = m.speaker_count;
         let stepper = row().gap(6.0).center_y()
             .child(Button::new("−").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
@@ -412,9 +415,13 @@ fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
             .child(text(people.map_or("Détecté".to_string(), |n| format!("{n} locuteurs"))).font(k.ty.ui_medium).color(k.c.text_base).w(100.0).align(rune::Align::Center))
             .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                 .on_press(move |s: &mut App| s.command(Command::SpeakerCount { meeting: id, number: Some(people.map_or(2, |n| (n + 1).min(12))) })).build(k).key("ppl-plus"));
-        return card(k)
+        let mut panel = card(k)
             .gap(14.0)
-            .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, "Enregistrée, pas encore traitée")))
+            .child(row().gap(10.0).center_y().child(glyph(&ui::WAVE, 18.0, k.c.text_accent)).child(heading(k, if interrupted { "Enregistrement interrompu, pas encore traité" } else { "Enregistrée, pas encore traitée" })));
+        if interrupted {
+            panel = panel.child(muted(k, "L'enregistrement s'est arrêté avant la fin. Ce qui a été capturé est gardé et peut être traité."));
+        }
+        return panel
             .child(muted(k, "La transcription et les locuteurs tournent sur ton Mac. Seuls la relecture et le bilan partent vers Claude. Compte environ 1 min 30 de transcription pour 10 min de réunion."))
             .child(row().gap(12.0).center_y().child(text("Nombre de locuteurs").font(k.ty.small_medium).color(k.c.text_muted).w(130.0)).child(stepper))
             .child(muted(k, "Indiquer le bon nombre de locuteurs améliore beaucoup leur séparation. Laisse « Détecté » si tu ne sais pas."))

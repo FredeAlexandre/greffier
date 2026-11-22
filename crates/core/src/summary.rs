@@ -113,8 +113,23 @@ pub fn missing_parts(md: &str) -> Option<String> {
     (!missing.is_empty()).then(|| format!("Le bilan n'a pas de {}.", missing.join(", ni de ")))
 }
 
-/// Makes the timestamps clickable: "(0:44:12)" becomes a `t:2652` link.
+/// The summary without its YAML front matter (`---` … `---`), which is for agents, not for display.
+pub fn without_front_matter(md: &str) -> &str {
+    let Some(rest) = md.strip_prefix("---\n").or_else(|| md.strip_prefix("---\r\n")) else { return md };
+    let mut offset = 0;
+    for line in rest.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim_end() == "---" {
+            return &rest[offset..];
+        }
+    }
+    md
+}
+
+/// Prepares the summary for display: no front matter, and clickable timestamps ("(0:44:12)"
+/// becomes a `t:2652` link).
 pub fn with_playback_links(md: &str) -> String {
+    let md = without_front_matter(md);
     let mut out = String::with_capacity(md.len() + 256);
     for line in md.lines() {
         let mut last = 0;
@@ -181,6 +196,10 @@ mod tests {
         assert_eq!(actions(MD), vec!["A".to_string(), "B".to_string()]);
         assert_eq!(missing_parts(MD), None);
         assert!(with_playback_links(MD).contains("[▶ 0:44:12](t:2652)"));
+        let with_front_matter = format!("---\ntype: bilan\ndate: 2026-11-22\n---\n{MD}");
+        assert_eq!(without_front_matter(&with_front_matter), MD);
+        assert_eq!(with_playback_links(&with_front_matter), with_playback_links(MD));
+        assert_eq!(without_front_matter("---\nnot closed\n"), "---\nnot closed\n");
         let mut m = MD.to_string();
         tick(&mut m, 1, false);
         tick(&mut m, 0, true);
