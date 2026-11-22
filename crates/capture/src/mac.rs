@@ -118,6 +118,14 @@ impl Shared {
             }
         }
         self.duration.store(writer.duration().to_bits(), Ordering::Relaxed);
+        // The file can no longer be written: stop now, so the user knows during the meeting
+        // instead of at the end.
+        if let Some(f) = writer.failure()
+            && !self.broken.load(Ordering::Relaxed)
+        {
+            state.error = Some(format!("le fichier ne peut plus être écrit ({f})"));
+            self.broken.store(true, Ordering::Relaxed);
+        }
     }
 }
 

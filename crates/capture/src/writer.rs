@@ -18,7 +18,7 @@ use objc2::runtime::AnyObject;
 use objc2::AnyThread;
 use objc2_av_foundation::{
     AVAssetWriter, AVAssetWriterInput, AVAssetWriterInputGroup, AVAssetWriterInputPixelBufferAdaptor, AVAssetWriterStatus, AVFileTypeMPEG4, AVMediaTypeAudio, AVMediaTypeVideo,
-    AVVideoAverageBitRateKey, AVVideoCodecKey, AVVideoCodecTypeH264, AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalKey,
+    AVVideoAllowFrameReorderingKey, AVVideoAverageBitRateKey, AVVideoCodecKey, AVVideoCodecTypeH264, AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalKey,
     AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey, AVVideoWidthKey,
 };
 use objc2_core_audio_types::{AudioStreamBasicDescription, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked, kAudioFormatLinearPCM};
@@ -119,6 +119,9 @@ impl Writer {
                         (AVVideoExpectedSourceFrameRateKey.expect("key"), integer(i64::from(FRAMES_PER_SECOND))),
                         (AVVideoMaxKeyFrameIntervalKey.expect("key"), integer(i64::from(2 * FRAMES_PER_SECOND))),
                         (AVVideoProfileLevelKey.expect("key"), object(AVVideoProfileLevelH264HighAutoLevel.expect("key"))),
+                        // No B-frames: with them, writing a fragment fails at random (-11800 /
+                        // -16341), about one 20 s recording in two.
+                        (AVVideoAllowFrameReorderingKey.expect("key"), object(&*NSNumber::new_bool(false))),
                     ]);
                     let settings = dictionary(&[
                         (AVVideoCodecKey.expect("key"), object(AVVideoCodecTypeH264.expect("key"))),
@@ -199,6 +202,11 @@ impl Writer {
         self.duration
     }
 
+    /// The writer's first failure: nothing more will be written.
+    pub fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
+    }
+
     fn note_end(&mut self, end: CMTime) {
         if let Some(o) = self.origin {
             let d = unsafe { end.subtract(o).seconds() };
@@ -221,12 +229,22 @@ impl Writer {
         }
         // SAFETY: one more reference on the buffer, for the wait and the repeats.
         let image = unsafe { CFRetained::retain(NonNull::from(image)) };
-        let t = t.value;
+        // On the 30 fps grid: ScreenCaptureKit's timestamps are irregular, and two frames too
+        // close together would share a decode timestamp in the file.
+        let t = origin.value + (t.value - origin.value + PERIOD / 2) / PERIOD * PERIOD;
         match &mut self.last_frame {
-            // The repeats have already covered this time: the frame will be used for the next ones.
-            Some((d, td)) if *td >= t - PERIOD / 2 => *d = image,
+            // This slot already has a frame (or the repeats have gone past it): the newest image
+            // takes its place, if it is not written yet, and is used for the next repeats.
+            Some((d, td)) if *td >= t => {
+                if let Some((p, tp)) = self.pending.back_mut()
+                    && *tp == *td
+                {
+                    *p = image.clone();
+                }
+                *d = image;
+            }
             _ => {
-                self.fill_gap(t - PERIOD / 2);
+                self.fill_gap(t - PERIOD);
                 self.pending.push_back((image.clone(), t));
                 self.last_frame = Some((image, t));
             }
