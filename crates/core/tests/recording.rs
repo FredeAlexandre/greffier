@@ -78,6 +78,25 @@ fn keeping_a_short_recording_without_process_on_stop_leaves_it_to_process() {
     assert_eq!(bench.meeting(id).status, Status::ToProcess);
 }
 
+/// Two short recordings stopped one after the other: each waits for its own answer, which the app
+/// asks one after the other (`App::short_recordings`), and keeping one does not keep the other.
+#[test]
+fn two_short_recordings_in_a_row_each_wait_for_their_own_answer() {
+    let mut bench = Bench::new();
+    let first = record_short(&mut bench, 20.0);
+    let second = record_short(&mut bench, 15.0);
+    assert_ne!(first, second);
+    bench.advance(5.0);
+    assert_eq!((bench.meeting(first).status.clone(), bench.meeting(second).status.clone()), (Status::ToProcess, Status::ToProcess));
+
+    bench.execute(Command::KeepShortRecording(second));
+    bench.advance_until(second, |s| *s == Status::Done);
+    assert_eq!(bench.meeting(first).status, Status::ToProcess, "the first one still waits for its answer");
+
+    bench.execute(Command::KeepShortRecording(first));
+    assert_eq!(bench.advance_until(first, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+}
+
 #[test]
 fn deleting_a_short_recording_never_processes_it() {
     let mut bench = Bench::new();

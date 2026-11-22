@@ -122,9 +122,10 @@ pub struct App {
     pub marker_id: Option<ShortcutId>,
     /// Why the recording did not start (permission, source…).
     pub record_error: Option<String>,
-    /// A recording shorter than a minute, offered for deletion; the core does not process it
-    /// until it is kept ([`App::keep_short_recording`]).
-    pub short_recording: Option<MeetingId>,
+    /// The recordings shorter than a minute offered for deletion, oldest first: the question is
+    /// asked about each in turn. The core does not process one until it is kept
+    /// ([`App::keep_short_recording`]).
+    pub short_recordings: Vec<MeetingId>,
     /// What the lexicon contains, for the settings.
     pub lexicon: lexicon::Overview,
     /// The lexicon's people: the names offered in one click to name a speaker.
@@ -168,7 +169,7 @@ impl App {
             || self.import.is_some()
             || self.process_imported.is_some()
             || self.confirm_delete.is_some()
-            || self.short_recording.is_some()
+            || !self.short_recordings.is_empty()
             || self.redo_transcription.is_some()
     }
     /// A text field is open: letters, space and arrows are typing, even after a click elsewhere
@@ -214,7 +215,7 @@ impl App {
                         h.open();
                     }
                 }
-                Event::DeletionProposed(id) => self.short_recording = Some(id),
+                Event::DeletionProposed(id) => self.short_recordings.push(id),
                 Event::MeetingImported(id) => self.imported(id),
                 Event::SummaryReady { meeting, title } => {
                     if self.page == Page::Meeting(meeting) {
@@ -543,10 +544,15 @@ impl App {
     pub fn process(&mut self, id: MeetingId) {
         self.command(Command::Process(id));
     }
+    /// The short recording the question is about: the oldest one not answered yet.
+    pub fn short_recording(&self) -> Option<MeetingId> {
+        self.short_recordings.first().copied()
+    }
     /// Answers « Garder » to the short recording question: the meeting is kept, and processed if
-    /// processing starts at stop.
+    /// processing starts at stop. The question moves on to the next short recording, if any.
     pub fn keep_short_recording(&mut self) {
-        if let Some(id) = self.short_recording.take() {
+        if let Some(id) = self.short_recording() {
+            self.short_recordings.remove(0);
             self.command(Command::KeepShortRecording(id));
         }
     }
@@ -596,9 +602,7 @@ impl App {
         if self.confirm_delete == Some(id) {
             self.confirm_delete = None;
         }
-        if self.short_recording == Some(id) {
-            self.short_recording = None;
-        }
+        self.short_recordings.retain(|r| *r != id);
     }
     /// Watches the chosen meetings folder, once the UI is ready to be woken.
     fn watch_folder(&mut self) {
@@ -771,7 +775,7 @@ fn init() -> App {
         record_shortcut: RecordShortcut::default(),
         marker_id: None,
         record_error: None,
-        short_recording: None,
+        short_recordings: Vec::new(),
         lexicon,
         people,
         watch: None,
@@ -1075,6 +1079,15 @@ fn scene_short_recording(s: &mut App) {
     s.core.advance(12.0);
     s.stop_recording();
 }
+/// Two short recordings stopped one after the other, the first one kept: the question is now about
+/// the second (8 s).
+fn scene_short_recordings(s: &mut App) {
+    scene_short_recording(s);
+    s.start_recording();
+    s.core.advance(8.0);
+    s.stop_recording();
+    s.keep_short_recording();
+}
 /// The meeting to process, transcribed, 40 % into the review.
 fn scene_processing(s: &mut App) {
     s.open(1);
@@ -1234,6 +1247,7 @@ fn main() {
             ("recording", scene_recording),
             ("record-ready", scene_record_ready),
             ("short-recording", scene_short_recording),
+            ("short-recordings", scene_short_recordings),
             ("processing", scene_processing),
             ("queue", scene_queue),
             ("failed", scene_failed),
