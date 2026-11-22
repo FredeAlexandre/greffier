@@ -84,6 +84,10 @@ pub enum Command {
     SpeakerCount { meeting: MeetingId, number: Option<u8> },
     /// Puts the meeting in the queue, from the first stage it is missing.
     Process(MeetingId),
+    /// The user keeps a recording offered for deletion ([`Event::DeletionProposed`]): it is
+    /// queued as a longer recording is at stop, if [`Settings::process_on_stop`] is set. Changes
+    /// nothing if it is no longer to process (already queued, processed by hand…).
+    KeepShortRecording(MeetingId),
     /// Puts the meeting back in the queue from this stage; the following ones are redone too.
     Redo { meeting: MeetingId, stage: Stage },
     /// Stops processing (or takes the meeting out of the queue): it goes back to to-process.
@@ -132,7 +136,9 @@ pub enum Event {
     /// "recording interrupted" with what was captured, and can be processed.
     RecordingInterrupted { meeting: MeetingId, message: String },
     /// The recording lasted less than [`MIN_DURATION`]: probably a false start, which the UI
-    /// offers to delete. Processing goes on as long as it is kept.
+    /// offers to delete. The meeting is not queued in the meantime: it is processed (if
+    /// [`Settings::process_on_stop`]) once kept with [`Command::KeepShortRecording`], and stays
+    /// to process if no answer comes (the app quits).
     DeletionProposed(MeetingId),
     MeetingImported(MeetingId),
     StageDone { meeting: MeetingId, stage: Stage },
@@ -464,7 +470,7 @@ impl Greffier {
             | Command::Resolve { meeting, .. }
             | Command::CorrectUtterance { meeting, .. }
             | Command::CheckAction { meeting, .. } => Some(*meeting),
-            Command::Process(id) | Command::StopProcessing(id) | Command::MarkRead(id) => Some(*id),
+            Command::Process(id) | Command::KeepShortRecording(id) | Command::StopProcessing(id) | Command::MarkRead(id) => Some(*id),
             _ => None,
         };
         match command {
@@ -495,6 +501,12 @@ impl Greffier {
                     s => return impossible(format!("la réunion ne peut pas être traitée ({s:?})")),
                 };
                 self.enqueue(id, stage);
+            }
+            Command::KeepShortRecording(id) => {
+                let r = self.meeting_mut(id)?;
+                if r.status == Status::ToProcess && r.completed_stage.is_none() && self.settings.process_on_stop {
+                    self.enqueue(id, Stage::Transcription);
+                }
             }
             Command::Redo { meeting, stage } => {
                 let r = self.meeting_mut(meeting)?;
@@ -705,9 +717,10 @@ impl Greffier {
         self.meetings.insert(0, recorded_meeting(id, &e, duration));
         ev.push(Event::MeetingRecorded(id));
         if duration < MIN_DURATION {
+            // Not queued while the user decides: a false start is neither transcribed nor sent to
+            // the agent before being kept (`Command::KeepShortRecording`).
             ev.push(Event::DeletionProposed(id));
-        }
-        if self.settings.process_on_stop {
+        } else if self.settings.process_on_stop {
             self.enqueue(id, Stage::Transcription);
         }
         self.persist(id, ev);

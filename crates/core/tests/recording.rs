@@ -26,6 +26,98 @@ fn a_recording_of_a_minute_or_more_is_not_offered_for_deletion() {
     bench.advance(60.0);
     let events = bench.execute(Command::StopRecording);
     assert!(!events.iter().any(|e| matches!(e, Event::DeletionProposed(_))), "{events:?}");
+    // Nothing to decide: it is queued right away.
+    let id = bench.greffier.meetings()[0].id;
+    assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
+}
+
+/// Records a recording of `duration` seconds and checks it was offered for deletion.
+fn record_short(bench: &mut Bench, duration: f64) -> greffier_core::MeetingId {
+    bench.execute(Command::StartRecording);
+    bench.advance(duration);
+    let events = bench.execute(Command::StopRecording);
+    let id = bench.greffier.meetings()[0].id;
+    assert!(events.contains(&Event::DeletionProposed(id)), "{events:?}");
+    id
+}
+
+/// The events a processing stage gives.
+fn processing_events(events: &[Event]) -> Vec<&Event> {
+    events.iter().filter(|e| matches!(e, Event::StageDone { .. } | Event::StageFailed { .. } | Event::SummaryReady { .. })).collect()
+}
+
+#[test]
+fn a_short_recording_is_not_processed_while_its_deletion_is_proposed() {
+    let mut bench = Bench::new();
+    assert!(bench.greffier.settings().process_on_stop);
+    let id = record_short(&mut bench, 30.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+    assert!(!bench.greffier.busy());
+}
+
+#[test]
+fn keeping_a_short_recording_processes_it_when_process_on_stop_is_set() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.advance(2.0);
+    bench.execute(Command::KeepShortRecording(id));
+    assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
+    assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+}
+
+#[test]
+fn keeping_a_short_recording_without_process_on_stop_leaves_it_to_process() {
+    let mut bench = Bench::new();
+    bench.execute(Command::ChangeSettings(Settings { process_on_stop: false, ..Settings::default() }));
+    let id = record_short(&mut bench, 30.0);
+    bench.execute(Command::KeepShortRecording(id));
+    bench.advance(10.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+}
+
+#[test]
+fn deleting_a_short_recording_never_processes_it() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.advance(2.0);
+    bench.execute(Command::Delete(id));
+    assert!(bench.greffier.meeting(id).is_none());
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    assert!(!bench.greffier.busy());
+}
+
+#[test]
+fn a_short_recording_left_undecided_when_the_app_quits_stays_to_process() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    let name = bench.meeting(id).folder_name.clone();
+    // The app quits with the question still open.
+    bench.reopen();
+    assert_eq!(bench.named_meeting(&name).status, Status::ToProcess);
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    // The user processes it whenever they want.
+    let id = bench.named_meeting(&name).id;
+    bench.execute(Command::Process(id));
+    bench.advance_until(id, |s| *s == Status::Done);
+}
+
+#[test]
+fn keeping_a_meeting_already_in_the_queue_changes_nothing() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.execute(Command::Process(id));
+    bench.advance(0.5);
+    let status = bench.meeting(id).status.clone();
+    assert!(status.is_processing(), "{status:?}");
+    bench.execute(Command::KeepShortRecording(id));
+    assert_eq!(bench.meeting(id).status, status);
+    assert_eq!(bench.greffier.rank(id), Some(0));
+    bench.advance_until(id, |s| *s == Status::Done);
 }
 
 #[test]

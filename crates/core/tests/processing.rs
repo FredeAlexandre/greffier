@@ -63,7 +63,7 @@ fn queue_processes_one_meeting_at_a_time_in_order() {
 fn meeting_enters_the_queue_when_the_recording_stops() {
     let mut bench = Bench::new();
     assert!(bench.greffier.settings().process_on_stop);
-    let id = bench.record(3.0);
+    let id = bench.record(60.0);
     assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
     bench.advance_until(id, |s| *s == Status::Done);
 }

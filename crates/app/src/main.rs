@@ -118,7 +118,8 @@ pub struct App {
     pub marker_id: Option<ShortcutId>,
     /// Why the recording did not start (permission, source…).
     pub record_error: Option<String>,
-    /// A recording shorter than a minute, offered for deletion.
+    /// A recording shorter than a minute, offered for deletion; the core does not process it
+    /// until it is kept ([`App::keep_short_recording`]).
     pub short_recording: Option<MeetingId>,
     /// What the lexicon contains, for the settings.
     pub lexicon: lexicon::Overview,
@@ -491,6 +492,13 @@ impl App {
     pub fn process(&mut self, id: MeetingId) {
         self.command(Command::Process(id));
     }
+    /// Answers « Garder » to the short recording question: the meeting is kept, and processed if
+    /// processing starts at stop.
+    pub fn keep_short_recording(&mut self) {
+        if let Some(id) = self.short_recording.take() {
+            self.command(Command::KeepShortRecording(id));
+        }
+    }
     pub fn stop_processing(&mut self, id: MeetingId) {
         self.command(Command::StopProcessing(id));
     }
@@ -536,6 +544,9 @@ impl App {
         }
         if self.confirm_delete == Some(id) {
             self.confirm_delete = None;
+        }
+        if self.short_recording == Some(id) {
+            self.short_recording = None;
         }
     }
     /// Watches the chosen meetings folder, once the UI is ready to be woken.

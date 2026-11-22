@@ -158,7 +158,10 @@ pub fn confirm_delete(s: &App, k: &Kit, layer: &mut Vec<El>) {
     Dialog::new("delete", "Supprimer la réunion ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.confirm_delete = None).child(body).build(k, layer);
 }
 
-/// When a recording shorter than a minute stops: probably a false start.
+/// When a recording shorter than a minute stops: probably a false start. It is not processed until
+/// the user answers. A click outside does not close it (the click that brings the window to the
+/// front would dismiss the question unseen); Escape and the close button keep the recording, like
+/// « Garder ».
 pub fn short_recording(s: &App, k: &Kit, layer: &mut Vec<El>) {
     let Some(id) = s.short_recording else { return };
     let Some(m) = s.core.meeting(id) else { return };
@@ -170,11 +173,18 @@ pub fn short_recording(s: &App, k: &Kit, layer: &mut Vec<El>) {
         .child(muted(k, format!("L'enregistrement n'a duré que {}. Si c'était un faux départ, il peut partir à la corbeille du Mac.", ui::dur(m.duration))))
         .child(
             row().w_full().gap(8.0).justify_end()
-                .child(Button::new("Garder").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.short_recording = None).build(k).key("short-keep"))
+                .child(Button::new("Garder").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.keep_short_recording()).build(k).key("short-keep"))
                 .child(Button::new("Supprimer").variant(ButtonVariant::Danger).on_press(move |s: &mut App| {
                     s.short_recording = None;
                     s.delete(id);
                 }).build(k).key("short-delete")),
         );
-    Dialog::new("short-recording", "Supprimer cet enregistrement ?").open(true).width(440.0).fit().on_close(|s: &mut App| s.short_recording = None).child(body).build(k, layer);
+    Dialog::new("short-recording", "Supprimer cet enregistrement ?")
+        .open(true)
+        .width(440.0)
+        .fit()
+        .click_outside(false)
+        .on_close(|s: &mut App| s.keep_short_recording())
+        .child(body)
+        .build(k, layer);
 }

@@ -103,8 +103,8 @@ fn only_meeting_folders_count_most_recent_first() {
     assert_eq!(names, ["2026-11-20 10h00 - Revue de release", "2026-11-19 15h30 - Réunion", "2026-11-18 09h15 - Réunion"]);
 }
 
-/// Records 5 s (2 speakers given, a marker at 2 s), processes to the end, names SPEAKER_00 and
-/// ticks the 2nd action.
+/// Records 5 s (2 speakers given, a marker at 2 s), keeps this short recording, processes to the
+/// end, names SPEAKER_00 and ticks the 2nd action.
 fn processed_and_edited_meeting(bench: &mut Bench) -> MeetingId {
     bench.execute(Command::StartRecording);
     bench.execute(Command::RecordingSpeakerCount(Some(2)));
@@ -112,6 +112,7 @@ fn processed_and_edited_meeting(bench: &mut Bench) -> MeetingId {
     bench.execute(Command::AddMarker);
     bench.advance(3.0);
     let id = bench.finish_recording();
+    bench.execute(Command::KeepShortRecording(id));
     bench.advance_until(id, |s| *s == Status::Done);
     bench.execute(Command::NameSpeaker { meeting: id, speaker: 0, name: "Alexandre".into() });
     bench.execute(Command::CheckAction { meeting: id, action: 1, done: true });

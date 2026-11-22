@@ -138,6 +138,8 @@ fn running_recording_folder_does_not_appear_as_a_meeting() {
 fn greffier_writes_reload_nothing() {
     let mut bench = Bench::new();
     let id = bench.record(3.0);
+    bench.execute(Command::KeepShortRecording(id));
+    assert_eq!(bench.greffier.rescan_folder(), []);
     // During the whole processing (the agent writes the summary), then after.
     for _ in 0..60 {
         bench.advance(0.1);
