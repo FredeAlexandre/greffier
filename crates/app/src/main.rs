@@ -795,6 +795,13 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let mut active = false;
     let mut changed = false;
 
+    // The shortcut field left the screen while capturing (a recording started from the menu bar
+    // opens its page): the capture ends there, and the global shortcut comes back.
+    if s.page != Page::Settings && s.shortcut.is_recording() {
+        s.shortcut.cancel();
+        s.follow_shortcut_capture();
+        changed = true;
+    }
     // The video only plays on its meeting's page.
     if s.video.is_some() && s.player().is_none() {
         s.video = None;
