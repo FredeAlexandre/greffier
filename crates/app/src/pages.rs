@@ -305,21 +305,23 @@ pub fn recording(s: &App, k: &Kit) -> El {
 /// The recording shortcut's field. rune-kit words its empty field in English ("Record
 /// shortcut", "Press shortcut") with no option to change it: French words cover them, drawn as
 /// rune-kit draws its own (inset by the field's border, 8 pt from its edge), and inert so the
-/// field still takes the press.
+/// field still takes the press. The cover stays mounted and shows or hides at once: mounted only
+/// when needed, it would fade in over 0.2 s and let the English words show meanwhile.
+/// VoiceOver still reads rune-kit's English value and description of the empty field.
 fn shortcut_field(s: &App, k: &Kit) -> El {
     let field = ShortcutRecorder::new("record-shortcut", &s.shortcut, App::shortcut_field)
         .label("Raccourci d'enregistrement")
         .error_message(record_shortcut::error_message)
         .on_change(|s: &mut App, next, _| s.change_shortcut(next))
         .build(k);
-    if !s.shortcut.keycaps().is_empty() {
-        return field;
-    }
+    let empty = s.shortcut.keycaps().is_empty();
     let words = if s.shortcut.is_recording() { "Tape un raccourci…" } else { "Choisir un raccourci" };
     field.child(
-        row().pin(Some(1.0), Some(1.0), Some(1.0), None).h(30.0).px(7.0).center_y()
+        row().key("record-shortcut-words").pin(Some(1.0), Some(1.0), Some(1.0), None).h(30.0).px(7.0).center_y()
             .radius(k.radius.md - 1.0).fill(k.c.bg_base)
             .child(text(words).font(k.ty.ui_compact).color(k.c.text_faint))
+            .opacity(if empty { 1.0 } else { 0.0 })
+            .instant_changes()
             .inert().a11y_hidden(),
     )
 }
