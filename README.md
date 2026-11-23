@@ -25,7 +25,7 @@ and downloadable packages.
 
 ```sh
 cargo run            # the window (first build: ~2 min)
-cargo run -- help    # the command line for agents (list, show, status), without the window
+cargo run -- help    # the command line for agents (search, list, show, rename…), without the window
 cargo test           # the core on its fake adapters, the UI driven headless (crates/app/tests), the rest
 cargo xtask smoke    # the real adapters on this Mac: capture (records 5 s, plays a tone), whisper, pyannote
 cargo xtask smoke --with-claude   # and the review and summary by `claude` (costs Claude tokens)
@@ -54,9 +54,48 @@ window.
 - macOS ties permissions (screen, microphone, system audio, notifications) to the identifier and the
   certificate: they hold from one install to the next. Don't delete the identity and don't change
   the identifier, otherwise they have to be granted again.
-- `--binary PATH` packages an already built executable, `--no-launch` does not open the app.
+- `--binary PATH` packages an already built executable, `--no-launch` does not open the app,
+  `--no-link` does not link the command line (below).
 - The bundle embeds `uv` (version and sha256 pinned in `crates/tools/src/mac.rs`), downloaded once
   into `target/uv-<version>/`, where `cargo run` finds it too.
+
+## The command line
+
+`cargo xtask install-app` links `~/.local/bin/greffier` to the installed app's executable
+(`/Applications/Greffier.app/Contents/MacOS/greffier`): a symbolic link there is replaced, a file
+is left as it is with a warning, and it says so if `~/.local/bin` is not in the `PATH`. In
+development, `cargo run -- <command>` or `target/debug/greffier <command>` does the same.
+
+```sh
+greffier help                         # every command and option
+greffier search recette               # what was said, by meeting
+greffier list                         # the meetings, most recent first
+greffier show 2026-11-20-1000         # a meeting's outline; --bilan, --transcription, --json…
+greffier rename 2026-11-20-1000 "Revue de release"
+greffier delete 2026-11-20-1000 --yes # to the Mac's trash
+```
+
+Reading (`search`, `list`, `show`, `status`) goes straight to the meetings folder and never starts
+the app. Writing (`import`, `process`, `redo`, `stop`, `rename`, `speaker`, `correct`, `resolve`,
+`check-action`, `delete`) is sent to the running Greffier over `greffier.sock` in the app folder
+([ADR 0006](docs/adr/0006-cli-talks-to-the-greffier-process.md)); if none runs, the command line
+starts it without a window: `open -g -j -b io.github.fredealexandre.greffier --args --background`
+for the installed app, the binary itself (`greffier --background`) in development or when
+`GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` is set. Commands, output and JSON shapes:
+[crates/cli/README.md](crates/cli/README.md).
+
+Started with `--background`, Greffier has no window and no Dock icon; its menu bar icon shows the
+progress and has « Ouvrir » and « Quitter ». Opening it (Finder, Dock, Spotlight, `open`, « Ouvrir »,
+or launching `greffier` again) shows the window of the same process, with the processing under way,
+and it then behaves as if opened normally. Until then it quits on its own after 5 minutes with
+nothing to process and no request. One Greffier runs per app folder: a second launch asks the first
+to show its window and exits.
+
+| Variable | |
+|---|---|
+| `GREFFIER_FOLDER` | another meetings folder, for this run (the command line and the app) |
+| `GREFFIER_APP_FOLDER` | another app folder (settings, lexicon, search cache, socket, lock) |
+| `GREFFIER_IDLE_QUIT` | seconds a background Greffier waits idle before quitting (300); for trials |
 
 ## First-launch resources
 
@@ -144,7 +183,8 @@ lives in `crates/`, except `xtask/`.
   the core alone.
 - `crates/app/` (`greffier`, the binary): the UI around the core.
   - `src/lib.rs`: playback, shortcuts, shell, scenes; `src/main.rs` hands a command
-    (`greffier list`…) to `greffier-cli`, and otherwise runs the UI.
+    (`greffier list`…) to `greffier-cli`, and otherwise runs the UI. `src/command_line.rs`: the
+    app as the process the command line talks to: lock, socket, `--background`, idle quit.
   - `src/meeting.rs`: meeting page, video, tabs. `src/timeline.rs`: the timeline.
     `src/overlays.rs`: ⌘K search, deletion confirmation.
   - `src/pages.rs`: overview, recording, settings, first launch. `src/sidebar.rs`: sidebar and
@@ -154,7 +194,7 @@ lives in `crates/`, except `xtask/`.
     title, importing. `src/settings.rs`: the app's real adapters; `src/watch.rs`: FSEvents.
   - `tests/`: the UI driven headless, as the user does (clicks by key, keys, time), on fake adapters.
 - `xtask/`: the development tasks, run with `cargo xtask <task>` (alias in `.cargo/config.toml`):
-  `install-app` (packaging, signing and installing `Greffier.app`), `vendor-whisper` (copying the
+  `install-app` (packaging, signing and installing `Greffier.app`, linking `~/.local/bin/greffier`), `vendor-whisper` (copying the
   whisper.cpp sources pinned in `crates/engines/whisper-version.rs` into `crates/engines/whisper.cpp/`) and
   `publish-pyannote` (publishing the release of the pyannote files listed in the core's catalog,
   with `xtask/pyannote/`: license, attribution).

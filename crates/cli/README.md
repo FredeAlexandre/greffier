@@ -7,7 +7,9 @@ are sent to the Greffier process over its socket, which is started without a win
 not run. `greffier help` gives the usage. A meeting is named by its identifier
 (`2026-11-20-0939`), its folder name or path, a date or the start of an identifier. Any first
 argument that does not start with `-` is a command (a mistyped one fails with exit code 2);
-`greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window.
+`greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window, and
+`greffier --background` starts the app without a window, as the command line launches it (the
+app's side: `crates/app/src/command_line.rs`).
 
 ## `search`
 

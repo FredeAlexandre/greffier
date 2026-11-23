@@ -8,6 +8,14 @@
 //! data, never from the meetings folder. `GREFFIER_FOLDER=… cargo run` opens another meetings
 //! folder for a single launch (`GREFFIER_APP_FOLDER=…` another app folder). `cargo run -- list`
 //! and the other commands never reach this library: `main.rs` hands them to `greffier-cli`.
+//!
+//! The live app is also the Greffier process the command line talks to (ADR 0006,
+//! `command_line.rs`): it holds the app folder's lock (a second launch asks it to show its window
+//! and exits) and answers on `greffier.sock` there, each request on the UI thread as the user's
+//! own action. `greffier --background`, as the command line launches it, starts without a window
+//! nor Dock icon (the menu bar icon shows the progress); opening it shows the window of the same
+//! process, and until then it quits on its own after 5 minutes idle (`GREFFIER_IDLE_QUIT`
+//! seconds). Headless runs, scenes and the tests driving [`spec`] never take the lock nor listen.
 
 #![forbid(unsafe_code)]
 
