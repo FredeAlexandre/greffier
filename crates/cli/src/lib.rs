@@ -18,7 +18,9 @@
 mod args;
 mod library;
 mod list;
+pub mod protocol;
 mod search;
+pub mod server;
 mod show;
 mod status;
 mod text;
