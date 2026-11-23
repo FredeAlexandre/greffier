@@ -18,6 +18,7 @@ pub mod adapters;
 pub mod attribution;
 pub mod summary;
 pub mod folder;
+pub mod identifier;
 pub mod fake;
 pub mod demo;
 pub mod lexicon;
