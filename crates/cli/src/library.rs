@@ -45,6 +45,11 @@ impl<'a> Library<'a> {
         Some(Entry { id: self.ids.of(name)?.to_string(), meeting, live })
     }
 
+    /// A meeting's identifier, from its folder name.
+    pub fn identifier(&self, folder_name: &str) -> Option<&str> {
+        self.ids.of(folder_name)
+    }
+
     /// All the meetings, most recent first.
     pub fn all(&self) -> Vec<Entry> {
         self.names.iter().enumerate().filter_map(|(i, n)| self.entry(i, n)).collect()

@@ -1,9 +1,41 @@
 # greffier-cli
 
-Greffier's command line for agents (ADR 0006), reading side: `greffier list`, `show`, `status`,
-`help`. It reads the meetings folder through the core and never writes. `greffier help` gives
-the usage. A meeting is named by its identifier (`2026-11-20-0939`), its folder name or path, a
-date or the start of an identifier.
+Greffier's command line for agents (ADR 0006), reading side: `greffier search`, `list`, `show`,
+`status`, `help`. It reads the meetings folder (and the app's search cache) through the core and
+never writes. `greffier help` gives the usage. A meeting is named by its identifier
+(`2026-11-20-0939`), its folder name or path, a date or the start of an identifier. Any first
+argument that does not start with `-` is a command (a mistyped one fails with exit code 2);
+`greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window.
+
+## `search`
+
+`greffier search fiscal year` finds the lines that contain all the words, `greffier search
+'"fiscal year"'` the exact phrase (the arguments are joined; case, accents and the typographic
+apostrophe are ignored). It searches the titles, the summaries' lines and the utterances of the
+meetings started between `--since` and `--until` (or on `--date`), most recent first; for each
+meeting, the title, then the summary's lines, then the utterances. `--speaker` keeps the
+utterances of the speakers whose displayed name contains it; `--in bilan,transcription,titre`
+(or repeated) where to search; `--context N` adds the N utterances before and after each one.
+
+Limits: 30 lines in all (`--limit`). When the lines come from many meetings, each shows at most 5
+summary lines and 5 utterances so that one meeting does not hide the others; with fewer meetings
+they share the limit (`limit / meetings`), so a search narrowed to one meeting shows up to
+`--limit` of its lines. A long line is cut to 200 characters around the first word found. What
+the limits leave out is counted on the last line.
+
+```
+2026-11-20-0939 · Revue de release avec Jérôme : permissions et dataset dynamique, fiscal year, bookmarks
+  [1:31:33] bilan · Badge Alpha sur le filtre fiscal year. Objectif de 95 % de couverture…
+  [1:25:32] Khalid ? : …on a ajouté le filtre fiscal year…
+    [1:25:40] Jérôme ? : (context, with --context)
+… 12 autres résultats dans 3 réunions : affinez (--since, --until, --speaker, --in) ou --limit.
+```
+
+A summary line shows its moment (its own timestamp, or its topic's), without repeating it in the
+text; a line of the brief or the actions has none. Nothing found: `Aucun résultat pour « … ».`,
+exit code 0. The command opens the core with adapters that refuse everything and reads the
+search cache without writing it: entries missing or stale there are built in memory, and the
+meetings folder and the app folder are left byte for byte as they were.
 
 ## JSON (`--json`)
 
@@ -25,6 +57,15 @@ string next to them where it helps.
 | `etape_faite` | last stage completed (same values) |
 | `erreur` | failure message |
 | `a_verifier` | number of passages to check still pending |
+
+**`search`**: `resultats`, `total` (the lines found, without the limits) and `reunions` (the
+meetings they come from). A result: `id`, `titre` (its meeting's), `emplacement` (`titre`,
+`bilan`, `transcription`), `debut` (seconds) and `horodatage` (`null` for the title and a summary
+line without a moment), `locuteur` (displayed name, utterances only), `replique` (the utterance's
+number, from 1, as `show --transcription --numeros`), `extrait` (the line, cut to 200 characters
+around the first word found, with `…`), `surlignes` (the words and phrases found in `extrait`,
+`[start, end]` byte ranges), `avant` and `apres` (the utterances around, with `--context`:
+`replique`, `debut`, `horodatage`, `locuteur`, `texte`, whole).
 
 **`status`**: a meeting (or an array of the meetings not done) plus `rang` (place in the queue,
 from 1), `progression` (0 to 1) and `temps_restant` (seconds), `null` while read from disk.

@@ -49,6 +49,11 @@ impl Args {
         self.values.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| v.as_str())
     }
 
+    /// All the option's values, in order.
+    pub fn values(&self, name: &str) -> Vec<&str> {
+        self.values.iter().filter(|(n, _)| *n == name).map(|(_, v)| v.as_str()).collect()
+    }
+
     pub fn help(&self) -> bool {
         self.flag("--help") || self.flag("-h")
     }

@@ -2,8 +2,8 @@
 //! The app's binary hands its arguments here when the first one is a command ([`is_command`]),
 //! and opens the window otherwise.
 //!
-//! This crate is the reading side: `list`, `show`, `status` read the meetings folder through
-//! the core, never launch the app and never write anything. It depends on the core alone (no
+//! This crate is the reading side: `search`, `list`, `show`, `status` read the meetings folder
+//! (and the app's search cache) through the core, never launch the app and never write anything. It depends on the core alone (no
 //! Rune, no whisper.cpp), so its logic is tested without linking the UI, and the app only
 //! dispatches to it. The process's live data (queue rank, progress, time remaining) will come
 //! through a [`LiveSource`]; for now everything is read from disk.
@@ -18,6 +18,7 @@
 mod args;
 mod library;
 mod list;
+mod search;
 mod show;
 mod status;
 mod text;
@@ -48,13 +49,17 @@ pub trait LiveSource {
 pub struct Context {
     /// `None` until a meetings folder is chosen.
     pub meetings_folder: Option<PathBuf>,
+    /// The app folder, whose search cache `search` reads (never writes); `None`: no cache, the
+    /// index is built in memory.
+    pub app_folder: Option<PathBuf>,
     pub live: Option<Box<dyn LiveSource>>,
 }
 
 impl Context {
-    /// The meetings folder of the settings (or `GREFFIER_FOLDER`), without live data.
+    /// The meetings folder and the app folder of the settings (or `GREFFIER_FOLDER` and
+    /// `GREFFIER_APP_FOLDER`), without live data.
     pub fn from_env() -> Context {
-        Context { meetings_folder: greffier_core::settings::meetings_folder(), live: None }
+        Context { meetings_folder: greffier_core::settings::meetings_folder(), app_folder: Some(greffier_core::settings::app_folder()), live: None }
     }
 }
 
@@ -99,7 +104,7 @@ fn dispatch(cx: &Context, args: &[String]) -> Result<String, Failure> {
         "list" => list::run(cx, rest),
         "show" => show::run(cx, rest),
         "status" => status::run(cx, rest),
-        "search" => Err(Failure::Usage("search n'est pas encore disponible".into())),
+        "search" => search::run(cx, rest),
         "help" | "--help" | "-h" => Ok(HELP.into()),
         other => Err(Failure::Usage(format!("commande inconnue : {other}"))),
     }
@@ -108,6 +113,10 @@ fn dispatch(cx: &Context, args: &[String]) -> Result<String, Failure> {
 pub(crate) const HELP: &str = "\
 greffier : les réunions du dossier de réunions, en ligne de commande. Sans commande, ouvre Greffier.
 
+greffier search <requête> [--since J] [--until J] [--date J|M] [--speaker NOM] [--in OÙ] [--context N] [--limit N]
+  Ce qui a été dit : les lignes qui ont tous les mots et \"expressions exactes\" (casse et accents
+  ignorés), par réunion, de la plus récente : bilan puis répliques, [h:mm:ss] Nom : extrait.
+  --in bilan,transcription,titre. --context N : N répliques autour. --limit : 30 en tout.
 greffier list [--date J|M] [--since J] [--until J] [--limit N]
   Les réunions, de la plus récente à la plus ancienne : identifiant · durée · statut · titre.
 greffier show <réunion> [--bilan | --transcription | --fiche | --locuteurs | --actions | --passages]
@@ -123,6 +132,11 @@ greffier help
 J : AAAA-MM-JJ. M : AAAA-MM. T : h:mm:ss, m:ss ou secondes.
 --json sur chaque commande. Sortie : 0 succès, 1 échec, 2 erreur d'usage.
 GREFFIER_FOLDER remplace le dossier de réunions, GREFFIER_APP_FOLDER le dossier de l'app.
+
+Exemples :
+  greffier search bookmarks labels --since 2026-11-16
+  greffier search '\"fiscal year\"' --speaker Jérôme --context 2
+  greffier show 2026-11-20-0939 --transcription --from 1:25:00 --to 1:30:00
 ";
 
 /// `value` in JSON, on one line.

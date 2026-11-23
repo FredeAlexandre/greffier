@@ -54,7 +54,7 @@ fn text(b: &[u8]) -> String {
 }
 
 #[test]
-fn list_and_show_run_in_the_binary() {
+fn search_list_and_show_run_in_the_binary() {
     let (app, folder) = (Temp::new(), meetings());
     let o = greffier(&app, Some(&folder), &["list"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
@@ -65,6 +65,10 @@ fn list_and_show_run_in_the_binary() {
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).expect("JSON");
     assert_eq!(v["id"], "2026-11-20-1000");
     assert_eq!(v["titre"], "Revue de release");
+
+    let o = greffier(&app, Some(&folder), &["search", "recette", "--in", "transcription"]);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
+    assert_eq!(text(&o.stdout), "2026-11-20-1000 · Revue de release\n  [0:00:02] Khalid ? : Oui, si la recette passe vendredi.\n");
     assert!(std::fs::read_dir(&app.0).expect("app folder").next().is_none(), "nothing written in the app folder");
 }
 
