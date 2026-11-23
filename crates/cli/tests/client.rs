@@ -166,6 +166,30 @@ fn nobody_answering_exits_with_3() {
 }
 
 #[test]
+fn an_app_folder_too_deep_for_a_socket_fails_at_once() {
+    let f = fixtures();
+    let app = Temp::new();
+    let deep = app.0.join("x".repeat(120));
+    let mut cx = on(&f.0, &deep);
+    // Nothing must be launched: this program does not exist.
+    cx.process.as_mut().unwrap().launch = Launch::Program { program: PathBuf::from("/nulle/part/greffier"), env: vec![] };
+    cx.process.as_mut().unwrap().patience = Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    let o = failed(&cx, &["stop", "2026-11-20"], 3);
+    assert!(start.elapsed() < Duration::from_secs(2), "at once");
+    let socket = greffier_cli::server::socket_path(&deep);
+    assert_eq!(
+        o.err,
+        format!(
+            "greffier : le chemin du socket de Greffier est trop long ({} octets, {} au plus) : {}. Choisissez un dossier de l'app plus court (GREFFIER_APP_FOLDER).\n",
+            socket.as_os_str().len(),
+            greffier_cli::server::MAX_SOCKET_PATH,
+            socket.display()
+        )
+    );
+}
+
+#[test]
 fn a_launch_that_fails_says_why() {
     let f = fixtures();
     let app = Temp::new();

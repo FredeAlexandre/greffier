@@ -129,12 +129,23 @@ impl App {
     }
 
     /// Listens on the app folder's socket; each request is answered on the UI thread.
-    pub(crate) fn listen(&mut self) {
+    pub(crate) fn listen(&mut self, tx: &mut Tx) {
         let Some(handle) = self.handle.clone() else { return };
         let socket = server::socket_path(&settings::app_folder());
         let deliver = move |request: Request, reply: server::Reply| handle.update(move |s: &mut App, tx: &mut Tx| reply(s.answer(request, tx.clock())));
-        match server::listen(&socket, deliver) {
+        self.serve(server::listen(&socket, deliver), tx);
+    }
+
+    /// Keeps the socket listened on. If it could not be (a socket path too long…), a window goes
+    /// on without the command line, but a process started in the background quits at once:
+    /// nobody can reach it, and it would idle for minutes for nothing.
+    pub fn serve(&mut self, listening: Result<server::Listener, String>, tx: &mut Tx) {
+        match listening {
             Ok(listener) => self.listener = Some(listener),
+            Err(e) if self.background => {
+                eprintln!("greffier: the command line cannot reach this process: {e}; quitting");
+                self.quit(tx);
+            }
             Err(e) => eprintln!("greffier: the command line will not reach this window: {e}"),
         }
     }

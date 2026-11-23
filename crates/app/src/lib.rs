@@ -1430,7 +1430,7 @@ pub fn app(launch: Launch) -> rune::App<App> {
             });
         }
         if launch.serve {
-            s.listen();
+            s.listen(tx);
         }
         // Without a window nothing else wakes `poll`, which counts the idle time.
         if launch.background {

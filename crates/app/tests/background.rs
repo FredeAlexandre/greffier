@@ -250,6 +250,21 @@ fn a_background_process_waits_for_its_processing_to_end() {
 }
 
 #[test]
+fn a_background_process_that_cannot_listen_quits_at_once() {
+    let mut rt = in_background(demo_core(), 300.0);
+    rt.update(|s, tx| s.serve(Err("chemin du socket trop long".into()), tx));
+    assert!(quit_asked(&rt), "nobody can reach it: it would idle for nothing");
+}
+
+#[test]
+fn a_window_that_cannot_listen_stays_open() {
+    let mut rt = app_on(demo_core());
+    rt.update(|s, tx| s.serve(Err("chemin du socket trop long".into()), tx));
+    idle_for(&mut rt, 10);
+    assert!(!quit_asked(&rt));
+}
+
+#[test]
 fn the_window_opened_normally_never_quits_on_its_own() {
     let mut rt = app_on(demo_core());
     idle_for(&mut rt, 900);

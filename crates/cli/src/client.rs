@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::Failure;
 use crate::protocol::{Request, Response, Snapshot, VERSION, encode};
+use crate::server::MAX_SOCKET_PATH;
 
 /// The installed app's bundle identifier.
 pub const BUNDLE_ID: &str = "io.github.fredealexandre.greffier";
@@ -114,6 +115,14 @@ impl Process {
     /// answers. Fails ([`Failure::Unreachable`]) if it does not answer in time, or works on
     /// another folder.
     pub(crate) fn reach(&self, meetings_folder: &Path) -> Result<Connection, Failure> {
+        // No process can listen there: launching one would only wait for nothing.
+        let length = self.socket.as_os_str().len();
+        if length > MAX_SOCKET_PATH {
+            return Err(Failure::Unreachable(format!(
+                "le chemin du socket de Greffier est trop long ({length} octets, {MAX_SOCKET_PATH} au plus) : {}. Choisissez un dossier de l'app plus court (GREFFIER_APP_FOLDER).",
+                self.socket.display()
+            )));
+        }
         if let Ok(c) = Connection::open(&self.socket) {
             return c.greet(meetings_folder);
         }
