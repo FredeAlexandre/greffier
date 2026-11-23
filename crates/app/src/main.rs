@@ -1,6 +1,7 @@
 //! Greffier's binary: with a command (`greffier list`, `show`, `status`, `help`…) the command
 //! line (`greffier-cli`), which reads the meetings folder without opening the window; otherwise
-//! the window (see the library, `lib.rs`), Rune's flags (`--snap`, `--scene`…) included.
+//! the app (see the library, `lib.rs`): its window, Rune's flags (`--snap`, `--scene`…)
+//! included, or `--background` without a window, as the command line launches it.
 
 #![forbid(unsafe_code)]
 
@@ -13,5 +14,5 @@ fn main() {
         let _ = out.flush();
         std::process::exit(code);
     }
-    greffier::app().run();
+    greffier::run(&args);
 }
