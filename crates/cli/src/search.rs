@@ -53,12 +53,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let last = until.map(|d| d.1).into_iter().chain(date.map(|d| d.1)).min();
     let mut locations = Vec::new();
     for place in a.values("--in").iter().flat_map(|v| v.split(',')).map(str::trim).filter(|p| !p.is_empty()) {
-        let l = match place {
-            "bilan" => Location::Summary,
-            "transcription" => Location::Transcription,
-            "titre" => Location::Title,
-            other => return Err(Failure::Usage(format!("--in : « {other} » (bilan, transcription ou titre)"))),
-        };
+        let Some(l) = location_named(place) else { return Err(Failure::Usage(format!("--in : « {place} » (bilan, transcription ou titre)"))) };
         if !locations.contains(&l) {
             locations.push(l);
         }
@@ -136,8 +131,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let left: Vec<(MeetingId, usize)> = found.iter().map(|(m, c)| (*m, c.total() - shown.get(m).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
     if !left.is_empty() {
         let hidden: usize = left.iter().map(|(_, n)| n).sum();
-        let id = |m: MeetingId| g.meeting(m).and_then(|m| library.identifier(&m.folder_name)).unwrap_or("?").to_string();
-        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", id(*m))).collect();
+        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", identifier(&g, &library, *m))).collect();
         if left.len() > LISTED {
             listed.push("…".into());
         }
@@ -150,6 +144,22 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         );
     }
     Ok(s)
+}
+
+/// Where a line is found, by the command line's name for it (`--in`, the JSON's `emplacement`).
+const LOCATIONS: [(&str, Location); 3] = [("titre", Location::Title), ("bilan", Location::Summary), ("transcription", Location::Transcription)];
+
+fn location_named(name: &str) -> Option<Location> {
+    LOCATIONS.iter().find(|(n, _)| *n == name).map(|(_, l)| *l)
+}
+
+fn location_name(location: Location) -> &'static str {
+    LOCATIONS.iter().find(|(_, l)| *l == location).map_or("?", |(n, _)| n)
+}
+
+/// The identifier of a meeting of the core opened to search, « ? » if it has none.
+fn identifier(g: &Greffier, library: &Library, meeting: MeetingId) -> String {
+    g.meeting(meeting).and_then(|m| library.identifier(&m.folder_name)).unwrap_or("?").to_string()
 }
 
 /// A meeting's lines found, by place.
@@ -211,9 +221,8 @@ struct Line {
 
 impl Line {
     fn new(g: &Greffier, library: &Library, found: Found) -> Line {
-        let meeting = g.meeting(found.meeting);
-        let id = meeting.and_then(|m| library.identifier(&m.folder_name)).unwrap_or("?").to_string();
-        let title = meeting.map(|m| m.title.clone()).unwrap_or_default();
+        let id = identifier(g, library, found.meeting);
+        let title = g.meeting(found.meeting).map(|m| m.title.clone()).unwrap_or_default();
         let (excerpt, highlights) = match (found.location, found.instant) {
             (Location::Summary, Some(t)) => without_stamp(&found.excerpt, &found.highlights, t),
             _ => (found.excerpt.clone(), found.highlights.clone()),
@@ -227,11 +236,7 @@ impl Line {
         ResultJson {
             id: self.id.clone(),
             titre: self.title.clone(),
-            emplacement: match f.location {
-                Location::Title => "titre",
-                Location::Summary => "bilan",
-                Location::Transcription => "transcription",
-            },
+            emplacement: location_name(f.location),
             debut: f.instant,
             horodatage: f.instant.map(playback_timestamp),
             locuteur: f.speaker.clone(),
@@ -400,6 +405,14 @@ impl Mp4Muxer for ReadOnly {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_location_is_read_and_written_under_one_name() {
+        for (name, location) in LOCATIONS {
+            assert_eq!((location_named(name), location_name(location)), (Some(location), name));
+        }
+        assert_eq!(location_named("résumé"), None);
+    }
 
     #[test]
     fn a_long_utterance_around_is_clipped_between_two_words() {
