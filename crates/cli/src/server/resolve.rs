@@ -84,7 +84,8 @@ pub(super) fn speaker(core: &Greffier, meeting: MeetingId, s: &str) -> Result<(u
         return found(i);
     }
     let wanted = folded(q);
-    let mut voices: Vec<usize> = (0..m.speakers.len()).filter(|&i| folded(&m.speakers[i].display_name()) == wanted).map(|i| m.displayed_speaker(i)).collect();
+    // As `show --locuteurs` displays them: a merged speaker shows the voice replacing it.
+    let mut voices: Vec<usize> = (0..m.speakers.len()).map(|i| m.displayed_speaker(i)).filter(|&i| folded(&m.speakers[i].display_name()) == wanted).collect();
     voices.sort_unstable();
     voices.dedup();
     match voices.as_slice() {

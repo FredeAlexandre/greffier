@@ -79,7 +79,7 @@ fn run_in(cx: &Context, args: &[&str]) -> Output {
 }
 
 fn greffier(folder: &Folder, args: &[&str]) -> Output {
-    run_in(&Context { meetings_folder: Some(folder.0.clone()), app_folder: None, live: None }, args)
+    run_in(&Context { meetings_folder: Some(folder.0.clone()), app_folder: None, live: None, process: None }, args)
 }
 
 // --- Dispatch, help, usage ---
@@ -134,10 +134,10 @@ fn usage_errors_exit_with_2() {
 
 #[test]
 fn without_a_meetings_folder_it_says_how_to_choose_one() {
-    let o = run_in(&Context { meetings_folder: None, app_folder: None, live: None }, &["list"]);
+    let o = run_in(&Context { meetings_folder: None, app_folder: None, live: None, process: None }, &["list"]);
     assert_eq!(o.code, 1);
     assert_eq!(o.err, "greffier : aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.\n");
-    let o = run_in(&Context { meetings_folder: Some(PathBuf::from("/nulle/part")), app_folder: None, live: None }, &["list"]);
+    let o = run_in(&Context { meetings_folder: Some(PathBuf::from("/nulle/part")), app_folder: None, live: None, process: None }, &["list"]);
     assert_eq!(o.code, 1);
     assert_eq!(o.err, "greffier : dossier de réunions introuvable : /nulle/part\n");
 }
@@ -463,7 +463,7 @@ impl LiveSource for Queue {
 #[test]
 fn live_data_from_the_process_takes_over_the_disk() {
     let f = meetings();
-    let cx = Context { meetings_folder: Some(f.0.clone()), app_folder: None, live: Some(Box::new(Queue)) };
+    let cx = Context { meetings_folder: Some(f.0.clone()), app_folder: None, live: Some(Box::new(Queue)), process: None };
     let o = run_in(&cx, &["status"]);
     assert!(o.out.starts_with("2026-11-19-1530 · Transcription 40 % · 7 min · Réunion\n2026-11-21-0939-2 · 2ᵉ dans la file · 15 min · Rétro\n"), "{}", o.out);
     let v = run_in(&cx, &["status", "2026-11-19", "--json"]).json();

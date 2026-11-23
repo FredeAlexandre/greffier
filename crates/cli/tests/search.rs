@@ -75,7 +75,7 @@ impl Output {
 }
 
 fn run(meetings: &Path, app: Option<&Path>, args: &[&str]) -> Output {
-    let cx = Context { meetings_folder: Some(meetings.to_path_buf()), app_folder: app.map(Path::to_path_buf), live: None };
+    let cx = Context { meetings_folder: Some(meetings.to_path_buf()), app_folder: app.map(Path::to_path_buf), live: None, process: None };
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = greffier_cli::run_with(&cx, &args, &mut out, &mut err);

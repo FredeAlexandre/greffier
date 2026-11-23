@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 
 mod args;
+pub mod client;
 mod library;
 mod list;
 pub mod protocol;
@@ -24,6 +25,7 @@ pub mod server;
 mod show;
 mod status;
 mod text;
+mod write;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -54,14 +56,18 @@ pub struct Context {
     /// The app folder, whose search cache `search` reads (never writes); `None`: no cache, the
     /// index is built in memory.
     pub app_folder: Option<PathBuf>,
+    /// Live data given as is (tests); otherwise `status` asks the process, if it runs.
     pub live: Option<Box<dyn LiveSource>>,
+    /// The Greffier process, for the commands that write and for `status`'s live data; `None`:
+    /// out of reach (writing fails with exit code 3, reading uses the files alone).
+    pub process: Option<client::Process>,
 }
 
 impl Context {
     /// The meetings folder and the app folder of the settings (or `GREFFIER_FOLDER` and
-    /// `GREFFIER_APP_FOLDER`), without live data.
+    /// `GREFFIER_APP_FOLDER`), and the Greffier process of that app folder.
     pub fn from_env() -> Context {
-        Context { meetings_folder: greffier_core::settings::meetings_folder(), app_folder: Some(greffier_core::settings::app_folder()), live: None }
+        Context { meetings_folder: greffier_core::settings::meetings_folder(), app_folder: Some(greffier_core::settings::app_folder()), live: None, process: Some(client::Process::from_env()) }
     }
 }
 
@@ -80,13 +86,15 @@ pub fn run(args: &[String], out: &mut impl Write, err: &mut impl Write) -> i32 {
 
 /// Runs the command in `args` in this context; returns the exit code.
 pub fn run_with(cx: &Context, args: &[String], out: &mut impl Write, err: &mut impl Write) -> i32 {
-    let (code, text) = match dispatch(cx, args) {
+    let (code, text) = match dispatch(cx, args, out, err) {
         Ok(text) => {
             let _ = out.write_all(text.as_bytes());
             return 0;
         }
         Err(Failure::Failed(m)) => (1, m),
         Err(Failure::Usage(m)) => (2, format!("{m} (voir greffier help)")),
+        Err(Failure::Unreachable(m)) => (3, m),
+        Err(Failure::StillRunning(m)) => (4, m),
     };
     let _ = writeln!(err, "greffier : {text}");
     code
@@ -98,9 +106,13 @@ pub(crate) enum Failure {
     Failed(String),
     /// The command was misused: exit code 2.
     Usage(String),
+    /// The Greffier process did not answer, or works on another meetings folder: exit code 3.
+    Unreachable(String),
+    /// `--timeout` elapsed while the meeting was still processing: exit code 4.
+    StillRunning(String),
 }
 
-fn dispatch(cx: &Context, args: &[String]) -> Result<String, Failure> {
+fn dispatch(cx: &Context, args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<String, Failure> {
     let (command, rest) = args.split_first().map_or(("help", &[][..]), |(c, r)| (c.as_str(), r));
     match command {
         "list" => list::run(cx, rest),
@@ -108,6 +120,7 @@ fn dispatch(cx: &Context, args: &[String]) -> Result<String, Failure> {
         "status" => status::run(cx, rest),
         "search" => search::run(cx, rest),
         "help" | "--help" | "-h" => Ok(HELP.into()),
+        c if write::COMMANDS.contains(&c) => write::run(cx, c, rest, out, err),
         other => Err(Failure::Usage(format!("commande inconnue : {other}"))),
     }
 }
@@ -131,9 +144,26 @@ greffier status [<réunion>]
   Sans réunion : les réunions pas terminées. Avec : statut, étape faite, erreur.
 greffier help
 
+Ces commandes passent par Greffier, lancé sans fenêtre s'il ne tourne pas :
+greffier import <fichiers…> [--titre T] [--speakers N] [--no-process] [--wait [--timeout S]]
+  Importe un média (avec sa transcription, son bilan) et le met dans la file ; affiche l'identifiant.
+greffier process <réunion> [--speakers N] [--wait [--timeout S]]
+greffier redo <réunion> transcription|relecture|bilan [--wait [--timeout S]]
+greffier stop <réunion>
+greffier rename <réunion> <titre…>
+greffier speaker name <réunion> <locuteur> <nom…> | merge <réunion> <locuteur> <dans> | split <réunion> <locuteur>
+greffier correct <réunion> <réplique> <texte…>
+greffier resolve <réunion> <passage> accepter|garder|rouvrir|corriger <texte…>
+greffier check-action <réunion> <n> [--undo]
+greffier delete <réunion> --yes
+  --wait attend que la réunion sorte de la file (terminée ou en échec), --timeout S au plus S secondes.
+
 <réunion> : identifiant (2026-11-20-0939), nom ou chemin du dossier, date (2026-11-20) ou début d'identifiant.
+<locuteur> : index (0), label (SPEAKER_00) ou nom affiché. <réplique> : numéro (#3) ou instant (h:mm:ss).
+<passage>, <n> : numéro, comme dans show (#1).
 J : AAAA-MM-JJ. M : AAAA-MM. T : h:mm:ss, m:ss ou secondes.
---json sur chaque commande. Sortie : 0 succès, 1 échec, 2 erreur d'usage.
+--json sur chaque commande. Sortie : 0 succès, 1 échec, 2 erreur d'usage, 3 Greffier injoignable,
+4 --timeout écoulé avant la fin du traitement.
 GREFFIER_FOLDER remplace le dossier de réunions, GREFFIER_APP_FOLDER le dossier de l'app.
 
 Exemples :

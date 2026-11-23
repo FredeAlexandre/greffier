@@ -56,6 +56,18 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         return Ok(HELP.into());
     }
     a.at_most(1)?;
+    // What the process already running knows (it is never launched for this).
+    let live: Context;
+    let cx = match (&cx.live, &cx.process, &cx.meetings_folder) {
+        (None, Some(process), Some(folder)) if folder.is_dir() => match process.snapshot(folder) {
+            Some(snapshot) => {
+                live = Context { meetings_folder: Some(folder.clone()), app_folder: cx.app_folder.clone(), live: Some(Box::new(snapshot)), process: None };
+                &live
+            }
+            None => cx,
+        },
+        _ => cx,
+    };
     let library = Library::open(cx)?;
     let json = a.flag("--json");
     if let Some(query) = a.positionals.first() {
