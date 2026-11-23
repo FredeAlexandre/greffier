@@ -33,7 +33,7 @@ cargo xtask smoke --with-claude   # and the review and summary by `claude` (cost
 The smoke tests are `#[ignore]`d by `cargo test` (and CI). They need the screen and microphone
 permissions for the app that runs them (Terminal, the IDE), ffmpeg, the installed resources and a
 meeting's audio (`GREFFIER_SMOKE_AUDIO`, default `~/Bench-Transcription/audio/A.wav`); a missing
-prerequisite is skipped and listed in the summary. What stays manual: [docs/agents/manual-checks.md](docs/agents/manual-checks.md).
+prerequisite is skipped and listed in the summary.
 
 ## Install the app
 
