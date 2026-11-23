@@ -12,3 +12,4 @@ We rejected a command line that loads the core and processes on its own: two pro
 - A meeting has a short, stable identifier derived from its folder's date and time (`2026-11-20-0939`), see the glossary.
 - `GREFFIER_APP_FOLDER` replaces the app folder for a single launch, as `GREFFIER_FOLDER` replaces the meetings folder: the tests and trials never touch the real ones, and the socket, which lives in the app folder, follows. The command line checks that the process it reaches works on the meetings folder it expects.
 - The ⌘K search keeps its limits; the command line uses the same index with its own filters and limits.
+- The command line speaks English (commands, options, messages, JSON, the socket protocol) with the glossary's English terms; meeting content is printed as is, and the UI and the files stay French: the core gives each refusal in both languages.

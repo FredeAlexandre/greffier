@@ -12,7 +12,15 @@ argument that does not start with `-` is a command (a mistyped one fails with ex
 `greffier --background` starts the app without a window, as the command line launches it (the
 app's side: `crates/app/src/command_line.rs`). After the command, options and arguments come in
 any order; after `--`, everything is an argument, for a text that starts with `-` (`greffier
-correct 2026-11-20-0939 3 -- -5 degrés`).
+correct 2026-11-20-0939 3 -- -5 degrees`).
+
+The command line speaks English, with the glossary's English terms (meeting, summary, sheet,
+utterance, speaker, passage to check…): commands, options, their values, help, messages, statuses,
+JSON keys and values, and the socket protocol. Meeting content (titles, summaries, transcripts,
+speaker names, a failed stage's message as the sheet keeps it) is printed as is. The app's UI and
+the files Greffier writes stay French: the core renders each refusal both ways
+(`Rejection::english`), and the Greffier process relays the English one. Errors go to stderr as
+`greffier: <message>`, with user input in plain double quotes.
 
 ## `search`
 
@@ -22,9 +30,9 @@ typographic apostrophe are ignored). A word finds the words that contain it: `bo
 `bookmarks` but not the other way round, so an agent should type the stem. It searches the
 titles, the summaries' lines and the utterances of the meetings started between `--since` and
 `--until` (or on `--date`), most recent first; for each meeting, the title, then the summary's
-lines, then the utterances. `--speaker` keeps the
-utterances of the speakers whose displayed name contains it; `--in bilan,transcription,titre`
-(or repeated) where to search; `--context N` adds the N utterances before and after each one.
+lines, then the utterances. `--speaker` keeps the utterances of the speakers whose displayed name
+contains it; `--in summary,transcription,title` (or repeated) where to search; `--context N` adds
+the N utterances before and after each one.
 
 Limits: 30 lines in all (`--limit`). Everything found is shown when it fits. Otherwise each
 meeting shows as many summary lines and as many utterances as the limit allows for all the
@@ -36,27 +44,58 @@ what the limits left out, by meeting (the 10 most recent named), and how to narr
 ```
 $ greffier search recette --in transcription --context 1
 2026-11-20-1000 · Revue de release
-    [0:00:00] Alexandre : Bonjour Khalid, on publie la release lundi ?
-  [0:00:02] Khalid ? : Oui, si la recette passe vendredi.
-    [0:00:05] Alexandre : Je préviens le support demain.
+    [0:00:00] Alexandre: Bonjour Khalid, on publie la release lundi ?
+  [0:00:02] Khalid ?: Oui, si la recette passe vendredi.
+    [0:00:05] Alexandre: Je préviens le support demain.
 $ greffier search re --limit 4
 2026-11-20-1000 · Revue de release
-  titre
-  bilan · On publie la release lundi si la recette passe vendredi.
-  bilan · SPEAKER_00 — Alexandre
-  [0:00:00] bilan · Date de la release
-… 9 autres résultats dans 2 réunions : 2026-11-20-1000 (8), 2026-11-18-0915 (1)
-Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.
+  title
+  summary · On publie la release lundi si la recette passe vendredi.
+  summary · SPEAKER_00 — Alexandre
+  [0:00:00] summary · Date de la release
+… 9 more results in 2 meetings: 2026-11-20-1000 (8), 2026-11-18-0915 (1)
+Narrow down (--date, --since, --until, --speaker, --in) or raise --limit.
 ```
 
 A summary line shows its moment (its own timestamp, or its topic's), without repeating it in the
 text; a line of the brief or the actions has none. With `--context`, the utterances found and
 those around them (indented, cut to 200 characters) follow each other in order, each once.
-Nothing found: `Aucun résultat pour « … ».`, exit code 0; for several words, the line adds that
-they must all be on the same line (a summary line or an utterance) and to search fewer words, or
-one. The command opens the core with adapters that refuse everything and reads the
-search cache without writing it: entries missing or stale there are built in memory, and the
-meetings folder and the app folder are left byte for byte as they were.
+Nothing found: `No results for "…".`, exit code 0; for several words, the line adds that they
+must all be on the same line (a summary line or an utterance) and to search fewer words, or one.
+The command opens the core with adapters that refuse everything and reads the search cache
+without writing it: entries missing or stale there are built in memory, and the meetings folder
+and the app folder are left byte for byte as they were.
+
+## `show`
+
+Without a view, a meeting's header and its summary's outline, a few lines even for a long
+meeting (about 3.5 KB for 2.5 h, against 20 KB for the whole summary), then where to read on:
+
+```
+$ greffier show 2026-11-20-1000
+2026-11-20-1000 · Revue de release
+2026-11-20 10:00 · 0:00:12 · done, 1 to check
+Speakers: Alexandre, Khalid ?
+Folder: /…/2026-11-20 10h00 - Revue de release
+Brief: On publie la release lundi si la recette passe vendredi.
+Topics:
+  [0:00:00] Date de la release
+  [0:00:05] Support
+Decisions:
+  [0:00:02] Release lundi si la recette passe vendredi.
+Actions: 2
+Next: --summary for the full summary, --transcription --from h:mm:ss --to h:mm:ss for what was said.
+```
+
+Views: `--summary` (the file without its front matter), `--sheet` (the file as is),
+`--transcription [--from T] [--to T] [--numbers]` (`[h:mm:ss] Name: text`), `--speakers`
+(`index · label · name · speaking time · share`), `--actions` (the summary's checkboxes,
+numbered as `check-action` takes them), `--passages [--from T] [--to T]` (the passages to check,
+numbered as `resolve` takes them).
+
+Statuses read `recording`, `recording interrupted`, `to process`, `queued`, `failed: Review`,
+`done`, `done, 2 to check`; with the running process's data, `2nd in queue · 15 min` or
+`Transcription 40 % · 7 min`. Stages: `Transcription`, `Review`, `Summary`.
 
 ## Talking to the Greffier process
 
@@ -65,15 +104,17 @@ request, several requests per connection. Requests: `"hello"`, `{"status":{"meet
 (or a meeting, as typed), `{"execute":{<action>}}`, `"open_window"`. Actions, with meetings,
 speakers, utterances, passages and actions as the user typed them (the process resolves them
 against its live state, numbering as `show`): `process {meeting, speakers}`, `redo {meeting,
-stage: transcription|relecture|bilan}`, `stop`, `rename {meeting, title}`, `name_speaker
+stage: transcription|review|summary}`, `stop`, `rename {meeting, title}`, `name_speaker
 {meeting, speaker, name}`, `merge_speaker {meeting, speaker, into}`, `split_speaker`, `correct
 {meeting, utterance, text}`, `resolve {meeting, passage, resolution: "accept"|"keep"|"reopen"|
 {"correct": text}}`, `check_action {meeting, action, done}`, `delete {meeting}`, `import {files,
 title, speakers, process}`. The process reads the meetings folder again before each status and
 action, so that a meeting is named against the folder as `list` reads it. Responses:
 `{"hello":{version, pid, meetings_folder, background}}`,
-`{"status":{busy, meetings: [{identifiant, folder_name, title, status, rank, time_remaining}]}}`,
-`{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`. Types in `src/protocol.rs`.
+`{"status":{busy, meetings: [{identifier, folder_name, title, status, rank, time_remaining}]}}`,
+`{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`; messages are in English. The
+protocol is at version 3 (English since then): the command line refuses a process that speaks
+another one. Types in `src/protocol.rs`.
 
 The command line refuses a process on another meetings folder. If nobody answers, it launches
 `GREFFIER_SERVER_PROGRAM` (the tests' `greffier-test-server`), else the running binary outside
@@ -87,57 +128,56 @@ The process has 30 s to answer `hello` and `status`, 2 min an action, 10 min an 
 media is copied and converted first); past that, the command line says the action may still
 complete, to be checked with `greffier list` or `greffier status`.
 
-Writing prints one line: `2026-11-20-1000 · renommée : Revue` (`import`: the new identifier).
-With `--json`: `{"identifiant", "dossier", "message"}`. `--wait` follows the processing on
-stderr, one line per stage, then prints `<identifiant> · terminée · <titre>` (`{"identifiant",
-"statut", "titre"}`).
+Writing prints one line: `2026-11-20-1000 · renamed: Review` (`import`: the new identifier).
+With `--json`: `{"identifier", "folder", "message"}`. `--wait` follows the processing on
+stderr, one line per stage, then prints `<identifier> · done · <title>` (`{"identifier",
+"status", "title"}`).
 
 ## JSON (`--json`)
 
-One line of JSON on stdout. Keys mirror the sheet's vocabulary (French, no accents). Every key
-is always present; `null` when it does not apply. Times are in seconds, with an `h:mm:ss`
-string next to them where it helps.
+One line of JSON on stdout. Keys are the glossary's English terms, in snake case; the identifier
+is always `identifier`, never `id`. Every key is always present; `null` when it does not apply.
+Times are in seconds, with an `h:mm:ss` string next to them where it helps.
 
 **Meeting** (`list` gives an array of them):
 
 | key | |
 |---|---|
-| `identifiant` | identifier, `2026-11-20-0939` |
-| `dossier` | absolute path of the meeting's folder |
-| `titre` | title |
-| `date`, `debut` | `2026-11-20`, `09:39` |
-| `duree`, `duree_texte` | seconds (integer), `2:34:22` |
-| `statut` | `enregistrement_en_cours`, `enregistrement_interrompu`, `a_traiter`, `en_attente`, `en_cours`, `echec`, `terminee` |
-| `etape` | stage pending, running or failed: `transcription`, `relecture`, `bilan` |
-| `etape_faite` | last stage completed (same values) |
-| `erreur` | failure message |
-| `a_verifier` | number of passages to check still pending |
+| `identifier` | `2026-11-20-0939` |
+| `folder` | absolute path of the meeting's folder |
+| `title` | title |
+| `date`, `start` | `2026-11-20`, `09:39` |
+| `duration`, `duration_text` | seconds (integer), `2:34:22` |
+| `status` | `recording`, `recording_interrupted`, `to_process`, `queued`, `running`, `failed`, `done` |
+| `stage` | stage queued, running or failed: `transcription`, `review`, `summary` |
+| `completed_stage` | last stage completed (same values) |
+| `error` | failure message, as the sheet keeps it |
+| `to_check` | number of passages to check still pending |
 
-**`search`**: `resultats`, `total` (the lines found, without the limits) and `reunions` (the
-meetings they come from). A result: `identifiant`, `titre` (its meeting's), `emplacement` (`titre`,
-`bilan`, `transcription`), `debut` (seconds) and `horodatage` (`null` for the title and a summary
-line without a moment), `locuteur` (displayed name, utterances only), `replique` (the utterance's
-number, from 1, as `show --transcription --numeros`), `extrait` (the line, cut to 200 characters
-around the first word found, with `…`), `surlignes` (the words and phrases found in `extrait`,
-`[start, end]` byte ranges), `avant` and `apres` (the utterances around, with `--context`:
-`replique`, `debut`, `horodatage`, `locuteur`, `texte`, whole).
+**`search`**: `results`, `total` (the lines found, without the limits) and `meetings` (the
+meetings they come from). A result: `identifier`, `title` (its meeting's), `location` (`title`,
+`summary`, `transcription`), `instant` (seconds) and `timestamp` (`null` for the title and a
+summary line without a moment), `speaker` (displayed name, utterances only), `utterance` (the
+utterance's number, from 1, as `show --transcription --numbers`), `excerpt` (the line, cut to
+200 characters around the first word found, with `…`), `highlights` (the words and phrases found
+in `excerpt`, `[start, end]` byte ranges), `before` and `after` (the utterances around, with
+`--context`: `utterance`, `start`, `timestamp`, `speaker`, `text`, whole).
 
-**`status`**: a meeting (or an array of the meetings not done) plus `rang` (place in the queue,
-from 1), `progression` (0 to 1) and `temps_restant` (seconds), `null` while read from disk.
+**`status`**: a meeting (or an array of the meetings not done) plus `rank` (place in the queue,
+from 1), `progress` (0 to 1) and `time_remaining` (seconds), `null` while read from disk.
 
-**`show <réunion>`**: a meeting plus `locuteurs` (see below) and the summary's outline, each
-`null` until there is a summary: `en_bref` (the brief's first paragraph), `sujets` (`debut`,
-`horodatage`, `titre`), `decisions` (`debut`, `horodatage`, `texte`) and `actions` (how many).
-The text view gives the same: a few lines even for a long meeting (about 3.5 KB for 2.5 h,
-against 20 KB for the whole summary), then where to read on. Views, each with `identifiant`:
+**`show <meeting>`**: a meeting plus `speakers` (see below) and the summary's outline, each
+`null` until there is a summary: `brief` (the brief's first paragraph), `topics` (`start`,
+`timestamp`, `title`), `decisions` (`start`, `timestamp`, `text`) and `actions` (how many).
+Views, each with `identifier`:
 
-- `--bilan`: `bilan`; `--fiche`: `fiche` (the file as is).
-- `--transcription`: `repliques`: `numero` (from 1), `debut`, `fin`, `horodatage`, `locuteur`
-  (displayed name: confirmed, else proposed « Khalid ? », else label), `label` (merges
-  followed), `texte`.
-- `--locuteurs`: `locuteurs`: `index` (as in the label), `label`, `nom` (confirmed), `proposition`,
-  `affiche` (displayed name), `fusionne_dans` (label), `temps_de_parole` (seconds; 0 if merged).
-- `--actions`: `actions`: `numero` (from 1, all the summary's checkboxes), `fait`, `texte`.
-- `--passages`: `passages`: `numero` (from 1), `replique` (its utterance's number), `debut`,
-  `horodatage`, `extrait`, `hypothese`, `reecoute`, `statut` (`a_verifier`,
-  `hypothese_acceptee`, `original_garde`, `corrige`), `correction`.
+- `--summary`: `summary`; `--sheet`: `sheet` (the file as is).
+- `--transcription`: `utterances`: `number` (from 1), `start`, `end`, `timestamp`, `speaker`
+  (displayed name: confirmed, else proposed "Khalid ?", else label), `label` (merges
+  followed), `text`.
+- `--speakers`: `speakers`: `index` (as in the label), `label`, `name` (confirmed), `proposal`,
+  `displayed` (displayed name), `merged_into` (label), `speaking_time` (seconds; 0 if merged).
+- `--actions`: `actions`: `number` (from 1, all the summary's checkboxes), `done`, `text`.
+- `--passages`: `passages`: `number` (from 1), `utterance` (its utterance's number), `start`,
+  `timestamp`, `excerpt`, `hypothesis`, `relisten`, `status` (`to_check`,
+  `hypothesis_accepted`, `original_kept`, `corrected`), `correction`.

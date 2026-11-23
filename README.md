@@ -70,7 +70,7 @@ development, `cargo run -- <command>` or `target/debug/greffier <command>` does 
 greffier help                         # every command and option
 greffier search recette               # what was said, by meeting
 greffier list                         # the meetings, most recent first
-greffier show 2026-11-20-1000         # a meeting's outline; --bilan, --transcription, --json…
+greffier show 2026-11-20-1000         # a meeting's outline; --summary, --transcription, --json…
 greffier rename 2026-11-20-1000 "Revue de release"
 greffier delete 2026-11-20-1000 --yes # to the Mac's trash
 ```
@@ -82,7 +82,9 @@ the app. Writing (`import`, `process`, `redo`, `stop`, `rename`, `speaker`, `cor
 starts it without a window: `open -g -j -b io.github.fredealexandre.greffier --args --background`
 for the installed app (with `GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` set, a separate instance
 that gets them: `open -n … --env GREFFIER_FOLDER=…`), the binary itself (`greffier --background`)
-in development. Commands, output and JSON shapes:
+in development. The command line speaks English, with the glossary's terms (meeting, summary,
+utterance, speaker…); meeting content (titles, summaries, transcripts) is printed as recorded, and
+the app's UI and files stay French. Commands, output and JSON shapes:
 [crates/cli/README.md](crates/cli/README.md).
 
 Started with `--background`, Greffier has no window and no Dock icon; its menu bar icon shows the
