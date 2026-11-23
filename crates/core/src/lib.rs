@@ -300,7 +300,7 @@ pub struct Greffier {
     /// The fingerprint of each meeting folder at the core's last pass (see
     /// [`Greffier::rescan_folder`]).
     fingerprints: HashMap<String, folder::watch::Fingerprints>,
-    /// The ⌘K search index (see [`Greffier::search`]).
+    /// The search index (see [`Greffier::search`], ⌘K, and [`Greffier::find`], the agents').
     index: search::Index,
 }
 

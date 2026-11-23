@@ -227,10 +227,10 @@ impl IndexEntry {
         Some(e)
     }
 
-    /// The utterances `range` of the transcription, whole.
-    fn nearby(&self, range: std::ops::Range<usize>) -> Vec<NearbyUtterance> {
-        let range = range.start.min(self.transcription.len())..range.end.min(self.transcription.len());
-        (range.clone()).zip(&self.transcription[range]).map(|(index, l)| NearbyUtterance { index, start: l.instant.unwrap_or(0.0), speaker: l.speaker.clone(), text: l.text.clone() }).collect()
+    /// The utterances `start..end` of the transcription (cut at its end), whole.
+    fn nearby(&self, start: usize, end: usize) -> Vec<NearbyUtterance> {
+        let end = end.min(self.transcription.len());
+        (start.min(end)..end).zip(&self.transcription[start.min(end)..end]).map(|(index, l)| NearbyUtterance { index, start: l.instant.unwrap_or(0.0), speaker: l.speaker.clone(), text: l.text.clone() }).collect()
     }
 }
 
@@ -451,7 +451,7 @@ impl Greffier {
                     Location::Transcription => utterances += 1,
                 }
                 let (before, after) = match utterance {
-                    Some(i) => (e.nearby(i.saturating_sub(query.context)..i), e.nearby(i + 1..i.saturating_add(query.context).saturating_add(1))),
+                    Some(i) => (e.nearby(i.saturating_sub(query.context), i), e.nearby(i + 1, i.saturating_add(query.context).saturating_add(1))),
                     None => (Vec::new(), Vec::new()),
                 };
                 let (excerpt, highlights) = line.excerpt(&terms, query.width);
