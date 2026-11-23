@@ -24,9 +24,9 @@
 
 mod args;
 pub mod client;
-mod library;
 mod list;
 pub mod protocol;
+mod reading;
 mod search;
 pub mod server;
 mod show;

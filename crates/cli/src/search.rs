@@ -21,7 +21,7 @@ use greffier_core::search::{Found, Location, NearbyUtterance, SearchQuery};
 use greffier_core::{DateTime, Greffier, MeetingId, SpeakerTurn, Word, playback_timestamp};
 use serde::Serialize;
 
-use crate::library::Library;
+use crate::reading::Reading;
 use crate::text::{self, Day};
 use crate::{Context, Failure, HELP, args};
 
@@ -68,8 +68,8 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let limit = number("--limit", 1)?.unwrap_or(LIMIT);
     let context = number("--context", 0)?.unwrap_or(0);
 
-    let library = Library::open(cx)?;
-    let mut g = Greffier::open(library.folder.root(), read_only());
+    let reading = Reading::open(cx)?;
+    let mut g = Greffier::open(reading.folder.root(), read_only());
     if let Some(app) = &cx.app_folder {
         g.read_search_cache(&greffier_core::settings::search_cache(app));
     }
@@ -90,7 +90,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     query.utterances = query.summary_lines;
     let report = g.find(&query);
     let width = query.width;
-    let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &library, f)).collect();
+    let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &reading, f)).collect();
 
     if a.flag("--json") {
         return Ok(crate::json(&SearchJson { resultats: results.iter().map(Line::json).collect(), total: report.total, reunions: report.meetings }));
@@ -131,7 +131,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let left: Vec<(MeetingId, usize)> = found.iter().map(|(m, c)| (*m, c.total() - shown.get(m).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
     if !left.is_empty() {
         let hidden: usize = left.iter().map(|(_, n)| n).sum();
-        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", identifier(&g, &library, *m))).collect();
+        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", identifier(&g, &reading, *m))).collect();
         if left.len() > LISTED {
             listed.push("…".into());
         }
@@ -158,8 +158,8 @@ fn location_name(location: Location) -> &'static str {
 }
 
 /// The identifier of a meeting of the core opened to search, « ? » if it has none.
-fn identifier(g: &Greffier, library: &Library, meeting: MeetingId) -> String {
-    g.meeting(meeting).and_then(|m| library.identifier(&m.folder_name)).unwrap_or("?").to_string()
+fn identifier(g: &Greffier, reading: &Reading, meeting: MeetingId) -> String {
+    g.meeting(meeting).and_then(|m| reading.identifier(&m.folder_name)).unwrap_or("?").to_string()
 }
 
 /// A meeting's lines found, by place.
@@ -220,8 +220,8 @@ struct Line {
 }
 
 impl Line {
-    fn new(g: &Greffier, library: &Library, found: Found) -> Line {
-        let id = identifier(g, library, found.meeting);
+    fn new(g: &Greffier, reading: &Reading, found: Found) -> Line {
+        let id = identifier(g, reading, found.meeting);
         let title = g.meeting(found.meeting).map(|m| m.title.clone()).unwrap_or_default();
         let (excerpt, highlights) = match (found.location, found.instant) {
             (Location::Summary, Some(t)) => without_stamp(&found.excerpt, &found.highlights, t),

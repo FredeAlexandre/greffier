@@ -44,7 +44,7 @@ fn texts_in(rt: &Runtime<App>, key: &str) -> Vec<String> {
 }
 
 /// The sample meetings on disk, with this trash.
-fn library_on_disk(trash: &FakeTrash) -> Runtime<App> {
+fn meetings_on_disk(trash: &FakeTrash) -> Runtime<App> {
     let trash = trash.clone();
     app_on(Greffier::open(fixtures_folder(), adapters_with(|a| a.trash = Box::new(trash))))
 }
@@ -68,7 +68,7 @@ fn a_rename_from_the_command_line_shows_in_the_sidebar_and_on_the_open_page() {
 #[test]
 fn deleting_the_open_meeting_from_the_command_line_leaves_its_page() {
     let trash = FakeTrash::new();
-    let mut rt = library_on_disk(&trash);
+    let mut rt = meetings_on_disk(&trash);
     let id = meeting_named(&mut rt, "2026-11-20");
     let folder = state(&mut rt, |s| s.core.meeting_folder(id).expect("its folder"));
     tap(&mut rt, &format!("m{id}"));

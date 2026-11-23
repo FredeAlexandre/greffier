@@ -12,7 +12,7 @@ use super::identifiers;
 /// candidates of an ambiguous query come with their live titles.
 pub(super) fn meeting_named(core: &Greffier, query: &str) -> Result<MeetingId, String> {
     let ids = identifiers(core);
-    let query = crate::library::in_meetings_folder(query, core.folder().root())?;
+    let query = crate::reading::in_meetings_folder(query, core.folder().root())?;
     let name = ids.resolve(query).map_err(|mut e| {
         for (id, title) in &mut e.candidates {
             let meeting = ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| core.meetings().iter().find(|m| m.folder_name == n));

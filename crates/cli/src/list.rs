@@ -3,7 +3,7 @@
 
 use greffier_core::playback_timestamp;
 
-use crate::library::{Library, MeetingJson};
+use crate::reading::{MeetingJson, Reading};
 use crate::text::{self, Day};
 use crate::{Context, Failure, HELP, args};
 
@@ -21,10 +21,10 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         Some(n) => Some(n.parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| Failure::Usage(format!("--limit attend un nombre : « {n} »")))?),
         None => None,
     };
-    let library = Library::open(cx)?;
+    let reading = Reading::open(cx)?;
     let first = since.map(|d| d.0).into_iter().chain(date.map(|d| d.0)).max();
     let last = until.map(|d| d.1).into_iter().chain(date.map(|d| d.1)).min();
-    let entries: Vec<_> = library
+    let entries: Vec<_> = reading
         .all()
         .into_iter()
         .filter(|e| {
@@ -35,7 +35,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         .take(limit.unwrap_or(usize::MAX))
         .collect();
     if a.flag("--json") {
-        return Ok(crate::json(&entries.iter().map(|e| MeetingJson::new(e, &library.folder)).collect::<Vec<_>>()));
+        return Ok(crate::json(&entries.iter().map(|e| MeetingJson::new(e, &reading.folder)).collect::<Vec<_>>()));
     }
     if entries.is_empty() {
         return Ok("Aucune réunion.\n".into());

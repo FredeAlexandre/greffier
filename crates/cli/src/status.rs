@@ -6,7 +6,7 @@
 use greffier_core::Status;
 use serde::Serialize;
 
-use crate::library::{Entry, Library, MeetingJson};
+use crate::reading::{Entry, MeetingJson, Reading};
 use crate::{Context, Failure, HELP, args, text};
 
 /// A meeting's status in JSON: the meeting, plus what only the running process knows.
@@ -23,10 +23,10 @@ struct StatusJson {
 }
 
 impl StatusJson {
-    fn new(e: &Entry, library: &Library) -> StatusJson {
+    fn new(e: &Entry, reading: &Reading) -> StatusJson {
         let live = e.live.as_ref();
         StatusJson {
-            meeting: MeetingJson::new(e, &library.folder),
+            meeting: MeetingJson::new(e, &reading.folder),
             rang: live.and_then(|l| l.rank),
             progression: live.and_then(|l| match l.status {
                 Status::Running { progress, .. } => Some(progress),
@@ -68,12 +68,12 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         },
         _ => cx,
     };
-    let library = Library::open(cx)?;
+    let reading = Reading::open(cx)?;
     let json = a.flag("--json");
     if let Some(query) = a.positionals.first() {
-        let e = library.find(query)?;
+        let e = reading.find(query)?;
         if json {
-            return Ok(crate::json(&StatusJson::new(&e, &library)));
+            return Ok(crate::json(&StatusJson::new(&e, &reading)));
         }
         let m = &e.meeting;
         let mut s = format!("{} · {}\nStatut : {}\n", e.id, m.title, text::status(m, e.live.as_ref()));
@@ -83,10 +83,10 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         }
         return Ok(s);
     }
-    let mut entries: Vec<Entry> = library.all().into_iter().filter(|e| e.meeting.status != Status::Done).collect();
+    let mut entries: Vec<Entry> = reading.all().into_iter().filter(|e| e.meeting.status != Status::Done).collect();
     entries.sort_by_key(|e| order(&e.meeting.status));
     if json {
-        return Ok(crate::json(&entries.iter().map(|e| StatusJson::new(e, &library)).collect::<Vec<_>>()));
+        return Ok(crate::json(&entries.iter().map(|e| StatusJson::new(e, &reading)).collect::<Vec<_>>()));
     }
     if entries.is_empty() {
         return Ok("Rien en cours.\n".into());

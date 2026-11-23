@@ -8,7 +8,7 @@ use greffier_core::summary::{self, checkboxes, without_front_matter};
 use greffier_core::{Decision, Meeting, PassageStatus, Role, Topic, playback_timestamp};
 use serde::Serialize;
 
-use crate::library::{Entry, Library, MeetingJson};
+use crate::reading::{Entry, MeetingJson, Reading};
 use crate::{Context, Failure, HELP, args, text};
 
 const VIEWS: [&str; 6] = ["--bilan", "--transcription", "--fiche", "--locuteurs", "--actions", "--passages"];
@@ -38,13 +38,13 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         return Err(Failure::Usage("il manque la réunion".into()));
     };
     a.at_most(1)?;
-    let library = Library::open(cx)?;
-    let e = library.find(query)?;
+    let reading = Reading::open(cx)?;
+    let e = reading.find(query)?;
     let json = a.flag("--json");
     match view {
-        None => default(&library, &e, json),
+        None => default(&reading, &e, json),
         Some("--bilan") => summary(&e, json),
-        Some("--fiche") => sheet(&library, &e, json),
+        Some("--fiche") => sheet(&reading, &e, json),
         Some("--transcription") => transcription(&e, window, a.flag("--numeros"), json),
         Some("--locuteurs") => speakers(&e, json),
         Some("--actions") => actions(&e, json),
@@ -149,13 +149,13 @@ impl Outline {
 
 /// The header (identifier · title; date and time, duration, status; failure; speakers; folder),
 /// then the summary's outline or where the meeting stands.
-fn default(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> {
+fn default(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> {
     let m = &e.meeting;
     let outline = Outline::of(m);
     if json {
         let moment = |t: f64, titre: Option<String>, texte: Option<String>| MomentJson { debut: t, horodatage: playback_timestamp(t), titre, texte };
         return Ok(crate::json(&ShowJson {
-            meeting: MeetingJson::new(e, &library.folder),
+            meeting: MeetingJson::new(e, &reading.folder),
             locuteurs: speaker_list(m),
             en_bref: outline.as_ref().map(|o| o.brief.clone()),
             sujets: outline.as_ref().map(|o| o.topics.iter().map(|t| moment(t.start, Some(t.title.clone()), None)).collect()),
@@ -173,7 +173,7 @@ fn default(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> 
     if !names.is_empty() {
         s += &format!("Locuteurs : {}\n", names.join(", "));
     }
-    s += &format!("Dossier : {}\n", library.folder.folder(&m.folder_name).display());
+    s += &format!("Dossier : {}\n", reading.folder.folder(&m.folder_name).display());
     match outline {
         Some(outline) => s += &outline.text(),
         None => {
@@ -194,12 +194,12 @@ fn summary(e: &Entry, json: bool) -> Result<String, Failure> {
     Ok(s)
 }
 
-fn sheet(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> {
+fn sheet(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> {
     let missing = || Failure::Failed(format!("pas de fiche pour {}", e.id));
     if !e.meeting.files.contains(&Role::Sheet) {
         return Err(missing());
     }
-    let s = std::fs::read_to_string(library.folder.file(&e.meeting.folder_name, Role::Sheet)).map_err(|_| missing())?;
+    let s = std::fs::read_to_string(reading.folder.file(&e.meeting.folder_name, Role::Sheet)).map_err(|_| missing())?;
     if json {
         return Ok(crate::json(&serde_json::json!({ "id": e.id, "fiche": s })));
     }

@@ -16,16 +16,18 @@ pub(crate) struct Entry {
     pub live: Option<Live>,
 }
 
-pub(crate) struct Library<'a> {
+/// The meetings folder as the reading commands see it: its meetings, their identifiers, and
+/// the live data given.
+pub(crate) struct Reading<'a> {
     pub folder: MeetingsFolder,
     names: Vec<String>,
     ids: Identifiers,
     live: Option<&'a dyn LiveSource>,
 }
 
-impl<'a> Library<'a> {
+impl<'a> Reading<'a> {
     /// The context's meetings folder, which must exist.
-    pub fn open(cx: &'a Context) -> Result<Library<'a>, Failure> {
+    pub fn open(cx: &'a Context) -> Result<Reading<'a>, Failure> {
         let Some(root) = &cx.meetings_folder else {
             return Err(Failure::Failed("aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.".into()));
         };
@@ -35,7 +37,7 @@ impl<'a> Library<'a> {
         let folder = MeetingsFolder::new(root);
         let names = folder.names();
         let ids = Identifiers::new(&names);
-        Ok(Library { folder, names, ids, live: cx.live.as_deref() })
+        Ok(Reading { folder, names, ids, live: cx.live.as_deref() })
     }
 
     fn entry(&self, index: usize, name: &str) -> Option<Entry> {
