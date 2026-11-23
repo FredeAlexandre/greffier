@@ -260,7 +260,7 @@ fn a_launch_that_fails_says_why() {
 fn import_prints_the_identifier_then_waits_for_the_end() {
     let s = serve(fixtures(), adapters, 50.0);
     let (_outside, file) = media();
-    let o = run_in(&cx(&s), &["import", file.to_str().unwrap(), "--titre", "Appel client", "--wait", "--timeout", "30"]);
+    let o = run_in(&cx(&s), &["import", file.to_str().unwrap(), "--title", "Appel client", "--wait", "--timeout", "30"]);
     assert_eq!(o.code, 0, "{}", o.err);
     let lines: Vec<&str> = o.out.lines().collect();
     assert_eq!(lines.len(), 2, "{}", o.out);
@@ -280,8 +280,9 @@ fn import_prints_the_identifier_then_waits_for_the_end() {
 fn import_in_json_and_without_processing() {
     let s = serve(fixtures(), adapters, 0.0);
     let (_outside, file) = media();
-    let out = ok(&cx(&s), &["import", file.to_str().unwrap(), "--no-process", "--json"]);
+    let out = ok(&cx(&s), &["import", file.to_str().unwrap(), "--no-process", "--title", "Point client", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(v["dossier"].as_str().unwrap().ends_with(" - Point client"), "{v}");
     let id = v["identifiant"].as_str().unwrap();
     assert_eq!(v["message"], format!("{id} · importée"));
     assert!(Path::new(v["dossier"].as_str().unwrap()).is_dir());

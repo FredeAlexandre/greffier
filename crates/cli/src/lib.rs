@@ -152,7 +152,7 @@ greffier status [<réunion>]
 greffier help
 
 Ces commandes passent par Greffier, lancé sans fenêtre s'il ne tourne pas :
-greffier import <fichiers…> [--titre T] [--speakers N] [--no-process] [--wait [--timeout S]]
+greffier import <fichiers…> [--title T] [--speakers N] [--no-process] [--wait [--timeout S]]
   Importe un média (avec sa transcription, son bilan) et le met dans la file ; affiche l'identifiant.
 greffier process <réunion> [--speakers N] [--wait [--timeout S]]
 greffier redo <réunion> transcription|relecture|bilan [--wait [--timeout S]]

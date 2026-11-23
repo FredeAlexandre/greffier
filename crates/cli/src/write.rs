@@ -65,7 +65,7 @@ fn wait(a: &Args) -> Result<Option<Wait>, Failure> {
 /// Reads a command's arguments into what it asks.
 fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
     let (flags, valued): (&[&'static str], &[&'static str]) = match command {
-        "import" => (&["--json", "--no-process", "--wait"], &["--titre", "--speakers", "--timeout"]),
+        "import" => (&["--json", "--no-process", "--wait"], &["--title", "--speakers", "--timeout"]),
         "process" => (&["--json", "--wait"], &["--speakers", "--timeout"]),
         "redo" => (&["--json", "--wait"], &["--timeout"]),
         "check-action" => (&["--json", "--undo"], &[]),
@@ -86,7 +86,7 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
                 return Err(usage("--wait ne va pas avec --no-process"));
             }
             let files = a.positionals.iter().map(|f| absolute(f)).collect::<Result<_, _>>()?;
-            Action::Import { files, title: a.value("--titre").map(str::to_string), speakers: speakers(&a)?, process: !a.flag("--no-process") }
+            Action::Import { files, title: a.value("--title").map(str::to_string), speakers: speakers(&a)?, process: !a.flag("--no-process") }
         }
         "process" => {
             a.at_most(1)?;
