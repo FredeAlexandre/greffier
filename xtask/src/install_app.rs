@@ -94,6 +94,7 @@ fn info_plist(version: &str) -> String {
         ("CFBundleDisplayName", String(NAME)),
         ("CFBundleIdentifier", String(BUNDLE_ID)),
         ("CFBundleExecutable", String(EXE)),
+        ("CFBundleIconFile", String(NAME)),
         ("CFBundlePackageType", String("APPL")),
         ("CFBundleInfoDictionaryVersion", String("6.0")),
         ("CFBundleShortVersionString", Text(version.into())),
@@ -113,11 +114,14 @@ fn write_entitlements(path: &Path) -> Result<()> {
     Ok(std::fs::write(path, plist(&[("com.apple.security.device.audio-input", Value::True)]))?)
 }
 
-/// Writes the unsigned bundle `app` around the executable `binary` (and the bundled uv).
+/// Writes the unsigned bundle `app` around the executable `binary` (and the bundled uv), with the
+/// app icon (assets/brand), which the Dock, the Finder and the notifications show.
 fn write_bundle(app: &Path, binary: &Path, version: &str, uv: Option<&Path>) -> Result<()> {
     let macos = app.join("Contents/MacOS");
+    let resources = app.join("Contents/Resources");
     std::fs::create_dir_all(&macos)?;
-    std::fs::create_dir(app.join("Contents/Resources"))?;
+    std::fs::create_dir(&resources)?;
+    std::fs::copy(root().join(format!("assets/brand/app-icon/{NAME}.icns")), resources.join(format!("{NAME}.icns")))?;
     std::fs::copy(binary, macos.join(EXE))?;
     if let Some(uv) = uv {
         std::fs::copy(uv, macos.join("uv"))?;
@@ -379,6 +383,15 @@ mod tests {
         assert_eq!(std::fs::read(&exe).unwrap(), b"#!/bin/sh\n");
         assert!(is_executable(&exe));
         assert_eq!(read_plist(&app.join("Contents/Info.plist"))["CFBundleExecutable"], "greffier");
+    }
+
+    #[test]
+    fn the_app_icon_is_in_the_bundle() {
+        let (_tmp, app) = bundle();
+        let info = read_plist(&app.join("Contents/Info.plist"));
+        assert_eq!(info["CFBundleIconFile"], "Greffier");
+        let icon = std::fs::read(app.join("Contents/Resources/Greffier.icns")).unwrap();
+        assert_eq!(icon, std::fs::read(root().join("assets/brand/app-icon/Greffier.icns")).unwrap());
     }
 
     #[test]

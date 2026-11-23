@@ -6,13 +6,26 @@ use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSColor, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
-use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer};
+use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2_app_kit::{NSBitmapImageRep, NSColor, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
+use objc2_foundation::{NSData, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, NSTimer};
 
 use crate::{Choice, State, Icon, Line, menu, duration_text};
 
 const CHOICES: [Choice; 4] = [Choice::Start, Choice::Stop, Choice::Open, Choice::Quit];
+
+/// The cat's head (assets/brand/menubar), at 1x and 2x: eyes closed when idle, open while
+/// recording. Built into the executable so that it shows outside the bundle too.
+const IDLE: [&[u8]; 2] = [
+    include_bytes!("../../../assets/brand/menubar/MenubarIdleTemplate.png"),
+    include_bytes!("../../../assets/brand/menubar/MenubarIdleTemplate@2x.png"),
+];
+const RECORDING: [&[u8]; 2] = [
+    include_bytes!("../../../assets/brand/menubar/MenubarRecordingTemplate.png"),
+    include_bytes!("../../../assets/brand/menubar/MenubarRecordingTemplate@2x.png"),
+];
+/// The menu bar icon's size, in points.
+const ICON_SIZE: NSSize = NSSize { width: 18.0, height: 18.0 };
 
 /// The target of the menu lines and of the duration timer.
 struct Target {
@@ -96,13 +109,12 @@ impl MenubarIcon {
 
     fn draw_icon(&self, icon: Icon) {
         let Some(button) = self.item.button(self.mtm) else { return };
-        let (symbol, description, tint) = match icon {
-            Icon::Idle => ("waveform", "Greffier", None),
-            Icon::Recording => ("record.circle.fill", "Greffier : enregistrement en cours", Some(NSColor::systemRedColor())),
+        let (pngs, description, tint) = match icon {
+            Icon::Idle => (IDLE, "Greffier", None),
+            Icon::Recording => (RECORDING, "Greffier : enregistrement en cours", Some(NSColor::systemRedColor())),
         };
-        match NSImage::imageWithSystemSymbolName_accessibilityDescription(&NSString::from_str(symbol), Some(&NSString::from_str(description))) {
+        match template_image(&pngs, description) {
             Some(image) => {
-                image.setTemplate(true);
                 button.setImage(Some(&image));
                 button.setTitle(&NSString::new());
             }
@@ -168,6 +180,20 @@ impl MenubarIcon {
             _ => {}
         }
     }
+}
+
+/// A template image (black and alpha, tinted by macOS for the menu bar) made of one PNG per
+/// resolution, all shown at [`ICON_SIZE`].
+fn template_image(pngs: &[&[u8]], description: &str) -> Option<Retained<NSImage>> {
+    let image = NSImage::initWithSize(NSImage::alloc(), ICON_SIZE);
+    for png in pngs {
+        let rep = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(png))?;
+        rep.setSize(ICON_SIZE);
+        image.addRepresentation(&rep);
+    }
+    image.setTemplate(true);
+    image.setAccessibilityDescription(Some(&NSString::from_str(description)));
+    Some(image)
 }
 
 impl Drop for MenubarIcon {
