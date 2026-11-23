@@ -495,7 +495,9 @@ fn pending(s: &App, m: &Meeting, k: &Kit) -> El {
         if state == 1 {
             col_ = col_.child(Progress::new(Some(m.status.progress() as f32)).build(k));
         }
-        list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(row().w(18.0).h(18.0).center().child(icon)).child(col_));
+        // The mark is centred on the step's first line, not on the row: a progress bar can follow.
+        let mark = row().w(18.0).h(ui::line_height(k.ty.ui_medium)).center().child(icon);
+        list = list.child(row().key(format!("step{i}")).w_full().gap(12.0).items_start().child(mark).child(col_));
     }
     let eta = ui::eta(s, id);
     let (status, action) = match &m.status {

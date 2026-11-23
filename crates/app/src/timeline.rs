@@ -13,6 +13,8 @@ const CHAPTER_H: f32 = 24.0;
 const TRACK_H: f32 = 16.0;
 const EVENTS_H: f32 = 16.0;
 const GAP: f32 = 6.0;
+/// The column of the speaker dots and the decisions' diamond, before the names.
+const MARK_W: f32 = 8.0;
 
 pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
     let w = cx.layout_size("tl-area").map_or(560.0, |v| v[0]).max(100.0);
@@ -67,7 +69,7 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
             );
         }
         let name = text(spk.display_name()).font(k.ty.small_medium).color(if spk.name.is_some() { k.c.text_base } else { k.c.text_muted }).truncate().min_w(0.0);
-        tracks = tracks.child(row().key(format!("lane{si}")).w_full().h(TRACK_H).child(label(dot(c, 8.0)).child(name)).child(lane));
+        tracks = tracks.child(row().key(format!("lane{si}")).w_full().h(TRACK_H).child(label(dot(c, MARK_W)).child(name)).child(lane));
     }
 
     // Decisions and markers
@@ -98,12 +100,11 @@ pub fn view(s: &App, m: &Meeting, k: &Kit, cx: &mut Cx<App>) -> El {
                 .on_press(move |s: &mut App| s.seek_and_play(at)),
         );
     }
-    let legend = row()
-        .gap(4.0)
-        .center_y()
-        .child(el().size(7.0, 7.0).radius(1.5).rotate(std::f32::consts::FRAC_PI_4).fill(k.c.warning.icon))
-        .child(text("Décisions").font(k.ty.small).color(faint));
-    tracks = tracks.child(row().w_full().h(EVENTS_H).child(label(legend)).child(events));
+    // The diamond takes the speaker dots' column, so « Décisions » starts on the names' line.
+    let diamond = row().size(MARK_W, MARK_W).center()
+        .child(el().size(7.0, 7.0).radius(1.5).rotate(std::f32::consts::FRAC_PI_4).fill(k.c.warning.icon));
+    let legend = label(diamond).child(text("Décisions").font(k.ty.small).color(faint));
+    tracks = tracks.child(row().w_full().h(EVENTS_H).child(legend).child(events));
 
     // Ticks
     let step = if m.duration > 5400.0 { 1800.0 } else if m.duration > 1800.0 { 600.0 } else { 300.0 };

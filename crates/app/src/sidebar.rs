@@ -38,6 +38,12 @@ pub fn period(start: DateTime, today: DateTime) -> Period {
     }
 }
 
+// The nav rows' lines (rune_kit's SidebarRow: 8 inset, a 16 icon slot, a 6 gap). The record
+// button is boxed but lays out on them, so its icon, label and shortcut continue the rows below.
+const ROW_INSET: f32 = 8.0;
+const ICON_SLOT: f32 = 16.0;
+const ICON_GAP: f32 = 6.0;
+
 fn record_button(s: &App, k: &Kit) -> El {
     let r = red();
     let (label, icon) = match s.core.recording() {
@@ -50,8 +56,8 @@ fn record_button(s: &App, k: &Kit) -> El {
         .key("record")
         .w_full()
         .h(38.0)
-        .px(12.0)
-        .gap(10.0)
+        .px(ROW_INSET)
+        .gap(ICON_GAP)
         .center_y()
         .radius(10.0)
         .fill(if recorded { r.alpha(0.16) } else { k.c.layer_02 })
@@ -61,7 +67,7 @@ fn record_button(s: &App, k: &Kit) -> El {
         .cursor(rune::Cursor::Pointer)
         .role("button")
         .label(label.clone())
-        .child(glyph(icon, 14.0, r).opacity(pulse))
+        .child(row().size(ICON_SLOT, ICON_SLOT).center().child(glyph(icon, 14.0, r).opacity(pulse)))
         .child(text(label).font(tnum(k.ty.ui_medium)).color(k.c.text_base).grow(1.0).min_w(0.0).truncate())
         .child(text(crate::pages::shortcut_caps(s).concat()).font(k.ty.small).color(k.c.text_faint))
         .on_press(|s: &mut App| {
@@ -100,13 +106,15 @@ fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
     if point.is_none() {
         return el;
     }
+    // Labels share one line: an item without an icon keeps the icon's slot (14, as rune_kit draws it).
+    let plain = |label: &str| MenuItem::new(label.to_owned()).lead(rune::el().size(14.0, 14.0));
     let mut menu = context_menu(format!("menu{id}"), el, point)
-        .item(MenuItem::new("Ouvrir").on_select(move |s: &mut App| {
+        .item(plain("Ouvrir").on_select(move |s: &mut App| {
             s.menu = None;
             s.open(id);
         }));
     if !m.utterances.is_empty() {
-        menu = menu.item(MenuItem::new("Lire la transcription").on_select(move |s: &mut App| {
+        menu = menu.item(plain("Lire la transcription").on_select(move |s: &mut App| {
             s.menu = None;
             s.open(id);
             s.tab = Tab::Transcript;
@@ -122,24 +130,24 @@ fn meeting_row(s: &App, m: &Meeting, k: &Kit, layer: &mut Vec<El>) -> El {
         menu = menu.item(MenuItem::new("Refaire le bilan").icon(&ui::SPARK).on_select(move |s: &mut App| s.redo(id, Stage::Summary)));
     }
     if redo::can_redo(m, Stage::Review) {
-        menu = menu.item(MenuItem::new("Refaire la relecture").on_select(move |s: &mut App| s.redo(id, Stage::Review)));
+        menu = menu.item(plain("Refaire la relecture").on_select(move |s: &mut App| s.redo(id, Stage::Review)));
     }
     if redo::can_redo(m, Stage::Transcription) {
-        menu = menu.item(MenuItem::new("Refaire la transcription…").on_select(move |s: &mut App| s.start_redo_transcription(id)));
+        menu = menu.item(plain("Refaire la transcription…").on_select(move |s: &mut App| s.start_redo_transcription(id)));
     }
     let busy = matches!(m.status, Status::Running { .. });
-    menu.item(MenuItem::new("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))
+    menu.item(plain("Changer le titre…").disabled(busy).on_select(move |s: &mut App| s.start_rename(id)))
         .separator()
         .item(MenuItem::new("Afficher dans le Finder").icon(&ui::FOLDER).on_select(move |s: &mut App| {
             s.menu = None;
             s.reveal(id);
         }))
-        .item(MenuItem::new("Copier le bilan en Markdown").disabled(m.summary.trim().is_empty()).on_select_tx(move |s: &mut App, tx| {
+        .item(plain("Copier le bilan en Markdown").disabled(m.summary.trim().is_empty()).on_select_tx(move |s: &mut App, tx| {
             s.menu = None;
             s.copy_summary(id, tx);
         }))
         .separator()
-        .item(MenuItem::new("Supprimer…").danger(true).shortcut("⌘⌫").on_select(move |s: &mut App| {
+        .item(plain("Supprimer…").danger(true).shortcut("⌘⌫").on_select(move |s: &mut App| {
             s.menu = None;
             s.confirm_delete = Some(id);
         }))
