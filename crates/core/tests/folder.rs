@@ -237,3 +237,19 @@ fn a_failed_stage_stays_failed_at_next_launch() {
     bench.reopen();
     assert_eq!(bench.named_meeting(&name).status, before);
 }
+
+#[test]
+fn statuses_and_stages_have_their_sheet_names() {
+    use greffier_core::folder::sheet::{stage_name, status_name};
+    assert_eq!(Stage::ALL.map(stage_name), ["transcription", "relecture", "bilan"]);
+    let statuses = [
+        Status::Recording,
+        Status::RecordingInterrupted,
+        Status::ToProcess,
+        Status::Pending(Stage::Review),
+        Status::Running { stage: Stage::Summary, progress: 0.5 },
+        Status::Failed { stage: Stage::Review, message: "La CLI claude a échoué.".into() },
+        Status::Done,
+    ];
+    assert_eq!(statuses.each_ref().map(status_name), ["enregistrement_en_cours", "enregistrement_interrompu", "a_traiter", "en_attente", "en_cours", "echec", "terminee"]);
+}

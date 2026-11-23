@@ -181,16 +181,12 @@ impl Sheet {
         line("date", format!("{:04}-{:02}-{:02}", self.start.year, self.start.month, self.start.day));
         line("debut", c_string(&format!("{:02}:{:02}", self.start.hour, self.start.minute)));
         line("duree", c_string(&instant(self.duration)));
-        let (status, stage, error) = match &self.status {
-            Status::Recording => ("enregistrement_en_cours", None, None),
-            Status::RecordingInterrupted => ("enregistrement_interrompu", None, None),
-            Status::ToProcess => ("a_traiter", None, None),
-            Status::Pending(e) => ("en_attente", Some(*e), None),
-            Status::Running { stage, .. } => ("en_cours", Some(*stage), None),
-            Status::Failed { stage, message } => ("echec", Some(*stage), Some(message)),
-            Status::Done => ("terminee", None, None),
+        let (stage, error) = match &self.status {
+            Status::Pending(e) | Status::Running { stage: e, .. } => (Some(*e), None),
+            Status::Failed { stage, message } => (Some(*stage), Some(message)),
+            _ => (None, None),
         };
-        line("statut", status.into());
+        line("statut", status_name(&self.status).into());
         if let Some(e) = stage {
             line("etape", stage_name(e).into());
         }
@@ -375,7 +371,21 @@ fn read_body(body: &str) -> (String, Vec<String>) {
     (brief.join("\n").trim().to_string(), actions)
 }
 
-pub(crate) fn stage_name(e: Stage) -> &'static str {
+/// A status's name in the sheet's `statut`: `a_traiter`, `en_cours`, `terminee`…
+pub fn status_name(s: &Status) -> &'static str {
+    match s {
+        Status::Recording => "enregistrement_en_cours",
+        Status::RecordingInterrupted => "enregistrement_interrompu",
+        Status::ToProcess => "a_traiter",
+        Status::Pending(_) => "en_attente",
+        Status::Running { .. } => "en_cours",
+        Status::Failed { .. } => "echec",
+        Status::Done => "terminee",
+    }
+}
+
+/// A stage's name in the sheet's `etape` and `etape_faite`: `transcription`, `relecture`, `bilan`.
+pub fn stage_name(e: Stage) -> &'static str {
     match e {
         Stage::Transcription => "transcription",
         Stage::Review => "relecture",

@@ -174,3 +174,15 @@ fn agent_receives_context_folders_and_meeting_files() {
     assert_eq!(d.sheet, folder.file(name, Role::Sheet));
     assert_eq!(d.transcription, folder.file(name, Role::ReadableTranscription));
 }
+
+#[test]
+fn the_checkboxes_are_read_in_the_order_ticking_counts_them() {
+    use greffier_core::summary::{checkbox_count, checkboxes, tick};
+    let md = "## Actions\n\n- [ ] **Alexandre** — publier la release — lundi\n- [x] **Khalid** — lancer la recette\n  - [X] sous-tâche\n\n## Questions ouvertes\n\n- Aucune.\n";
+    let boxes = checkboxes(md);
+    assert_eq!(boxes, [(false, "Alexandre — publier la release — lundi".to_string()), (true, "Khalid — lancer la recette".into()), (true, "sous-tâche".into())]);
+    assert_eq!(boxes.len(), checkbox_count(md));
+    let mut ticked = md.to_string();
+    assert!(tick(&mut ticked, 0, true));
+    assert!(checkboxes(&ticked)[0].0, "the n-th checkbox is the one `tick` changes");
+}
