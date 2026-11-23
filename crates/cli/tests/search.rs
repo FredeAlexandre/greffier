@@ -166,7 +166,8 @@ fn search_filters_by_place_speaker_and_date() {
         "2026-11-23-0932 · Démo bookmarks\n\
          \x20 [0:01:00] Khalid ? : Et les labels ? (1)\n\
          \x20 [0:03:00] Khalid ? : Et les labels ? (3)\n\
-         … 5 autres résultats dans 1 réunion : affinez (--since, --until, --speaker, --in) ou --limit.\n"
+         … 5 autres résultats dans 1 réunion : 2026-11-23-0932 (5)\n\
+         Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n"
     );
     assert!(search(&f, &["recette", "--date", "2026-11"]).out.starts_with("2026-11-20-1000"));
     assert!(search(&f, &["recette", "--date", "2026-11-20"]).out.starts_with("2026-11-20-1000"));
@@ -199,8 +200,22 @@ fn one_meeting_found_shows_all_its_lines_within_the_limit() {
          \x20 [0:12:00] Alexandre : Les bookmarks, point 12.\n"
     );
     let o = search(&f, &["bookmarks", "--limit", "8"]);
-    assert_eq!(o.out.lines().count(), 10, "{}", o.out);
-    assert!(o.out.ends_with("\n… 5 autres résultats dans 1 réunion : affinez (--since, --until, --speaker, --in) ou --limit.\n"), "{}", o.out);
+    assert_eq!(o.out.lines().count(), 11, "{}", o.out);
+    assert!(o.out.ends_with("\n… 5 autres résultats dans 1 réunion : 2026-11-23-0932 (5)\nAffinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n"), "{}", o.out);
+}
+
+#[test]
+fn everything_found_is_shown_when_it_fits_in_the_limit() {
+    let f = meetings();
+    // 7 utterances on 2026-11-23, 1 on 2026-11-18: 8 lines fit in 8, even though 8 / 2 < 7.
+    let o = search(&f, &["point", "--in", "transcription", "--limit", "8"]);
+    assert_eq!(o.out.lines().filter(|l| l.starts_with("  [")).count(), 8, "{}", o.out);
+    assert!(!o.out.contains("autre"), "{}", o.out);
+    // When it does not fit, the cap per meeting is the largest that does: 6 + 1.
+    let o = search(&f, &["point", "--in", "transcription", "--limit", "7"]);
+    assert_eq!(o.out.lines().filter(|l| l.starts_with("  [")).count(), 7, "{}", o.out);
+    assert!(o.out.contains("\n2026-11-18-0915 · Réunion\n"), "the older meeting is not crowded out: {}", o.out);
+    assert!(o.out.ends_with("… 1 autre résultat dans 1 réunion : 2026-11-23-0932 (1)\nAffinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n"), "{}", o.out);
 }
 
 #[test]
@@ -223,7 +238,8 @@ fn context_gives_the_utterances_around_once() {
          \x20   [0:01:00] Khalid ? : Et les labels ? (1)\n\
          \x20 [0:02:00] Alexandre : Les bookmarks, point 2.\n\
          \x20   [0:03:00] Khalid ? : Et les labels ? (3)\n\
-         … 6 autres résultats dans 2 réunions : affinez (--since, --until, --speaker, --in) ou --limit.\n"
+         … 6 autres résultats dans 2 réunions : 2026-11-23-0932 (5), 2026-11-18-0915 (1)\n\
+         Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n"
     );
 }
 

@@ -29,9 +29,12 @@ use crate::{Context, Failure, HELP, args};
 const LIMIT: usize = 30;
 
 /// At most this many summary lines and as many utterances per meeting when the results come
-/// from many meetings (the core's default), so that one meeting does not hide the others. With
-/// fewer meetings, they share the limit: a single meeting found shows up to `--limit` lines.
+/// from many meetings (the core's default), so that one meeting does not hide the others. When
+/// fewer lines are found, the cap rises as far as the limit allows ([`share`]).
 const PER_MEETING: usize = 5;
+
+/// The other meetings named on the last line, at most.
+const LISTED: usize = 10;
 
 pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let a = args::parse(args, &["--json"], &["--since", "--until", "--date", "--speaker", "--in", "--context", "--limit"])?;
@@ -77,13 +80,18 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     }
     let day = |d: Day| DateTime::new(d.0, d.1, d.2, 0, 0);
     let mut query = SearchQuery { text: text.clone(), since: first.map(day), until: last.map(day), speaker, locations, results: limit, context, ..SearchQuery::default() };
-    // Every line found, to count what the limits leave out, meeting by meeting.
+    // Every line found, to share the limit and count what it leaves out, meeting by meeting.
     let everything = g.find(&SearchQuery { summary_lines: usize::MAX, utterances: usize::MAX, results: usize::MAX, context: 0, width: usize::MAX, ..query.clone() });
-    let mut found: HashMap<MeetingId, usize> = HashMap::new();
+    let mut found: Vec<(MeetingId, Count)> = Vec::new();
     for f in &everything.results {
-        *found.entry(f.meeting).or_default() += 1;
+        if found.last().is_none_or(|(m, _)| *m != f.meeting) {
+            found.push((f.meeting, Count::default()));
+        }
+        if let Some((_, count)) = found.last_mut() {
+            count.add(f.location);
+        }
     }
-    query.summary_lines = PER_MEETING.max(limit / found.len().max(1));
+    query.summary_lines = share(found.iter().map(|(_, c)| c), limit);
     query.utterances = query.summary_lines;
     let report = g.find(&query);
     let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &library, f)).collect();
@@ -116,16 +124,59 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         };
         s += &r.found.after.iter().map(|u| nearby(u, &mut printed)).collect::<String>();
     }
-    let hidden = report.total - results.len();
-    if hidden > 0 {
-        let meetings = found.iter().filter(|(m, n)| shown.get(m).copied().unwrap_or(0) < **n).count();
+    // What the limits left out, meeting by meeting, most recent first.
+    let left: Vec<(MeetingId, usize)> = found.iter().map(|(m, c)| (*m, c.total() - shown.get(m).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
+    if !left.is_empty() {
+        let hidden: usize = left.iter().map(|(_, n)| n).sum();
+        let id = |m: MeetingId| g.meeting(m).and_then(|m| library.identifier(&m.folder_name)).unwrap_or("?").to_string();
+        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", id(*m))).collect();
+        if left.len() > LISTED {
+            listed.push("…".into());
+        }
         s += &format!(
-            "… {hidden} {} dans {meetings} {} : affinez (--since, --until, --speaker, --in) ou --limit.\n",
+            "… {hidden} {} dans {} {} : {}\nAffinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n",
             if hidden == 1 { "autre résultat" } else { "autres résultats" },
-            if meetings == 1 { "réunion" } else { "réunions" }
+            left.len(),
+            if left.len() == 1 { "réunion" } else { "réunions" },
+            listed.join(", ")
         );
     }
     Ok(s)
+}
+
+/// A meeting's lines found, by place.
+#[derive(Clone, Copy, Default)]
+struct Count {
+    title: usize,
+    summary: usize,
+    transcription: usize,
+}
+
+impl Count {
+    fn add(&mut self, l: Location) {
+        match l {
+            Location::Title => self.title += 1,
+            Location::Summary => self.summary += 1,
+            Location::Transcription => self.transcription += 1,
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.title + self.summary + self.transcription
+    }
+
+    /// The lines shown with at most `cap` summary lines and `cap` utterances.
+    fn within(&self, cap: usize) -> usize {
+        self.title + self.summary.min(cap) + self.transcription.min(cap)
+    }
+}
+
+/// The summary lines and utterances shown per meeting: the most whose lines all fit in the
+/// limit, at least [`PER_MEETING`]. Everything found is shown when it fits; otherwise the
+/// limit is shared between the meetings found rather than spent on the most recent.
+fn share<'a>(counts: impl Iterator<Item = &'a Count> + Clone, limit: usize) -> usize {
+    let most = counts.clone().map(|c| c.summary.max(c.transcription)).max().unwrap_or(0).min(limit);
+    (PER_MEETING..=most).rev().find(|&cap| counts.clone().map(|c| c.within(cap)).sum::<usize>() <= limit).unwrap_or(PER_MEETING)
 }
 
 /// `[0:47:30] Jérôme ? : texte`

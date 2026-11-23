@@ -17,18 +17,20 @@ meeting, the title, then the summary's lines, then the utterances. `--speaker` k
 utterances of the speakers whose displayed name contains it; `--in bilan,transcription,titre`
 (or repeated) where to search; `--context N` adds the N utterances before and after each one.
 
-Limits: 30 lines in all (`--limit`). When the lines come from many meetings, each shows at most 5
-summary lines and 5 utterances so that one meeting does not hide the others; with fewer meetings
-they share the limit (`limit / meetings`), so a search narrowed to one meeting shows up to
-`--limit` of its lines. A long line is cut to 200 characters around the first word found. What
-the limits leave out is counted on the last line.
+Limits: 30 lines in all (`--limit`). Everything found is shown when it fits. Otherwise each
+meeting shows as many summary lines and as many utterances as the limit allows for all the
+meetings found, at least 5 of each, most recent meetings first: one talkative meeting does not
+hide the others, and a search narrowed to one meeting (`--date`) shows up to `--limit` of its
+lines. A long line is cut to 200 characters around the first word found. The last lines count
+what the limits left out, by meeting (the 10 most recent named), and how to narrow down.
 
 ```
 2026-11-20-0939 · Revue de release avec Jérôme : permissions et dataset dynamique, fiscal year, bookmarks
   [1:31:33] bilan · Badge Alpha sur le filtre fiscal year. Objectif de 95 % de couverture…
   [1:25:32] Khalid ? : …on a ajouté le filtre fiscal year…
     [1:25:40] Jérôme ? : (context, with --context)
-… 12 autres résultats dans 3 réunions : affinez (--since, --until, --speaker, --in) ou --limit.
+… 12 autres résultats dans 3 réunions : 2026-11-20-0939 (4), 2026-11-18-0934 (6), 2026-11-17-0932 (2)
+Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.
 ```
 
 A summary line shows its moment (its own timestamp, or its topic's), without repeating it in the
