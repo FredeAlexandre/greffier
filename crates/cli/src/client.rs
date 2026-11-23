@@ -147,20 +147,10 @@ pub fn ask_once(socket: &Path, request: &Request) -> Option<Response> {
     Connection::open(socket).ok()?.ask(request).ok()
 }
 
-/// « Greffier ne répond pas », and why it may be.
+/// « Greffier ne répond pas », and the likely cause: an older Greffier, open without a socket
+/// the command line can talk to.
 fn not_answering(socket: &Path) -> String {
-    let mut m = format!("Greffier ne répond pas sur {}.", socket.display());
-    if other_greffier_running() {
-        m += " Un Greffier tourne sans l'accepter (une version plus ancienne ?) : mettez-le à jour (cargo xtask install-app) ou quittez-le, puis relancez la commande.";
-    }
-    m
-}
-
-/// Whether a `greffier` process other than this one runs.
-fn other_greffier_running() -> bool {
-    let Ok(o) = std::process::Command::new("/usr/bin/pgrep").args(["-x", "greffier"]).stderr(Stdio::null()).output() else { return false };
-    let me = std::process::id().to_string();
-    String::from_utf8_lossy(&o.stdout).lines().any(|pid| pid.trim() != me)
+    format!("Greffier ne répond pas sur {}. Si un Greffier plus ancien est ouvert, quittez-le ou mettez-le à jour (cargo xtask install-app), puis relancez la commande.", socket.display())
 }
 
 /// A connection to the process: requests, one at a time.

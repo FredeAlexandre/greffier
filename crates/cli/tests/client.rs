@@ -155,7 +155,11 @@ fn nobody_answering_exits_with_3() {
     let app = Temp::new();
     let o = failed(&on(&f.0, &app.0), &["stop", "2026-11-20"], 3);
     let socket = greffier_cli::server::socket_path(&app.0);
-    assert!(o.err.starts_with(&format!("greffier : Greffier ne répond pas sur {}.", socket.display())), "{}", o.err);
+    // Whatever else runs on this Mac: one message.
+    assert_eq!(
+        o.err,
+        format!("greffier : Greffier ne répond pas sur {}. Si un Greffier plus ancien est ouvert, quittez-le ou mettez-le à jour (cargo xtask install-app), puis relancez la commande.\n", socket.display())
+    );
     let mut cx = on(&f.0, &app.0);
     cx.process = None;
     assert_eq!(failed(&cx, &["stop", "2026-11-20"], 3).err, "greffier : Greffier n'est pas joignable d'ici.\n");
