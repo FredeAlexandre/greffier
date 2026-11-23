@@ -97,6 +97,17 @@ to show its window and exits.
 | `GREFFIER_APP_FOLDER` | another app folder (settings, lexicon, search cache, socket, lock) |
 | `GREFFIER_IDLE_QUIT` | seconds a background Greffier waits idle before quitting (300); for trials |
 
+### The Claude Code skill
+
+[`skills/greffier/SKILL.md`](skills/greffier/SKILL.md) teaches an agent the way to use the command
+line: `search`, then `show --transcription --from … --to …` on a window around what was found, then
+an answer citing the meeting and the timestamp; for imports, `status` or `--wait` with a
+`--timeout`. Make it available to Claude Code in every project with a link:
+
+```sh
+ln -s "$PWD/skills/greffier" ~/.claude/skills/greffier
+```
+
 ## First-launch resources
 
 At first launch, the window shows the state of each resource and installs them all in
