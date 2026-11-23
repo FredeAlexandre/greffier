@@ -28,7 +28,7 @@ fn a_refusal_keeps_the_ui_french_and_gives_the_command_line_english() {
     let mut bench = Bench::on_fixtures();
     let id = bench.named_meeting(RELEASE).id;
     let r = refusal(&mut bench, Command::Process(id));
-    assert_eq!(both(&r), ("la réunion ne peut pas être traitée (Done)".into(), "the meeting cannot be processed (Done)".into()));
+    assert_eq!(both(&r), ("la réunion ne peut pas être traitée (Done)".into(), "the meeting is already processed".into()));
     let r = refusal(&mut bench, Command::ChangeTitle { meeting: id, title: "  ".into() });
     assert_eq!(both(&r), ("le titre est vide".into(), "the title is empty".into()));
     let r = refusal(&mut bench, Command::StopProcessing(id));
