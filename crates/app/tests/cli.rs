@@ -63,7 +63,7 @@ fn search_list_and_show_run_in_the_binary() {
     let o = greffier(&app, Some(&folder), &["show", "2026-11-20-1000", "--json"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).expect("JSON");
-    assert_eq!(v["id"], "2026-11-20-1000");
+    assert_eq!(v["identifiant"], "2026-11-20-1000");
     assert_eq!(v["titre"], "Revue de release");
 
     let o = greffier(&app, Some(&folder), &["search", "recette", "--in", "transcription"]);

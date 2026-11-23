@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// The protocol's version, given by [`Request::Hello`]: the command line refuses a process
 /// that speaks another one.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// A request, one JSON line: `"hello"`, `{"status":{"meeting":null}}`,
 /// `{"execute":{"rename":{"meeting":"2026-11-20","title":"Revue"}}}`, `"open_window"`.
@@ -152,7 +152,8 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveMeeting {
     /// Its identifier (`2026-11-20-0939`).
-    pub id: Option<String>,
+    #[serde(rename = "identifiant")]
+    pub identifier: Option<String>,
     pub folder_name: String,
     pub title: String,
     pub status: LiveStatus,

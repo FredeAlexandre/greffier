@@ -184,7 +184,7 @@ fn list_in_json_mirrors_the_sheet() {
     let all = v.as_array().expect("an array");
     assert_eq!(all.len(), 6);
     let failed = &all[2];
-    assert_eq!(failed["id"], "2026-11-21-0939");
+    assert_eq!(failed["identifiant"], "2026-11-21-0939");
     assert_eq!(failed["titre"], "Point d'équipe");
     assert_eq!(failed["date"], "2026-11-21");
     assert_eq!(failed["debut"], "09:39");
@@ -369,7 +369,7 @@ fn show_transcription_uses_the_displayed_names() {
 fn show_transcription_in_json() {
     let f = meetings();
     let v = greffier(&f, &["show", "2026-11-20-1000", "--transcription", "--json", "--from", "2.5"]).json();
-    assert_eq!(v["id"], "2026-11-20-1000");
+    assert_eq!(v["identifiant"], "2026-11-20-1000");
     let r = v["repliques"].as_array().unwrap();
     assert_eq!(r.len(), 2);
     assert_eq!(r[0]["numero"], 2);
@@ -403,7 +403,7 @@ fn show_speakers_actions_and_passages() {
 fn show_views_in_json() {
     let f = meetings();
     let v = greffier(&f, &["show", "2026-11-20-1000", "--json"]).json();
-    assert_eq!(v["id"], "2026-11-20-1000");
+    assert_eq!(v["identifiant"], "2026-11-20-1000");
     assert_eq!(v["statut"], "terminee");
     assert!(v.get("bilan").is_none(), "the whole summary is --bilan's");
     assert_eq!(v["en_bref"], "On publie la release lundi si la recette passe vendredi.");
@@ -438,6 +438,11 @@ fn show_views_in_json() {
     assert!(v["fiche"].as_str().unwrap().starts_with("---\ntitre: \"Revue de release\""));
     let v = greffier(&f, &["show", "2026-11-20-1000", "--locuteurs", "--json"]).json();
     assert_eq!(v["locuteurs"][0]["nom"], "Alexandre");
+    // The glossary's Identifier, in every view.
+    for view in ["--bilan", "--fiche", "--transcription", "--locuteurs", "--actions", "--passages"] {
+        let v = greffier(&f, &["show", "2026-11-20-1000", view, "--json"]).json();
+        assert_eq!((v["identifiant"].as_str(), v.get("id")), (Some("2026-11-20-1000"), None), "{view}");
+    }
 }
 
 // --- status ---
@@ -469,7 +474,7 @@ fn status_of_a_meeting() {
     let o = greffier(&f, &["status", "2026-11-20-1000"]);
     assert_eq!(o.out, "2026-11-20-1000 · Revue de release\nStatut : terminée, 1 à vérifier\nÉtape faite : Bilan IA\n");
     let v = greffier(&f, &["status", "2026-11-21-0939", "--json"]).json();
-    assert_eq!((v["id"].as_str(), v["statut"].as_str(), v["etape"].as_str(), v["etape_faite"].as_str()), (Some("2026-11-21-0939"), Some("echec"), Some("relecture"), Some("transcription")));
+    assert_eq!((v["identifiant"].as_str(), v["statut"].as_str(), v["etape"].as_str(), v["etape_faite"].as_str()), (Some("2026-11-21-0939"), Some("echec"), Some("relecture"), Some("transcription")));
     assert_eq!(v["erreur"], "La CLI claude a échoué.");
     for live in ["rang", "progression", "temps_restant"] {
         assert!(v[live].is_null(), "{live}: from disk, nothing live");

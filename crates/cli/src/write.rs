@@ -177,7 +177,7 @@ fn absolute(file: &str) -> Result<PathBuf, Failure> {
 /// What a command that wrote prints in JSON.
 #[derive(Serialize)]
 struct DoneJson<'a> {
-    id: Option<&'a str>,
+    identifiant: Option<&'a str>,
     dossier: Option<String>,
     message: &'a str,
 }
@@ -185,7 +185,7 @@ struct DoneJson<'a> {
 /// Where a waited meeting ended, in JSON.
 #[derive(Serialize)]
 struct EndJson<'a> {
-    id: &'a str,
+    identifiant: &'a str,
     statut: &'static str,
     titre: &'a str,
 }
@@ -209,7 +209,7 @@ pub(crate) fn run(cx: &Context, command: &str, args: &[String], out: &mut dyn Wr
     };
     let printed = if json {
         let dossier = done.folder_name.as_ref().map(|n| folder.join(n).to_string_lossy().into_owned());
-        crate::json(&DoneJson { id: done.meeting.as_deref(), dossier, message: &done.message })
+        crate::json(&DoneJson { identifiant: done.meeting.as_deref(), dossier, message: &done.message })
     } else if import {
         // The new meeting's identifier alone, for a script to take.
         format!("{}\n", done.meeting.as_deref().or(done.folder_name.as_deref()).unwrap_or_default())
@@ -227,16 +227,16 @@ pub(crate) fn run(cx: &Context, command: &str, args: &[String], out: &mut dyn Wr
 
 /// A waited meeting, once processed.
 struct End {
-    id: String,
+    identifier: String,
     title: String,
 }
 
 impl End {
     fn render(&self, json: bool) -> String {
         if json {
-            return crate::json(&EndJson { id: &self.id, statut: "terminee", titre: &self.title });
+            return crate::json(&EndJson { identifiant: &self.identifier, statut: "terminee", titre: &self.title });
         }
-        format!("{} · terminée · {}\n", self.id, self.title)
+        format!("{} · terminée · {}\n", self.identifier, self.title)
     }
 }
 
@@ -261,34 +261,34 @@ fn standing(m: &LiveMeeting) -> String {
 /// Asks where the meeting stands every `poll` until it leaves the queue: done, failed (exit
 /// 1), stopped (exit 1); or the timeout elapses (exit 4). Each change of stage goes to `err`.
 fn follow(c: &mut Connection, done: &Done, w: Wait, poll: Duration, err: &mut dyn Write) -> Result<End, Failure> {
-    let id = done.meeting.clone().or_else(|| done.folder_name.clone()).ok_or_else(|| Failure::Failed("réunion sans identifiant : impossible de suivre son traitement".into()))?;
+    let identifier = done.meeting.clone().or_else(|| done.folder_name.clone()).ok_or_else(|| Failure::Failed("réunion sans identifiant : impossible de suivre son traitement".into()))?;
     let start = Instant::now();
     let mut last = String::new();
     loop {
-        let snapshot = match c.ask(&Request::Status { meeting: Some(id.clone()) })? {
+        let snapshot = match c.ask(&Request::Status { meeting: Some(identifier.clone()) })? {
             Response::Status(s) => s,
             Response::Error { message } => return Err(Failure::Failed(message)),
             other => return Err(Failure::Unreachable(format!("réponse inattendue de Greffier : {other:?}"))),
         };
-        let Some(m) = snapshot.meetings.iter().find(|m| m.id.as_deref() == Some(id.as_str()) || m.folder_name == id) else {
-            return Err(Failure::Failed(format!("{id} n'est plus dans le dossier de réunions")));
+        let Some(m) = snapshot.meetings.iter().find(|m| m.identifier.as_deref() == Some(identifier.as_str()) || m.folder_name == identifier) else {
+            return Err(Failure::Failed(format!("{identifier} n'est plus dans le dossier de réunions")));
         };
         match &m.status {
-            LiveStatus::Done => return Ok(End { id, title: m.title.clone() }),
-            LiveStatus::Failed { stage, message } => return Err(Failure::Failed(format!("{id} · échec : {} : {message}", text::stage((*stage).into())))),
-            LiveStatus::ToProcess | LiveStatus::RecordingInterrupted | LiveStatus::Recording => return Err(Failure::Failed(format!("{id} · traitement arrêté"))),
+            LiveStatus::Done => return Ok(End { identifier, title: m.title.clone() }),
+            LiveStatus::Failed { stage, message } => return Err(Failure::Failed(format!("{identifier} · échec : {} : {message}", text::stage((*stage).into())))),
+            LiveStatus::ToProcess | LiveStatus::RecordingInterrupted | LiveStatus::Recording => return Err(Failure::Failed(format!("{identifier} · traitement arrêté"))),
             LiveStatus::Pending { .. } | LiveStatus::Running { .. } => {}
         }
         let now = phase(&m.status);
         if now != last {
-            let _ = writeln!(err, "{id} · {now}");
+            let _ = writeln!(err, "{identifier} · {now}");
             last = now;
         }
         let elapsed = start.elapsed().as_secs_f64();
         if let Some(t) = w.timeout
             && elapsed >= t
         {
-            return Err(Failure::StillRunning(format!("{id} toujours en cours après {t} s : {}", standing(m))));
+            return Err(Failure::StillRunning(format!("{identifier} toujours en cours après {t} s : {}", standing(m))));
         }
         let left = w.timeout.map_or(poll, |t| poll.min(Duration::from_secs_f64((t - elapsed).max(0.0))));
         std::thread::sleep(left);

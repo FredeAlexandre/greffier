@@ -107,7 +107,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let mut s = String::new();
     let mut shown: HashMap<MeetingId, usize> = HashMap::new();
     for meeting in results.chunk_by(|a, b| a.found.meeting == b.found.meeting) {
-        s += &format!("{} · {}\n", meeting[0].id, meeting[0].title);
+        s += &format!("{} · {}\n", meeting[0].identifier, meeting[0].title);
         shown.insert(meeting[0].found.meeting, meeting.len());
         // The utterances found and those around them, in order, each once: found wins.
         let mut conversation: BTreeMap<usize, String> = BTreeMap::new();
@@ -212,7 +212,7 @@ fn utterance(start: f64, speaker: Option<&str>, text: &str) -> String {
 /// A line found, with its meeting's identifier and title, and its excerpt without the
 /// summary's own "(h:mm:ss)", already given by its instant.
 struct Line {
-    id: String,
+    identifier: String,
     title: String,
     excerpt: String,
     highlights: Vec<(usize, usize)>,
@@ -221,20 +221,20 @@ struct Line {
 
 impl Line {
     fn new(g: &Greffier, reading: &Reading, found: Found) -> Line {
-        let id = identifier(g, reading, found.meeting);
+        let identifier = identifier(g, reading, found.meeting);
         let title = g.meeting(found.meeting).map(|m| m.title.clone()).unwrap_or_default();
         let (excerpt, highlights) = match (found.location, found.instant) {
             (Location::Summary, Some(t)) => without_stamp(&found.excerpt, &found.highlights, t),
             _ => (found.excerpt.clone(), found.highlights.clone()),
         };
-        Line { id, title, excerpt, highlights, found }
+        Line { identifier, title, excerpt, highlights, found }
     }
 
     fn json(&self) -> ResultJson {
         let f = &self.found;
         let nearby = |u: &NearbyUtterance| NearbyJson { replique: u.index + 1, debut: u.start, horodatage: playback_timestamp(u.start), locuteur: u.speaker.clone(), texte: u.text.clone() };
         ResultJson {
-            id: self.id.clone(),
+            identifiant: self.identifier.clone(),
             titre: self.title.clone(),
             emplacement: location_name(f.location),
             debut: f.instant,
@@ -281,7 +281,7 @@ struct SearchJson {
 
 #[derive(Serialize)]
 struct ResultJson {
-    id: String,
+    identifiant: String,
     titre: String,
     /// `titre`, `bilan` or `transcription`.
     emplacement: &'static str,

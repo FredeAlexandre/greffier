@@ -84,14 +84,14 @@ fn identifiers(core: &Greffier) -> Identifiers {
 
 /// The live state: the recording, then the queue in its order, then `meeting` if asked for.
 pub fn snapshot(core: &Greffier, meeting: Option<&str>) -> Result<Snapshot, String> {
-    let ids = identifiers(core);
+    let identifiers = identifiers(core);
     let mut meetings = Vec::new();
     if let Some(r) = core.recording() {
-        let id = ids.of(&r.folder_name).map(str::to_string);
-        meetings.push(LiveMeeting { id, folder_name: r.folder_name.clone(), title: "Réunion".into(), status: (&Status::Recording).into(), rank: None, time_remaining: None });
+        let identifier = identifiers.of(&r.folder_name).map(str::to_string);
+        meetings.push(LiveMeeting { identifier, folder_name: r.folder_name.clone(), title: "Réunion".into(), status: (&Status::Recording).into(), rank: None, time_remaining: None });
     }
     let live = |m: &greffier_core::Meeting| LiveMeeting {
-        id: ids.of(&m.folder_name).map(str::to_string),
+        identifier: identifiers.of(&m.folder_name).map(str::to_string),
         folder_name: m.folder_name.clone(),
         title: m.title.clone(),
         status: (&m.status).into(),
@@ -119,9 +119,9 @@ fn run<H: Host + ?Sized>(host: &mut H, command: Command, events: &mut Vec<Event>
 /// « 2026-11-20-1000 · <what> », with the meeting's identifier and folder after the action.
 fn done(core: &Greffier, meeting: MeetingId, what: impl FnOnce(&str) -> String) -> Done {
     let folder_name = core.meeting(meeting).map(|m| m.folder_name.clone());
-    let id = folder_name.as_deref().and_then(|n| identifiers(core).of(n).map(str::to_string));
-    let shown = id.clone().or_else(|| folder_name.clone()).unwrap_or_default();
-    Done { message: what(&shown), meeting: id, folder_name }
+    let identifier = folder_name.as_deref().and_then(|n| identifiers(core).of(n).map(str::to_string));
+    let shown = identifier.clone().or_else(|| folder_name.clone()).unwrap_or_default();
+    Done { message: what(&shown), meeting: identifier, folder_name }
 }
 
 /// « dans la file : Transcription », the stage the meeting waits for.

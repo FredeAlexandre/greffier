@@ -11,7 +11,7 @@ use crate::{Context, Failure, Live, LiveSource};
 
 /// A meeting with its identifier and its live data, if any (its status is then the live one).
 pub(crate) struct Entry {
-    pub id: String,
+    pub identifier: String,
     pub meeting: Meeting,
     pub live: Option<Live>,
 }
@@ -21,7 +21,7 @@ pub(crate) struct Entry {
 pub(crate) struct Reading<'a> {
     pub folder: MeetingsFolder,
     names: Vec<String>,
-    ids: Identifiers,
+    identifiers: Identifiers,
     live: Option<&'a dyn LiveSource>,
 }
 
@@ -36,8 +36,8 @@ impl<'a> Reading<'a> {
         }
         let folder = MeetingsFolder::new(root);
         let names = folder.names();
-        let ids = Identifiers::new(&names);
-        Ok(Reading { folder, names, ids, live: cx.live.as_deref() })
+        let identifiers = Identifiers::new(&names);
+        Ok(Reading { folder, names, identifiers, live: cx.live.as_deref() })
     }
 
     fn entry(&self, index: usize, name: &str) -> Option<Entry> {
@@ -46,12 +46,12 @@ impl<'a> Reading<'a> {
         if let Some(l) = &live {
             meeting.status = l.status.clone();
         }
-        Some(Entry { id: self.ids.of(name)?.to_string(), meeting, live })
+        Some(Entry { identifier: self.identifiers.of(name)?.to_string(), meeting, live })
     }
 
     /// A meeting's identifier, from its folder name.
     pub fn identifier(&self, folder_name: &str) -> Option<&str> {
-        self.ids.of(folder_name)
+        self.identifiers.of(folder_name)
     }
 
     /// All the meetings, most recent first.
@@ -64,9 +64,9 @@ impl<'a> Reading<'a> {
     pub fn find(&self, query: &str) -> Result<Entry, Failure> {
         let entry = |name: &str| self.entry(self.names.iter().position(|n| n == name).unwrap_or(0), name);
         let query = in_meetings_folder(query, self.folder.root()).map_err(Failure::Failed)?;
-        let name = self.ids.resolve(query).map_err(|mut e| {
-            for (id, title) in &mut e.candidates {
-                if let Some(c) = self.ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| entry(n)) {
+        let name = self.identifiers.resolve(query).map_err(|mut e| {
+            for (identifier, title) in &mut e.candidates {
+                if let Some(c) = self.identifiers.iter().find(|(i, _)| i == identifier).and_then(|(_, n)| entry(n)) {
                     *title = c.meeting.title;
                 }
             }
@@ -98,7 +98,7 @@ pub(crate) fn in_meetings_folder<'q>(query: &'q str, root: &Path) -> Result<&'q 
 /// A meeting in JSON, in the sheet's vocabulary.
 #[derive(Serialize)]
 pub(crate) struct MeetingJson {
-    pub id: String,
+    pub identifiant: String,
     pub dossier: String,
     pub titre: String,
     /// `2026-11-20`
@@ -129,7 +129,7 @@ impl MeetingJson {
             _ => (None, None),
         };
         MeetingJson {
-            id: e.id.clone(),
+            identifiant: e.identifier.clone(),
             dossier: folder.folder(&m.folder_name).to_string_lossy().into_owned(),
             titre: m.title.clone(),
             date: format!("{:04}-{:02}-{:02}", m.start.year, m.start.month, m.start.day),

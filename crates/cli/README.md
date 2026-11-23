@@ -69,7 +69,7 @@ stage: transcription|relecture|bilan}`, `stop`, `rename {meeting, title}`, `name
 {meeting, utterance, text}`, `resolve {meeting, passage, resolution: "accept"|"keep"|"reopen"|
 {"correct": text}}`, `check_action {meeting, action, done}`, `delete {meeting}`, `import {files,
 title, speakers, process}`. Responses: `{"hello":{version, pid, meetings_folder, background}}`,
-`{"status":{busy, meetings: [{id, folder_name, title, status, rank, time_remaining}]}}`,
+`{"status":{busy, meetings: [{identifiant, folder_name, title, status, rank, time_remaining}]}}`,
 `{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`. Types in `src/protocol.rs`.
 
 The command line refuses a process on another meetings folder. If nobody answers, it launches
@@ -80,8 +80,8 @@ GREFFIER_FOLDER=… --env GREFFIER_APP_FOLDER=… --args --background`, a separa
 the bundle's permissions), and waits up to 15 s. `status` never launches it.
 
 Writing prints one line: `2026-11-20-1000 · renommée : Revue` (`import`: the new identifier).
-With `--json`: `{"id", "dossier", "message"}`. `--wait` follows the processing on stderr, one
-line per stage, then prints `<id> · terminée · <titre>` (`{"id", "statut", "titre"}`).
+With `--json`: `{"identifiant", "dossier", "message"}`. `--wait` follows the processing on stderr, one
+line per stage, then prints `<identifiant> · terminée · <titre>` (`{"identifiant", "statut", "titre"}`).
 
 ## JSON (`--json`)
 
@@ -93,7 +93,7 @@ string next to them where it helps.
 
 | key | |
 |---|---|
-| `id` | identifier, `2026-11-20-0939` |
+| `identifiant` | identifier, `2026-11-20-0939` |
 | `dossier` | absolute path of the meeting's folder |
 | `titre` | title |
 | `date`, `debut` | `2026-11-20`, `09:39` |
@@ -105,7 +105,7 @@ string next to them where it helps.
 | `a_verifier` | number of passages to check still pending |
 
 **`search`**: `resultats`, `total` (the lines found, without the limits) and `reunions` (the
-meetings they come from). A result: `id`, `titre` (its meeting's), `emplacement` (`titre`,
+meetings they come from). A result: `identifiant`, `titre` (its meeting's), `emplacement` (`titre`,
 `bilan`, `transcription`), `debut` (seconds) and `horodatage` (`null` for the title and a summary
 line without a moment), `locuteur` (displayed name, utterances only), `replique` (the utterance's
 number, from 1, as `show --transcription --numeros`), `extrait` (the line, cut to 200 characters
@@ -120,7 +120,7 @@ from 1), `progression` (0 to 1) and `temps_restant` (seconds), `null` while read
 `null` until there is a summary: `en_bref` (the brief's first paragraph), `sujets` (`debut`,
 `horodatage`, `titre`), `decisions` (`debut`, `horodatage`, `texte`) and `actions` (how many).
 The text view gives the same: a few lines even for a long meeting (about 3.5 KB for 2.5 h,
-against 20 KB for the whole summary), then where to read on. Views, each with `id`:
+against 20 KB for the whole summary), then where to read on. Views, each with `identifiant`:
 
 - `--bilan`: `bilan`; `--fiche`: `fiche` (the file as is).
 - `--transcription`: `repliques`: `numero` (from 1), `debut`, `fin`, `horodatage`, `locuteur`

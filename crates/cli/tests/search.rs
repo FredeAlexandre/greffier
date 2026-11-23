@@ -273,7 +273,7 @@ fn search_in_json() {
         r["surlignes"].as_array().unwrap().iter().map(|s| extrait[s[0].as_u64().unwrap() as usize..s[1].as_u64().unwrap() as usize].to_string()).collect()
     };
     assert_eq!(r[0], json!({
-        "id": "2026-11-20-1000", "titre": "Revue de release", "emplacement": "bilan", "debut": null, "horodatage": null,
+        "identifiant": "2026-11-20-1000", "titre": "Revue de release", "emplacement": "bilan", "debut": null, "horodatage": null,
         "locuteur": null, "replique": null, "extrait": "On publie la release lundi si la recette passe vendredi.", "surlignes": [[33, 40]], "avant": [], "apres": [],
     }));
     assert_eq!((r[2]["extrait"].as_str(), r[2]["debut"].as_f64(), highlighted(&r[2])), (Some("Release lundi si la recette passe vendredi."), Some(2.0), vec!["recette".to_string()]), "its own timestamp left out");

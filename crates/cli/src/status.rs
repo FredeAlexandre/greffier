@@ -76,7 +76,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
             return Ok(crate::json(&StatusJson::new(&e, &reading)));
         }
         let m = &e.meeting;
-        let mut s = format!("{} · {}\nStatut : {}\n", e.id, m.title, text::status(m, e.live.as_ref()));
+        let mut s = format!("{} · {}\nStatut : {}\n", e.identifier, m.title, text::status(m, e.live.as_ref()));
         s += &format!("Étape faite : {}\n", m.completed_stage.map_or("aucune", text::stage));
         if let Status::Failed { message, .. } = &m.status {
             s += &format!("Erreur : {message}\n");
@@ -99,7 +99,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
                 Status::Failed { message, .. } => format!(" · {message}"),
                 _ => String::new(),
             };
-            format!("{} · {} · {}{error}\n", e.id, text::status(m, e.live.as_ref()), m.title)
+            format!("{} · {} · {}{error}\n", e.identifier, text::status(m, e.live.as_ref()), m.title)
         })
         .collect())
 }

@@ -40,5 +40,5 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     if entries.is_empty() {
         return Ok("Aucune réunion.\n".into());
     }
-    Ok(entries.iter().map(|e| format!("{} · {} · {} · {}\n", e.id, playback_timestamp(e.meeting.duration), text::status(&e.meeting, e.live.as_ref()), e.meeting.title)).collect())
+    Ok(entries.iter().map(|e| format!("{} · {} · {} · {}\n", e.identifier, playback_timestamp(e.meeting.duration), text::status(&e.meeting, e.live.as_ref()), e.meeting.title)).collect())
 }

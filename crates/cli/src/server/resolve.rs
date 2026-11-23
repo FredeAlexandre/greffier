@@ -11,11 +11,11 @@ use super::identifiers;
 /// The meeting `query` names (identifier, folder name or path, date, start of identifier). The
 /// candidates of an ambiguous query come with their live titles.
 pub(super) fn meeting_named(core: &Greffier, query: &str) -> Result<MeetingId, String> {
-    let ids = identifiers(core);
+    let identifiers = identifiers(core);
     let query = crate::reading::in_meetings_folder(query, core.folder().root())?;
-    let name = ids.resolve(query).map_err(|mut e| {
-        for (id, title) in &mut e.candidates {
-            let meeting = ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| core.meetings().iter().find(|m| m.folder_name == n));
+    let name = identifiers.resolve(query).map_err(|mut e| {
+        for (identifier, title) in &mut e.candidates {
+            let meeting = identifiers.iter().find(|(i, _)| i == identifier).and_then(|(_, n)| core.meetings().iter().find(|m| m.folder_name == n));
             if let Some(m) = meeting {
                 *title = m.title.clone();
             }
@@ -24,7 +24,7 @@ pub(super) fn meeting_named(core: &Greffier, query: &str) -> Result<MeetingId, S
     })?;
     match core.meetings().iter().find(|m| m.folder_name == name) {
         Some(m) => Ok(m.id),
-        None => Err(format!("la réunion {} est en cours d'enregistrement", ids.of(name).unwrap_or(name))),
+        None => Err(format!("la réunion {} est en cours d'enregistrement", identifiers.of(name).unwrap_or(name))),
     }
 }
 

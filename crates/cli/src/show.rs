@@ -78,11 +78,11 @@ fn summary_text(m: &Meeting) -> Option<String> {
 }
 
 fn no_summary(e: &Entry) -> Failure {
-    Failure::Failed(format!("pas encore de bilan pour {} {}", e.id, text::completed_stage(&e.meeting)))
+    Failure::Failed(format!("pas encore de bilan pour {} {}", e.identifier, text::completed_stage(&e.meeting)))
 }
 
 fn no_transcription(e: &Entry) -> Failure {
-    Failure::Failed(format!("pas encore de transcription pour {}", e.id))
+    Failure::Failed(format!("pas encore de transcription pour {}", e.identifier))
 }
 
 #[derive(Serialize)]
@@ -163,7 +163,7 @@ fn default(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> 
             actions: outline.as_ref().map(|o| o.actions),
         }));
     }
-    let mut s = format!("{} · {}\n{} · {} · {}\n", e.id, m.title, m.start.timestamp(), playback_timestamp(m.duration), text::status(m, e.live.as_ref()));
+    let mut s = format!("{} · {}\n{} · {} · {}\n", e.identifier, m.title, m.start.timestamp(), playback_timestamp(m.duration), text::status(m, e.live.as_ref()));
     if let greffier_core::Status::Failed { message, .. } = &m.status {
         s += &format!("Erreur : {message}\n");
     }
@@ -189,19 +189,19 @@ fn default(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> 
 fn summary(e: &Entry, json: bool) -> Result<String, Failure> {
     let s = summary_text(&e.meeting).ok_or_else(|| no_summary(e))?;
     if json {
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "bilan": s })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "bilan": s })));
     }
     Ok(s)
 }
 
 fn sheet(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> {
-    let missing = || Failure::Failed(format!("pas de fiche pour {}", e.id));
+    let missing = || Failure::Failed(format!("pas de fiche pour {}", e.identifier));
     if !e.meeting.files.contains(&Role::Sheet) {
         return Err(missing());
     }
     let s = std::fs::read_to_string(reading.folder.file(&e.meeting.folder_name, Role::Sheet)).map_err(|_| missing())?;
     if json {
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "fiche": s })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "fiche": s })));
     }
     Ok(s)
 }
@@ -237,7 +237,7 @@ fn transcription(e: &Entry, window: Window, numbered: bool, json: bool) -> Resul
         })
         .collect();
     if json {
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "repliques": kept })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "repliques": kept })));
     }
     if kept.is_empty() {
         return Ok("Aucune réplique dans cet intervalle.\n".into());
@@ -298,7 +298,7 @@ fn speakers(e: &Entry, json: bool) -> Result<String, Failure> {
     }
     let list = speaker_list(m);
     if json {
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "locuteurs": list })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "locuteurs": list })));
     }
     let total: f64 = m.utterances.iter().map(|u| u.end - u.start).sum();
     Ok(list
@@ -321,7 +321,7 @@ fn actions(e: &Entry, json: bool) -> Result<String, Failure> {
     let boxes = checkboxes(&e.meeting.summary);
     if json {
         let list: Vec<_> = boxes.iter().enumerate().map(|(i, (done, t))| serde_json::json!({ "numero": i + 1, "fait": done, "texte": t })).collect();
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "actions": list })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "actions": list })));
     }
     if boxes.is_empty() {
         return Ok("Aucune action.\n".into());
@@ -380,7 +380,7 @@ fn passages(e: &Entry, window: Window, json: bool) -> Result<String, Failure> {
         })
         .collect();
     if json {
-        return Ok(crate::json(&serde_json::json!({ "id": e.id, "passages": kept })));
+        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "passages": kept })));
     }
     if kept.is_empty() {
         return Ok(if m.passages.is_empty() { "Aucun passage à vérifier.\n" } else { "Aucun passage à vérifier dans cet intervalle.\n" }.into());

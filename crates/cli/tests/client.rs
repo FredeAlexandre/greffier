@@ -93,7 +93,8 @@ fn json_gives_the_identifier_and_the_folder() {
     let s = serve(fixtures(), adapters, 0.0);
     let out = ok(&cx(&s), &["rename", "2026-11-20", "Revue", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(v["id"], "2026-11-20-1000");
+    assert_eq!(v["identifiant"], "2026-11-20-1000");
+    assert!(v.get("id").is_none());
     assert_eq!(v["dossier"], s.folder.0.join("2026-11-20 10h00 - Revue").to_string_lossy().as_ref());
     assert_eq!(v["message"], "2026-11-20-1000 · renommée : Revue");
 }
@@ -281,7 +282,7 @@ fn import_in_json_and_without_processing() {
     let (_outside, file) = media();
     let out = ok(&cx(&s), &["import", file.to_str().unwrap(), "--no-process", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    let id = v["id"].as_str().unwrap();
+    let id = v["identifiant"].as_str().unwrap();
     assert_eq!(v["message"], format!("{id} · importée"));
     assert!(Path::new(v["dossier"].as_str().unwrap()).is_dir());
 }

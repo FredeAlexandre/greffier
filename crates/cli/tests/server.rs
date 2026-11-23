@@ -110,8 +110,8 @@ fn status_gives_the_queue_with_ranks_progress_and_time_remaining() {
     h.core.advance(1.0);
     let Response::Status(live) = server::answer(&mut h, Request::Status { meeting: None }) else { panic!() };
     assert!(live.busy);
-    let ids: Vec<_> = live.meetings.iter().map(|m| m.id.clone().unwrap()).collect();
-    assert_eq!(ids, ["2026-11-19-1530", "2026-11-18-0915"], "queue order");
+    let identifiers: Vec<_> = live.meetings.iter().map(|m| m.identifier.clone().unwrap()).collect();
+    assert_eq!(identifiers, ["2026-11-19-1530", "2026-11-18-0915"], "queue order");
     let (first, second) = (&live.meetings[0], &live.meetings[1]);
     assert!(matches!(first.status, LiveStatus::Running { stage: Stage::Transcription, progress } if progress > 0.0));
     assert_eq!((first.rank, second.rank), (Some(1), Some(2)));
@@ -119,6 +119,8 @@ fn status_gives_the_queue_with_ranks_progress_and_time_remaining() {
     assert_eq!(second.status, LiveStatus::Pending { stage: Stage::Review });
     assert!(second.time_remaining.unwrap() > first.time_remaining.unwrap());
     assert_eq!(first.folder_name, "2026-11-19 15h30 - Réunion");
+    let wire = greffier_cli::protocol::encode(&Response::Status(live.clone()));
+    assert!(wire.contains("\"identifiant\":\"2026-11-19-1530\"") && !wire.contains("\"id\""), "{wire}");
 }
 
 #[test]
