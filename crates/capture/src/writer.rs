@@ -294,9 +294,6 @@ impl Writer {
             return;
         }
         let t = unsafe { origin.convert_scale(SAMPLE_RATE as i32, CMTimeRoundingMethod::RoundHalfAwayFromZero).add(CMTime::new(block.start as i64, SAMPLE_RATE as i32)) };
-        if crate::mac::trace() {
-            eprintln!("block start={} n={n}", block.start);
-        }
         for (i, data) in [&block.mixing, &block.micro, &block.mac_audio].into_iter().enumerate() {
             let Some(buffer) = samples(&self.audio_format, data, n, t) else {
                 self.lost += 1;

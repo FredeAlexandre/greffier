@@ -78,11 +78,6 @@ impl Shared {
             }
         }
         let t = unsafe { buffer.presentation_time_stamp() };
-        if trace() {
-            let n = unsafe { buffer.num_samples() };
-            let image = kind == SCStreamOutputType::Screen && unsafe { buffer.image_buffer() }.is_some();
-            eprintln!("capture {:?} t={:.4} timescale={} n={n} image={image}", kind.0, unsafe { t.seconds() }, t.timescale);
-        }
         let Ok(mut state) = self.state.lock() else { return };
         let state = &mut *state;
         let Some(writer) = state.writer.as_mut() else { return };
@@ -127,12 +122,6 @@ impl Shared {
             self.broken.store(true, Ordering::Relaxed);
         }
     }
-}
-
-/// `GREFFIER_CAPTURE_TRACE=1`: every buffer received and every block written, on stderr.
-pub(crate) fn trace() -> bool {
-    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *TRACE.get_or_init(|| std::env::var_os("GREFFIER_CAPTURE_TRACE").is_some())
 }
 
 /// The samples of an audio buffer, as interleaved stereo at 48 kHz.
