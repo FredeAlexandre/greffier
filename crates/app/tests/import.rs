@@ -82,3 +82,17 @@ fn process_later_after_an_import_leaves_the_meeting_to_process() {
         assert!(!s.core.busy(), "nothing is processed");
     });
 }
+
+#[test]
+fn a_file_greffier_does_not_import_is_refused_in_french() {
+    let mut rt = app_on(demo_core());
+    let notes = temp_folder().join("notes.txt");
+    std::fs::write(&notes, "").expect("notes");
+    rt.update(move |s, _| s.propose_import(std::slice::from_ref(&notes)));
+    state(&mut rt, |s| {
+        assert!(s.import.is_none());
+        let toast = s.toast.as_ref().expect("a toast says why");
+        assert_eq!(toast.text, "« notes.txt » : Greffier importe un média (vidéo ou audio), une transcription (.vtt, .srt, .json) et un bilan (.md).", "the UI stays French");
+        assert!(toast.error);
+    });
+}
