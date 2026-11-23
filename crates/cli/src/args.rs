@@ -1,5 +1,6 @@
 //! Hand-written argument parsing, with French messages: after the command, options and
-//! positional arguments in any order, `--name value` or `--name=value`.
+//! positional arguments in any order, `--name value` or `--name=value`; after `--`, only
+//! positional arguments (a text that starts with `-`).
 
 use crate::Failure;
 
@@ -16,6 +17,10 @@ pub(crate) fn parse(args: &[String], flags: &[&'static str], valued: &[&'static 
     let mut parsed = Args { positionals: vec![], flags: vec![], values: vec![] };
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        if a == "--" {
+            parsed.positionals.extend(it.cloned());
+            break;
+        }
         if !a.starts_with('-') || a.len() == 1 {
             parsed.positionals.push(a.clone());
             continue;

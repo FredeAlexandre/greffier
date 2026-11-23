@@ -78,6 +78,16 @@ fn every_command_that_writes_says_what_it_did_in_one_line() {
 }
 
 #[test]
+fn after_a_double_dash_everything_is_text() {
+    let s = serve(fixtures(), adapters, 0.0);
+    let cx = cx(&s);
+    assert_eq!(ok(&cx, &["correct", "2026-11-20", "2", "--", "-5", "degrés", "--json"]), "2026-11-20-1000 · réplique #2 corrigée\n");
+    let transcription = std::fs::read_to_string(s.folder.0.join(RELEASE).join(format!("{RELEASE} - transcription.md"))).unwrap();
+    assert!(transcription.contains("-5 degrés --json"), "{transcription}");
+    assert_eq!(failed(&cx, &["correct", "2026-11-20", "2", "-5", "degrés"], 2).err, "greffier : option inconnue : -5 (voir greffier help)\n");
+}
+
+#[test]
 fn json_gives_the_identifier_and_the_folder() {
     let s = serve(fixtures(), adapters, 0.0);
     let out = ok(&cx(&s), &["rename", "2026-11-20", "Revue", "--json"]);

@@ -164,6 +164,7 @@ greffier resolve <réunion> <passage> accepter|garder|rouvrir|corriger <texte…
 greffier check-action <réunion> <n> [--undo]
 greffier delete <réunion> --yes
   --wait attend que la réunion sorte de la file (terminée ou en échec), --timeout S au plus S secondes.
+  Après --, tout est texte : greffier correct 2026-11-20-0939 3 -- -5 degrés.
 
 <réunion> : identifiant (2026-11-20-0939), nom ou chemin du dossier, date (2026-11-20) ou début d'identifiant.
 <locuteur> : index (0), label (SPEAKER_00) ou nom affiché. <réplique> : numéro (#3) ou instant (h:mm:ss).

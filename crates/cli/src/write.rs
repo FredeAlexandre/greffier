@@ -18,10 +18,11 @@ use crate::{Context, Failure, HELP, text};
 /// The commands of this module.
 pub(crate) const COMMANDS: [&str; 10] = ["import", "process", "redo", "stop", "rename", "speaker", "correct", "resolve", "check-action", "delete"];
 
-/// What a command asks: the action, and whether to follow the processing it starts.
+/// What a command asks: the action, whether to follow the processing it starts, and in JSON.
 struct Asked {
     action: Action,
     wait: Option<Wait>,
+    json: bool,
 }
 
 /// `--wait [--timeout S]`.
@@ -156,7 +157,7 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
         other => return Err(usage(format!("commande inconnue : {other}"))),
     };
     let wait = if matches!(command, "import" | "process" | "redo") { wait(&a)? } else { None };
-    Ok(Some(Asked { action, wait }))
+    Ok(Some(Asked { action, wait, json: a.flag("--json") }))
 }
 
 /// A meeting as typed, for the process; a path made absolute, as the process does not share
@@ -190,8 +191,8 @@ struct EndJson<'a> {
 }
 
 pub(crate) fn run(cx: &Context, command: &str, args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<String, Failure> {
-    let json = args.iter().any(|a| a == "--json");
     let Some(asked) = parse(command, args)? else { return Ok(HELP.into()) };
+    let json = asked.json;
     let Some(folder) = &cx.meetings_folder else {
         return Err(Failure::Failed("aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.".into()));
     };
