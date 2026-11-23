@@ -189,6 +189,51 @@ fn an_app_folder_too_deep_for_a_socket_fails_at_once() {
     );
 }
 
+/// A process that greets, then takes its time over everything else (an import converting a
+/// long media): it reads the request and answers after `delay`.
+fn busy_process(folder: &Path, app: &Path, delay: Duration) -> std::thread::JoinHandle<()> {
+    use greffier_cli::protocol::{Hello, Response, VERSION, encode};
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::os::unix::net::UnixListener::bind(greffier_cli::server::socket_path(app)).expect("socket");
+    let folder = folder.canonicalize().unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("a connection");
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let hello = Response::Hello(Hello { version: VERSION, pid: 1, meetings_folder: Some(folder), background: true });
+        writer.write_all(encode(&hello).as_bytes()).unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        std::thread::sleep(delay);
+        let _ = writer.write_all(encode(&Response::error("trop tard")).as_bytes());
+    })
+}
+
+#[test]
+fn an_action_that_takes_long_may_still_complete() {
+    let f = fixtures();
+    let app = Temp::new();
+    let busy = busy_process(&f.0, &app.0, Duration::from_millis(600));
+    let mut cx = on(&f.0, &app.0);
+    cx.process.as_mut().unwrap().timeouts.action = Duration::from_millis(200);
+    let o = failed(&cx, &["rename", "2026-11-20", "Revue"], 3);
+    assert_eq!(
+        o.err,
+        "greffier : Greffier n'a pas répondu en 0.2 s : il travaille peut-être encore, et l'action peut aboutir. Vérifiez avec greffier list ou greffier status avant de la relancer.\n"
+    );
+    busy.join().unwrap();
+}
+
+#[test]
+fn an_import_has_minutes_to_answer_the_rest_seconds() {
+    let t = Process::new(Path::new("/tmp/app"), Launch::Nothing).timeouts;
+    assert!(t.import >= Duration::from_secs(600), "a long media is copied and converted before the answer");
+    assert!(t.action > Duration::from_secs(60) && t.action < t.import);
+    assert!(t.quick <= Duration::from_secs(30));
+}
+
 #[test]
 fn a_launch_that_fails_says_why() {
     let f = fixtures();

@@ -10,7 +10,7 @@ use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::Failure;
-use crate::protocol::{Request, Response, Snapshot, VERSION, encode};
+use crate::protocol::{Action, Request, Response, Snapshot, VERSION, encode};
 use crate::server::MAX_SOCKET_PATH;
 
 /// The installed app's bundle identifier.
@@ -113,12 +113,42 @@ pub struct Process {
     pub patience: Duration,
     /// How often `--wait` asks where the processing stands.
     pub poll: Duration,
+    /// How long the process has to answer a request.
+    pub timeouts: Timeouts,
+}
+
+/// How long the process has to answer a request, by kind: a process that hangs must not hang
+/// the command line, and one at work must have the time to finish.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Timeouts {
+    /// `hello`, `status`, `open_window`: answered from what the process knows.
+    pub quick: Duration,
+    /// An action: a few files written, a folder renamed or trashed.
+    pub action: Duration,
+    /// An import: the media is copied, and converted if need be, before the answer.
+    pub import: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Timeouts {
+        Timeouts { quick: Duration::from_secs(30), action: Duration::from_secs(120), import: Duration::from_secs(600) }
+    }
+}
+
+impl Timeouts {
+    fn of(&self, request: &Request) -> Duration {
+        match request {
+            Request::Execute(Action::Import { .. }) => self.import,
+            Request::Execute(_) => self.action,
+            Request::Hello | Request::Status { .. } | Request::OpenWindow => self.quick,
+        }
+    }
 }
 
 impl Process {
     /// The process of this app folder, launched this way.
     pub fn new(app_folder: &Path, launch: Launch) -> Process {
-        Process { socket: crate::server::socket_path(app_folder), launch, patience: Duration::from_secs(15), poll: Duration::from_secs(1) }
+        Process { socket: crate::server::socket_path(app_folder), launch, patience: Duration::from_secs(15), poll: Duration::from_secs(1), timeouts: Timeouts::default() }
     }
 
     /// The process of the app folder (`GREFFIER_APP_FOLDER` or the default), launched as
@@ -139,7 +169,7 @@ impl Process {
                 self.socket.display()
             )));
         }
-        if let Ok(c) = Connection::open(&self.socket) {
+        if let Ok(c) = Connection::open(&self.socket, self.timeouts) {
             return c.greet(meetings_folder);
         }
         let deadline = Instant::now() + self.patience;
@@ -147,7 +177,7 @@ impl Process {
         let (mut launches, mut launched) = (1, Instant::now());
         loop {
             std::thread::sleep(Duration::from_millis(50));
-            if let Ok(c) = Connection::open(&self.socket) {
+            if let Ok(c) = Connection::open(&self.socket, self.timeouts) {
                 return c.greet(meetings_folder);
             }
             let now = Instant::now();
@@ -178,7 +208,7 @@ impl Process {
     /// What the process already running on `meetings_folder` is doing; `None` if none answers
     /// (it is never launched for this).
     pub(crate) fn snapshot(&self, meetings_folder: &Path) -> Option<Snapshot> {
-        let mut c = Connection::open(&self.socket).ok()?.greet(meetings_folder).ok()?;
+        let mut c = Connection::open(&self.socket, self.timeouts).ok()?.greet(meetings_folder).ok()?;
         match c.ask(&Request::Status { meeting: None }) {
             Ok(Response::Status(s)) => Some(s),
             _ => None,
@@ -189,7 +219,7 @@ impl Process {
 /// Sends one request to the process listening on `socket` and returns its response; `None` if
 /// nobody answers. For the app's second launch: [`Request::OpenWindow`] to the first one.
 pub fn ask_once(socket: &Path, request: &Request) -> Option<Response> {
-    Connection::open(socket).ok()?.ask(request).ok()
+    Connection::open(socket, Timeouts::default()).ok()?.ask(request).ok()
 }
 
 /// Whether a live process holds the lock of the app folder this socket is in: the lock file
@@ -211,14 +241,13 @@ fn not_answering(socket: &Path) -> String {
 pub(crate) struct Connection {
     reader: BufReader<UnixStream>,
     writer: UnixStream,
+    timeouts: Timeouts,
 }
 
 impl Connection {
-    fn open(socket: &Path) -> std::io::Result<Connection> {
+    fn open(socket: &Path, timeouts: Timeouts) -> std::io::Result<Connection> {
         let s = UnixStream::connect(socket)?;
-        // A process that hangs must not hang the command line.
-        s.set_read_timeout(Some(Duration::from_secs(60)))?;
-        Ok(Connection { reader: BufReader::new(s.try_clone()?), writer: s })
+        Ok(Connection { reader: BufReader::new(s.try_clone()?), writer: s, timeouts })
     }
 
     /// [`Request::Hello`]: the process must speak this protocol and work on `meetings_folder`.
@@ -242,7 +271,19 @@ impl Connection {
     }
 
     pub fn ask(&mut self, request: &Request) -> Result<Response, Failure> {
-        let lost = |e: std::io::Error| Failure::Unreachable(format!("Greffier ne répond plus : {e}"));
+        let timeout = self.timeouts.of(request);
+        let lost = |e: std::io::Error| match e.kind() {
+            // Alive, but still at work: an action may still complete.
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => Failure::Unreachable(match request {
+                Request::Execute(_) => format!(
+                    "Greffier n'a pas répondu en {} : il travaille peut-être encore, et l'action peut aboutir. Vérifiez avec greffier list ou greffier status avant de la relancer.",
+                    span(timeout)
+                ),
+                _ => format!("Greffier n'a pas répondu en {} : il est peut-être occupé ; réessayez dans un moment.", span(timeout)),
+            }),
+            _ => Failure::Unreachable(format!("Greffier ne répond plus : {e}")),
+        };
+        self.reader.get_ref().set_read_timeout(Some(timeout)).map_err(lost)?;
         self.writer.write_all(encode(request).as_bytes()).map_err(lost)?;
         let mut line = String::new();
         if self.reader.read_line(&mut line).map_err(lost)? == 0 {
@@ -252,3 +293,8 @@ impl Connection {
     }
 }
 
+/// « 0.2 s », « 30 s », « 10 min ».
+fn span(d: Duration) -> String {
+    let seconds = d.as_secs_f64();
+    if seconds >= 60.0 && d.as_secs() % 60 == 0 { format!("{} min", d.as_secs() / 60) } else { format!("{seconds} s") }
+}
