@@ -60,6 +60,9 @@ pub fn with_toast(s: &App, k: &Kit, main: El) -> El {
     col().w_full().h_full().min_h(0.0).child(banner).child(col().w_full().grow(1.0).min_h(0.0).child(main))
 }
 
+/// The keys of the source switches, in the order of [`App::source`].
+const SOURCE_KEYS: [&str; 3] = ["source-screen", "source-mac-audio", "source-micro"];
+
 fn stat(k: &Kit, value: String, label: &str) -> El {
     col()
         .grow(1.0)
@@ -178,6 +181,13 @@ fn meter(k: &Kit, key: &str, icon: &'static rune::Icon, label: &str, phase: f64,
         .child(bars)
 }
 
+/// The key of a permission's line in the card (`perm-screen`…); its button is keyed
+/// `<line>-allow` (never asked: the macOS prompt) or `<line>-settings` (refused: System Settings).
+fn permission_keys(line: &str, state: PermissionState) -> (String, String) {
+    let button = if state == PermissionState::ToRequest { "allow" } else { "settings" };
+    (line.to_owned(), format!("{line}-{button}"))
+}
+
 /// The macOS permissions the sources need, with a way to request them.
 pub fn permissions(s: &App, k: &Kit) -> El {
     let states = s.core.permissions();
@@ -189,25 +199,31 @@ pub fn permissions(s: &App, k: &Kit) -> El {
             PermissionState::ToRequest => "pas encore demandée".to_string(),
             PermissionState::Denied => format!("refusée : Réglages Système › Confidentialité et sécurité › {}", a.section()),
         };
-        let mut line = row().key(format!("perm-{}", a.name())).w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, a.name(), &detail).grow(1.0).min_w(0.0));
+        let name = match a {
+            Permission::Screen => "perm-screen",
+            Permission::MacAudio => "perm-mac-audio",
+            Permission::Micro => "perm-micro",
+        };
+        let (key, button_key) = permission_keys(name, state);
+        let mut line = row().key(key).w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, a.name(), &detail).grow(1.0).min_w(0.0));
         if state != PermissionState::Granted {
             let label = if state == PermissionState::ToRequest { "Autoriser" } else { "Ouvrir les Réglages" };
-            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.command(Command::RequestPermission(a))).build(k));
+            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(move |s: &mut App| s.command(Command::RequestPermission(a))).build(k).key(button_key));
         }
         c = c.child(line);
     }
     // Notifications: only the installed app can post them.
-    if rune_notify::available() {
-        let state = greffier_capture::notifications::state();
+    if let Some(state) = s.notifications.as_ref().and_then(|n| n.state()) {
+        let (key, button_key) = permission_keys("perm-notifications", state);
         let detail = match state {
             PermissionState::Granted => "accordées : « Bilan prêt » arrive même quand Greffier est en arrière-plan",
             PermissionState::ToRequest => "pas encore demandées : sans elles, « Bilan prêt » ne s'affiche que dans Greffier",
             PermissionState::Denied => "refusées : Réglages Système › Notifications › Greffier",
         };
-        let mut line = row().key("perm-notifications").w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, "Notifications", detail).grow(1.0).min_w(0.0));
+        let mut line = row().key(key).w_full().gap(8.0).center_y().child(check_row(k, state == PermissionState::Granted, "Notifications", detail).grow(1.0).min_w(0.0));
         if state != PermissionState::Granted {
             let label = if state == PermissionState::ToRequest { "Autoriser" } else { "Ouvrir les Réglages" };
-            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|_: &mut App| greffier_capture::notifications::request()).build(k));
+            line = line.child(Button::new(label).variant(ButtonVariant::Outline).control_size(ControlSize::Small).on_press(|s: &mut App| if let Some(n) = &s.notifications { n.request() }).build(k).key(button_key));
         }
         c = c.child(line);
     }
@@ -244,13 +260,13 @@ pub fn recording(s: &App, k: &Kit) -> El {
         if let Some(e) = &s.record_error {
             start = start.child(text(e.clone()).key("record-error").font(k.ty.small).color(k.c.danger.fg).wrap());
         }
-        let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k);
+        let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k).key(SOURCE_KEYS[i]);
         let sources = card(k)
             .child(heading(k, "Sources"))
             .child(src(0, "Écran"))
             .child(src(1, "Son du Mac"))
             .child(src(2, "Micro"))
-            .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+            .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k).key("process-on-stop"));
         let subtitle = if caps.is_empty() { "Un clic sur le bouton.".to_string() } else { format!("Un clic ou {}, de n'importe où.", caps.concat()) };
         let body = col().w_full().gap(16.0).child(start).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(sources)).child(col().grow(1.0).min_w(0.0).child(permissions(s, k))));
         return page("recording", "Enregistrer", &subtitle, k, body);
@@ -299,7 +315,7 @@ pub fn recording(s: &App, k: &Kit) -> El {
                 .child(Button::new("+").variant(ButtonVariant::Outline).control_size(ControlSize::Small)
                     .on_press(move |s: &mut App| s.command(Command::RecordingSpeakerCount(Some(people.map_or(2, |n| (n + 1).min(12)))))).build(k)),
         )
-        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k).key("process-on-stop"));
 
     page("recording", "Enregistrement", "La réunion arrive dans la liste à l'arrêt, avec son traitement.", k,
         col().w_full().gap(16.0).child(timer).child(row().w_full().gap(16.0).items_start().child(col().grow(1.0).min_w(0.0).child(setup)).child(col().grow(1.0).min_w(0.0).child(markers))))
@@ -330,7 +346,7 @@ fn shortcut_field(s: &App, k: &Kit) -> El {
 }
 
 pub fn settings(s: &App, k: &Kit) -> El {
-    let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k);
+    let src = |i: usize, label: &str| Switch::new(s.source(i)).label(label.to_owned()).on_toggle(move |s: &mut App| s.toggle_source(i)).build(k).key(SOURCE_KEYS[i]);
     let rec = card(k)
         .child(heading(k, "Enregistrement"))
         .child(src(0, "Écran"))
@@ -347,7 +363,7 @@ pub fn settings(s: &App, k: &Kit) -> El {
                 .child(col().gap(2.0).child(text("Poser un repère").font(k.ty.ui).color(k.c.text_base)).child(muted(k, "De n'importe où, pendant l'enregistrement seulement.")))
                 .child(Keybind::new(&["⌘", "M"]).build(k)),
         )
-        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k));
+        .child(Switch::new(s.core.settings().process_on_stop).label("Transcrire et faire le bilan à l'arrêt").on_toggle(|s: &mut App| s.toggle_auto_process()).build(k).key("process-on-stop"));
     let folder = match (&s.folder, s.needs_folder) {
         (Some(d), _) => settings::display(d),
         (None, true) => "Pas encore choisi".to_string(),

@@ -11,6 +11,10 @@ pub trait Registrar {
     fn unregister(&self, id: Self::Id);
 }
 
+/// A registration, whoever made it: the app handle's `ShortcutId` in the window, a fake's in the
+/// tests. The app holds its registrar as a `dyn Registrar<Id = Registration>`.
+pub type Registration = Box<dyn std::any::Any>;
+
 /// What is registered of the recording shortcut. Holds at most one registration.
 #[derive(Debug)]
 pub struct RecordShortcut<Id> {
@@ -32,7 +36,7 @@ impl<Id> RecordShortcut<Id> {
 
     /// Registers `next` (`None`: no shortcut) in place of the current registration. If `next` is
     /// refused, the current registration stays.
-    pub fn change(&mut self, r: &impl Registrar<Id = Id>, next: Option<&Shortcut>) -> Result<(), ShortcutError> {
+    pub fn change(&mut self, r: &(impl Registrar<Id = Id> + ?Sized), next: Option<&Shortcut>) -> Result<(), ShortcutError> {
         let new = next.map(|sc| r.register(sc)).transpose()?;
         if let Some(old) = std::mem::replace(&mut self.registered, new) {
             r.unregister(old);
@@ -44,7 +48,7 @@ impl<Id> RecordShortcut<Id> {
     /// registers `chosen` (its value) when it stops, unless a change made during the capture is
     /// already registered. Does nothing while the field stays in the same phase. An error: `chosen`
     /// was refused when coming back, and nothing is registered.
-    pub fn follow_capture(&mut self, r: &impl Registrar<Id = Id>, capturing: bool, chosen: Option<&Shortcut>) -> Result<(), ShortcutError> {
+    pub fn follow_capture(&mut self, r: &(impl Registrar<Id = Id> + ?Sized), capturing: bool, chosen: Option<&Shortcut>) -> Result<(), ShortcutError> {
         if capturing == self.suspended {
             return Ok(());
         }

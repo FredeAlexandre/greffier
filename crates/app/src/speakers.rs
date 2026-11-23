@@ -165,24 +165,24 @@ fn card(s: &App, m: &Meeting, si: usize, k: &Kit) -> El {
                 .center_y()
                 .child(dot(spk_color(m.speakers[j].tint), 7.0))
                 .child(text(label).font(k.ty.small).color(k.c.text_muted).grow(1.0).min_w(0.0))
-                .child(small("Séparer", ButtonVariant::GhostFaint).help("Défaire la fusion : ce locuteur retrouve ses répliques").on_press(move |s: &mut App| s.command(Command::SplitSpeaker { meeting: id, speaker: j })).build(k)),
+                .child(small("Séparer", ButtonVariant::GhostFaint).help("Défaire la fusion : ce locuteur retrouve ses répliques").on_press(move |s: &mut App| s.command(Command::SplitSpeaker { meeting: id, speaker: j })).build(k).key(format!("spk{si}-split{j}"))),
         );
     }
 
     let mut buttons = row().gap(6.0).flex_wrap();
     if let (None, None, Some(guess)) = (&spk.name, spk.suggested_merge, &spk.proposal) {
         let name = guess.clone();
-        buttons = buttons.child(small(format!("Confirmer « {guess} »"), ButtonVariant::Submit).on_press(move |s: &mut App| s.name_speaker(si, name.clone())).build(k));
+        buttons = buttons.child(small(format!("Confirmer « {guess} »"), ButtonVariant::Submit).on_press(move |s: &mut App| s.name_speaker(si, name.clone())).build(k).key(format!("spk{si}-confirm")));
     }
     if let Some(target) = spk.suggested_merge {
         let tname = m.speakers[m.displayed_speaker(target)].display_name();
-        buttons = buttons.child(small(format!("Fusionner avec {tname}"), ButtonVariant::Submit).on_press(move |s: &mut App| s.command(Command::MergeSpeakers { meeting: id, speaker: si, into: target })).build(k));
+        buttons = buttons.child(small(format!("Fusionner avec {tname}"), ButtonVariant::Submit).on_press(move |s: &mut App| s.command(Command::MergeSpeakers { meeting: id, speaker: si, into: target })).build(k).key(format!("spk{si}-merge-suggested")));
     }
     let naming = matches!(&s.picking, Some(Picking { speaker, mode: Mode::Name { .. } }) if *speaker == si);
     let merging = matches!(&s.picking, Some(Picking { speaker, mode: Mode::Fusion }) if *speaker == si);
-    buttons = buttons.child(small(if naming { "Fermer" } else { "Corriger" }, ButtonVariant::Ghost).on_press(move |s: &mut App| s.start_naming(si)).build(k));
+    buttons = buttons.child(small(if naming { "Fermer" } else { "Corriger" }, ButtonVariant::Ghost).on_press(move |s: &mut App| s.start_naming(si)).build(k).key(format!("spk{si}-rename")));
     if m.active_speakers().count() > 1 {
-        buttons = buttons.child(small(if merging { "Fermer" } else { "Fusionner…" }, ButtonVariant::Ghost).help("Ce locuteur est la même voix qu'un autre").on_press(move |s: &mut App| s.start_merging(si)).build(k));
+        buttons = buttons.child(small(if merging { "Fermer" } else { "Fusionner…" }, ButtonVariant::Ghost).help("Ce locuteur est la même voix qu'un autre").on_press(move |s: &mut App| s.start_merging(si)).build(k).key(format!("spk{si}-merge")));
     }
     card = card.child(buttons);
 
@@ -211,7 +211,7 @@ fn card(s: &App, m: &Meeting, si: usize, k: &Kit) -> El {
         let mut chips = row().gap(6.0).flex_wrap().center_y().child(muted(k, "Même voix que :"));
         for j in m.active_speakers().filter(|&j| j != si) {
             let other = &m.speakers[j];
-            chips = chips.child(chip(k, other.display_name(), Some(spk_color(other.tint))).on_press(move |s: &mut App| {
+            chips = chips.child(chip(k, other.display_name(), Some(spk_color(other.tint))).key(format!("spk{si}-into{j}")).on_press(move |s: &mut App| {
                 s.command(Command::MergeSpeakers { meeting: id, speaker: si, into: j });
                 s.picking = None;
             }));

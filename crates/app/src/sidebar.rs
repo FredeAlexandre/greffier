@@ -4,10 +4,39 @@ use rune::{El, col, row, text};
 use rune_kit::shell::{RowStatus, Sidebar, SidebarRow, SidebarSection};
 use rune_kit::{Kit, MenuItem, context_menu};
 
-use greffier_core::{Stage, Meeting, Status};
+use greffier_core::{DateTime, Stage, Meeting, Status};
 
 use crate::ui::{self, glyph, red, tnum};
 use crate::{App, Page, Tab, redo};
+
+/// The sidebar's sections, from the most recent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Period {
+    Today,
+    Yesterday,
+    /// Since Monday, before yesterday.
+    ThisWeek,
+    LastWeek,
+    Earlier,
+}
+
+impl Period {
+    pub const ALL: [Period; 5] = [Period::Today, Period::Yesterday, Period::ThisWeek, Period::LastWeek, Period::Earlier];
+}
+
+/// The section of a meeting that started on `start`, seen from `today`. Weeks start on Monday;
+/// yesterday is « Hier » even when it was last week's Sunday.
+pub fn period(start: DateTime, today: DateTime) -> Period {
+    let days_ago = start.days_until(today);
+    let since_monday = today.weekday() as i64;
+    match days_ago {
+        ..=0 => Period::Today,
+        1 => Period::Yesterday,
+        _ if days_ago <= since_monday => Period::ThisWeek,
+        _ if days_ago <= since_monday + 7 => Period::LastWeek,
+        _ => Period::Earlier,
+    }
+}
 
 fn record_button(s: &App, k: &Kit) -> El {
     let r = red();
@@ -142,18 +171,10 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
                 .key("nav-search"),
         )
         .footer(nav("Réglages", &ui::SLIDERS, Page::Settings).build(k).key("nav-settings"));
-    // Weeks start on Monday: « Cette semaine » stops at today's Monday.
     let today = s.core.today();
-    let monday = today.weekday() as i64;
-    let groups: [(&str, Box<dyn Fn(i64) -> bool>); 5] = [
-        ("Aujourd'hui", Box::new(|a| a <= 0)),
-        ("Hier", Box::new(|a| a == 1)),
-        ("Cette semaine", Box::new(move |a| a >= 2 && a <= monday)),
-        ("Semaine dernière", Box::new(move |a| a >= 2 && a > monday && a <= monday + 7)),
-        ("Plus tôt", Box::new(move |a| a >= 2 && a > monday + 7)),
-    ];
-    for (gi, (name, pred)) in groups.iter().enumerate() {
-        let rows: Vec<El> = s.core.meetings().iter().filter(|m| pred(m.start.days_until(today))).map(|m| meeting_row(s, m, k, layer)).collect();
+    let names = ["Aujourd'hui", "Hier", "Cette semaine", "Semaine dernière", "Plus tôt"];
+    for (gi, (name, p)) in names.iter().zip(Period::ALL).enumerate() {
+        let rows: Vec<El> = s.core.meetings().iter().filter(|m| period(m.start, today) == p).map(|m| meeting_row(s, m, k, layer)).collect();
         if rows.is_empty() {
             continue;
         }

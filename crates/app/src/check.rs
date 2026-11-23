@@ -239,7 +239,7 @@ pub fn tab(s: &App, m: &Meeting, k: &Kit) -> El {
                     .child(text(ui::ts(start)).font(tnum(k.ty.small)).color(k.c.text_faint))
                     .child(text(label).font(k.ty.small).color(k.c.text_muted).truncate().grow(1.0).min_w(0.0))
                     .child(Button::new("Annuler").variant(ButtonVariant::GhostFaint).control_size(ControlSize::Small)
-                        .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::Reopen)).build(k)),
+                        .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::Reopen)).build(k).key(format!("dz{di}-reopen"))),
             );
             continue;
         }
@@ -249,17 +249,17 @@ pub fn tab(s: &App, m: &Meeting, k: &Kit) -> El {
         } else {
             let accept = match &d.hypothesis {
                 Some(h) => Button::new(format!("Remplacer par « {h} »")).variant(ButtonVariant::Submit).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::AcceptHypothesis)).build(k),
+                    .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::AcceptHypothesis)).build(k).key(format!("dc{di}-accept")),
                 None => Button::new("Pas d'hypothèse").variant(ButtonVariant::Outline).control_size(ControlSize::Small).disabled(true).build(k),
             };
             row().gap(8.0).flex_wrap()
                 .child(Button::new("Écouter").icon(&ui::PLAY).variant(ButtonVariant::Outline).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.listen_doubt(di)).build(k))
+                    .on_press(move |s: &mut App| s.listen_doubt(di)).build(k).key(format!("dc{di}-listen")))
                 .child(accept)
                 .child(Button::new("Garder l'original").variant(ButtonVariant::Ghost).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::KeepOriginal)).build(k))
+                    .on_press(move |s: &mut App| s.resolve_doubt(di, Resolution::KeepOriginal)).build(k).key(format!("dc{di}-keep")))
                 .child(Button::new("Corriger…").variant(ButtonVariant::Ghost).control_size(ControlSize::Small)
-                    .on_press(move |s: &mut App| s.start_correction(Target::Passage(di))).build(k))
+                    .on_press(move |s: &mut App| s.start_correction(Target::Passage(di))).build(k).key(format!("dc{di}-correct")))
         };
         let mut item = card(k).key(format!("dc{di}"));
         if current == Some(di) {
