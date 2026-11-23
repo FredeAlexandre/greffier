@@ -33,8 +33,8 @@ pub trait Host {
         let root = self.core().folder().root().to_path_buf();
         Some(root.canonicalize().unwrap_or(root))
     }
-    /// The core's events from one action, once it is carried out (the app handles them as its
-    /// own commands').
+    /// The core's events from one request, once it is carried out: the meetings folder read
+    /// again, then the action's (the app handles them as its own commands').
     fn executed(&mut self, _events: Vec<Event>) {}
     /// The meeting was moved to the trash (the app forgets its page, its video…).
     fn deleted(&mut self, _meeting: MeetingId) {}
@@ -42,20 +42,28 @@ pub trait Host {
     fn open_window(&mut self) {}
 }
 
-/// The answer to one request.
+/// The answer to one request. A status or an action first reads the meetings folder again
+/// ([`Greffier::rescan_folder`]): what the user typed is resolved against the folder as it is
+/// now, as `greffier list` reads it, not as the folder watcher last reported it.
 pub fn answer<H: Host + ?Sized>(host: &mut H, request: Request) -> Response {
     match request {
         Request::Hello => Response::Hello(Hello { version: VERSION, pid: std::process::id(), meetings_folder: host.meetings_folder(), background: host.background() }),
-        Request::Status { meeting } => match snapshot(host.core(), meeting.as_deref()) {
-            Ok(s) => Response::Status(s),
-            Err(message) => Response::Error { message },
-        },
+        Request::Status { meeting } => {
+            let events = host.core().rescan_folder();
+            if !events.is_empty() {
+                host.executed(events);
+            }
+            match snapshot(host.core(), meeting.as_deref()) {
+                Ok(s) => Response::Status(s),
+                Err(message) => Response::Error { message },
+            }
+        }
         Request::OpenWindow => {
             host.open_window();
             Response::Ok(Done { message: "fenêtre ouverte".into(), ..Done::default() })
         }
         Request::Execute(action) => {
-            let mut events = Vec::new();
+            let mut events = host.core().rescan_folder();
             let result = execute(host, action, &mut events);
             if !events.is_empty() {
                 host.executed(events);

@@ -148,6 +148,36 @@ fn a_meeting_is_named_by_identifier_folder_name_or_date() {
     assert!(ambiguous.contains("\n2026-11-20-1000 · Revue de release"), "titles of the live meetings: {ambiguous}");
 }
 
+/// Adds a meeting folder behind the core's back (the Finder, an agent), as the folder watcher has
+/// not reported yet: a recording alone.
+fn add_behind_the_core(h: &TestHost, folder_name: &str) {
+    let dir = h.folder().join(folder_name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let recording = h.folder().join("2026-11-19 15h30 - Réunion/2026-11-19 15h30 - Réunion - enregistrement.mp4");
+    std::fs::copy(recording, dir.join(format!("{folder_name} - enregistrement.mp4"))).unwrap();
+}
+
+#[test]
+fn a_meeting_is_named_against_the_folder_as_it_is_now() {
+    let mut h = host();
+    // « Alpha » comes before « Réunion » in the same minute: it takes 2026-11-19-1530, as `list`
+    // shows it, and « Réunion » becomes 2026-11-19-1530-2.
+    add_behind_the_core(&h, "2026-11-19 15h30 - Alpha");
+    let done = h.ok(Action::Rename { meeting: s("2026-11-19-1530"), title: s("Renommée") });
+    assert_eq!(done.folder_name.as_deref(), Some("2026-11-19 15h30 - Renommée"));
+    assert!(!h.folder().join("2026-11-19 15h30 - Alpha").exists(), "Alpha was renamed");
+    assert!(h.folder().join("2026-11-19 15h30 - Réunion").is_dir(), "the other meeting of that minute is left alone");
+    assert!(h.events.iter().any(|e| matches!(e, Event::MeetingAppeared(_))), "the rescan's events go to the host: {:?}", h.events);
+}
+
+#[test]
+fn the_status_reads_the_folder_as_it_is_now() {
+    let mut h = host();
+    add_behind_the_core(&h, "2026-11-19 15h30 - Alpha");
+    let Response::Status(snapshot) = server::answer(&mut h, Request::Status { meeting: Some(s("2026-11-19-1530")) }) else { panic!() };
+    assert_eq!(snapshot.meetings[0].folder_name, "2026-11-19 15h30 - Alpha");
+}
+
 #[test]
 fn rename_renames_the_folder_and_gives_the_identifier() {
     let mut h = host();
