@@ -186,7 +186,7 @@ fn bench_with_permissions(permissions: Permissions) -> Bench {
 
 fn rejection(bench: &mut Bench, command: Command) -> String {
     match bench.greffier.execute(command) {
-        Err(Rejection::Impossible(m)) => m,
+        Err(Rejection::Impossible(m)) => m.to_string(),
         other => panic!("rejection expected, got {other:?}"),
     }
 }
