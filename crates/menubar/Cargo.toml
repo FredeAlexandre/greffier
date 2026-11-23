@@ -1,0 +1,13 @@
+[package]
+name = "greffier-menubar"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Greffier's menu bar icon: what its menu shows (pure, tested logic) and, on macOS, the NSStatusItem written in objc2 from the main thread."
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"

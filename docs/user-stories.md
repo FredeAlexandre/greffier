@@ -1,65 +1,66 @@
 # Greffier — user stories
 
-> Une app Mac qui enregistre les réunions de travail, les transcrit, les relit et en fait le bilan,
-> pour retrouver vite ce qui a été dit, décidé et à faire. Vocabulaire : [GLOSSARY.md](../GLOSSARY.md).
-> Décisions d'architecture : [docs/adr/](adr/).
+> A Mac app that records work meetings, transcribes them, reviews them and writes their summary,
+> to quickly find what was said, decided and to be done. Vocabulary: [GLOSSARY.md](../GLOSSARY.md).
+> Architecture decisions: [docs/adr/](adr/).
 >
-> **Périmètre** : Greffier couvre enregistrement → transcription → relecture → bilan → revoir → retrouver.
-> Ce n'est pas un gestionnaire de tâches : les décisions et actions vivent dans le bilan de chaque réunion.
+> **Scope**: Greffier covers recording → transcription → review → summary → revisiting → finding.
+> It is not a task manager: decisions and actions live in each meeting's summary.
 
-## Cycles et versions
+The app's UI is in French: labels quoted from the app are kept in French.
 
-Jusqu'à la première vraie release, le travail avance par **cycles** (Cycle 1, Cycle 2…). Le numéro de
-version du logiciel n'en dépend pas : la **1.0.0** sortira quand l'app satisfera Alexandre et que les
-critères de [Avant la 1.0.0](#avant-la-100) seront remplis. Ensuite, on passe au versionnage.
+## Cycles and versions
 
-**Pendant les cycles**, Greffier doit marcher sur **le Mac d'Alexandre et lui seul** (Apple M5, 24 Go,
-macOS 27). Aucune exigence de portabilité, mais rien qui la rende plus difficile : pas de chemin propre
-à cette machine écrit en dur, modèles téléchargés depuis des adresses publiques.
+Until the first real release, work moves forward in **cycles** (Cycle 1, Cycle 2…). The software's
+version number does not depend on them: **1.0.0** will ship when the app satisfies Alexandre and the
+criteria of [Before 1.0.0](#before-100) are met. After that, we switch to versioning.
 
-Chaque story porte son cycle et son origine :
-- **parité** : le vault Obsidian le fait aujourd'hui (sous une autre forme) ;
-- **nouveau** : ni le vault ni ses outils ne le font.
+**During the cycles**, Greffier must work on **Alexandre's Mac and his alone** (Apple M5, 24 GB,
+macOS 27). No portability requirement, but nothing that makes it harder: no path specific to this
+machine hard-coded, models downloaded from public addresses.
 
-## D'où on part : le process du vault
+Each story carries its cycle and its origin:
+- **parity**: the Obsidian vault does it today (in another form);
+- **new**: neither the vault nor its tools do it.
 
-Greffier remplace le process « Réunions » du vault Falcon HQ (`~/Vault/Falcon HQ`, outils
-`Outils/Enregistreur` et `Outils/Réunions`). **Aucune compatibilité n'est due à ce vault** : ni ses
-formats de fichiers, ni sa structure de notes, ni ses outils. On n'en reprend que l'expérience et la
-**qualité du traitement** (modèles, paramètres, étapes) — voir [Le traitement repris du vault](#le-traitement-repris-du-vault).
+## Where we start from: the vault's process
 
-| Étape | Aujourd'hui dans le vault | Ce qui change avec Greffier |
+Greffier replaces the "Réunions" process of the Falcon HQ vault (`~/Vault/Falcon HQ`, tools
+`Outils/Enregistreur` and `Outils/Réunions`). **No compatibility is owed to this vault**: not its
+file formats, not its note structure, not its tools. We only take its experience and the
+**processing quality** (models, parameters, stages) — see [Processing taken from the vault](#processing-taken-from-the-vault).
+
+| Stage | Today in the vault | What changes with Greffier |
 |---|---|---|
-| Enregistrer | Raccourci Raycast → `record-meeting` pilote OBS (écran, son du Mac, micro ; MP4 H.264, 3 pistes audio). | Capture native, sans OBS ni Raycast. |
-| Indiquer le nombre de locuteurs | Champ `personnes` de la fiche. | Champ dans la réunion avant le traitement. |
-| Transcrire | Bouton Meta Bind → `reunion traiter --fond` : ffmpeg, whisper.cpp large-v3 et pyannote en parallèle, attribution des mots aux locuteurs. | Même pipeline, embarqué ; rien installé dans l'environnement de l'utilisateur. |
-| Relecture | `claude -p` en deux passes avec réécoute des passages douteux ; le lexique s'enrichit. | Identique, via la CLI `claude`. |
-| Bilan | `claude -p` avec `prompt-bilan.md` ; l'agent écrit le bilan lui-même. | Identique. |
-| Suivre | Encadré « État » dans la fiche Markdown, notification, file d'attente. | Dans l'interface. |
-| Revoir | Plugin Media One : vidéo et transcription cliquable. | Lecteur, timeline par sujet et par locuteur, bilan cliquable. |
-| Retrouver | `Index des réunions.md` régénéré par code. | Liste, vue d'ensemble, recherche ⌘K. |
-| Entretenir | `doctor.ts` vérifie OBS, ffmpeg, whisper.cpp, modèles, pyannote, Claude Code. | Vérification au premier lancement et dans les réglages. |
+| Record | Raycast shortcut → `record-meeting` drives OBS (screen, Mac audio, microphone; H.264 MP4, 3 audio tracks). | Native capture, without OBS or Raycast. |
+| Give the speaker count | `personnes` field of the sheet. | Field in the meeting before processing. |
+| Transcribe | Meta Bind button → `reunion traiter --fond`: ffmpeg, whisper.cpp large-v3 and pyannote in parallel, attribution of words to speakers. | Same pipeline, bundled; nothing installed in the user's environment. |
+| Review | `claude -p` in two passes with relistening of doubtful passages; the lexicon grows. | Identical, through the `claude` CLI. |
+| Summary | `claude -p` with `prompt-summary.md`; the agent writes the summary itself. | Identical. |
+| Follow | "État" box in the Markdown sheet, notification, queue. | In the UI. |
+| Revisit | Media One plugin: video and clickable transcription. | Player, timeline by topic and by speaker, clickable summary. |
+| Find | `Index des réunions.md` regenerated by code. | List, overview, ⌘K search. |
+| Maintain | `doctor.ts` checks OBS, ffmpeg, whisper.cpp, models, pyannote, Claude Code. | Check at first launch and in the settings. |
 
-Les frictions à faire disparaître : OBS, Raycast et Homebrew à installer et configurer ; deux outils
-séparés ; l'état d'avancement lu dans une fiche Markdown ; la vidéo dans un plugin ; les locuteurs
-jamais renommés (les noms n'existent que dans le bilan) ; les passages ==surlignés== à retrouver dans
-un long fichier.
+The friction to remove: OBS, Raycast and Homebrew to install and configure; two separate tools;
+progress read in a Markdown sheet; the video in a plugin; speakers never renamed (the names only
+exist in the summary); ==highlighted== passages to find in a long file.
 
 ## Personas
 
-- **Alexandre** (utilisateur principal) : dev, plusieurs réunions par jour (daily, revues de release,
-  points produit), veut retrouver vite « ce qui a été décidé » et « ce que je dois faire ».
-- **Un agent IA** (utilisateur secondaire) : lit les bilans et transcriptions sur la machine pour
-  préparer une tâche. Les fichiers doivent être lisibles et explicites hors de l'app.
+- **Alexandre** (primary user): developer, several meetings a day (dailies, release reviews,
+  product syncs), wants to quickly find "what was decided" and "what I have to do".
+- **An AI agent** (secondary user): reads summaries and transcriptions on the machine to prepare a
+  task. The files must be readable and explicit outside the app.
 
-## Les fichiers d'une réunion
+## Files of a meeting
 
-Les fichiers font foi ([ADR 0001](adr/0001-fichiers-ouverts-dans-un-dossier-de-reunions.md)). Chaque
-réunion est un dossier du **dossier de réunions** ; chaque fichier reprend la date et le titre, pour
-pouvoir être partagé seul sans être renommé :
+The files are the source of truth ([ADR 0001](adr/0001-open-files-in-a-meetings-folder.md)). Each
+meeting is a folder of the **meetings folder**; each file repeats the date and the title, so it can
+be shared on its own without being renamed:
 
 ```
-<dossier de réunions>/
+<meetings folder>/
 └── 2026-11-19 09h32 - Revue de release/
     ├── 2026-11-19 09h32 - Revue de release - réunion.md
     ├── 2026-11-19 09h32 - Revue de release - bilan.md
@@ -68,257 +69,258 @@ pouvoir être partagé seul sans être renommé :
     └── 2026-11-19 09h32 - Revue de release - enregistrement.mp4
 ```
 
-| Fichier | Auteur | Contenu |
+| File | Author | Content |
 |---|---|---|
-| `réunion.md` (la **fiche**) | Greffier | Frontmatter : titre, date, début, durée, statut, nombre de locuteurs, noms des locuteurs (`SPEAKER_00 → Nom`), repères, sessions Claude. Corps : résumé, 3 actions principales, liens vers les autres fichiers. |
-| `bilan.md` | l'agent Claude | Le bilan, jamais réécrit par Greffier. |
-| `transcription.md` | Greffier | Répliques horodatées avec le **nom** des locuteurs ; passages à vérifier marqués. |
-| `transcription.json` | Greffier | Mots, horodatages, confiances, locuteurs, transcription brute d'avant relecture, journal de la relecture, passages à vérifier. |
-| `enregistrement.mp4` | Greffier | Vidéo H.264 et 3 pistes audio (mixage, micro seul, son du Mac seul). |
+| `réunion.md` (the **sheet**) | Greffier | Front matter: title, date, start, duration, status, speaker count, speaker names (`SPEAKER_00 → Name`), markers, Claude sessions. Body: brief, 3 main actions, links to the other files. |
+| `bilan.md` (the summary) | the Claude agent | The summary, never rewritten by Greffier. |
+| `transcription.md` | Greffier | Timestamped utterances with the speakers' **names**; passages to check marked. |
+| `transcription.json` | Greffier | Words, timestamps, confidences, speakers, raw transcription from before the review, review log, passages to check. |
+| `enregistrement.mp4` (the recording) | Greffier | H.264 video and 3 audio tracks (mix, microphone only, Mac audio only). |
 
-- Avant le bilan, le titre vaut « Réunion ». Quand le titre change, Greffier renomme le dossier et
-  tous ses fichiers et met à jour les liens entre eux ; les caractères interdits deviennent des tirets.
-- Rien d'autre à la racine du dossier de réunions : pas d'index, pas de LISEZMOI.
-- Greffier ne garde qu'un cache reconstructible (recherche) dans `~/Library/Application Support/Greffier/`.
-  Il surveille le dossier : un fichier modifié par l'utilisateur ou un agent est rechargé, un dossier
-  supprimé dans le Finder fait disparaître la réunion.
+- Before the summary, the title is "Réunion". When the title changes, Greffier renames the folder
+  and all its files and updates the links between them; forbidden characters become dashes.
+- Nothing else at the root of the meetings folder: no index, no README.
+- Greffier only keeps a rebuildable cache (search) in `~/Library/Application Support/Greffier/`.
+  It watches the folder: a file changed by the user or an agent is reloaded, a folder deleted in
+  the Finder makes the meeting disappear.
 
-### Ce que Greffier range ailleurs
+### What Greffier keeps elsewhere
 
-Tout dans `~/Library/Application Support/Greffier/`, rien dans `~/.cache` ni dans l'environnement :
-- `models/` : whisper large-v3, Silero VAD, pyannote `community-1` ;
-- `runtime/` : le Python privé de pyannote ([ADR 0003](adr/0003-pyannote-dans-un-python-prive.md)) ;
-- `lexique.md` : le lexique d'Alexandre, rempli au départ à partir de celui du vault ; il contient aussi
-  la section **Vocabulaire** donnée à Whisper ;
-- le cache de recherche.
+Everything in `~/Library/Application Support/Greffier/`, nothing in `~/.cache` or in the environment:
+- `models/`: whisper large-v3, Silero VAD, pyannote `community-1`;
+- `runtime/`: pyannote's private Python ([ADR 0003](adr/0003-pyannote-in-a-private-python.md));
+- `lexique.md`: Alexandre's lexicon, initially filled from the vault's; it also holds the
+  **Vocabulaire** section given to Whisper;
+- the search cache.
 
-Les prompts de relecture et de bilan sont livrés avec l'app et versionnés avec le code.
+The review and summary prompts ship with the app and are versioned with the code.
 
-## Epics et stories
+## Epics and stories
 
-### E1. Enregistrer une réunion
+### E1. Record a meeting
 
-- **US-1.1 · Cycle 1 · parité** — En tant qu'Alexandre, je démarre et j'arrête un enregistrement d'un
-  clic (bouton de l'app ou de la barre des menus) ou d'un raccourci global, sans OBS ni Raycast.
-  - Critères : un seul raccourci démarre et arrête ; l'app capture l'écran, le son du Mac et le micro,
-    au format du vault (H.264 1080p 30 i/s à 1200 kbps, AAC 160 kbps, 3 pistes : mixage, micro seul,
-    son du Mac seul) ; une icône reste visible dans la barre des menus pendant toute la durée.
-- **US-1.2 · Cycle 1 · nouveau** — Pendant l'enregistrement, je vois la durée, les niveaux du micro et du
-  son du Mac, et les sources actives, pour savoir que ça enregistre bien.
-- **US-1.3 · Cycle 1 · nouveau** — Pendant l'enregistrement, je pose un **repère** d'un raccourci (⌘M),
-  pour retrouver ce moment sur la timeline.
-- **US-1.4 · Cycle 1 · parité** — À l'arrêt, la réunion apparaît dans la liste avec sa date et sa durée ;
-  le traitement démarre seul si le réglage est activé.
-- **US-1.5 · Cycle 1 · parité** — Un enregistrement de moins d'une minute est proposé à la suppression
-  plutôt que rangé.
-- **US-1.6 · Cycle 1 · nouveau** — Si l'app ou le Mac plante pendant un enregistrement, je ne perds pas
-  ce qui a été capturé.
-  - Critères : l'enregistrement est écrit au fil de l'eau dans le dossier de la réunion, dans un format
-    lisible même s'il est interrompu ; au relancement, la réunion apparaît marquée « enregistrement
-    interrompu » et peut être traitée ; le Mac ne se met pas en veille pendant un enregistrement.
-- **US-1.7 · Cycle 1 · parité** — J'**importe** une réunion passée par glisser-déposer ou par un menu :
-  un média seul, un média et sa transcription, ou un média, sa transcription et son bilan.
-  - Critères : média = tout ce qu'AVFoundation lit (mp4, mov, m4a, wav, mp3…), vidéo ou audio seul ;
-    transcription = `transcription.json` de Greffier, WebVTT ou SRT, avec les locuteurs reconnus en tête
-    de réplique (`<v Nom>`, `[Nom]:` ou `Nom :`) ; bilan = n'importe quel `.md`, conservé tel quel.
-  - La date vient du média (date de création, sinon de modification), modifiable à l'import ; le titre
-    vient du bilan s'il y en a un, sinon du nom du fichier.
-  - Le traitement reprend à la première étape manquante : média seul → Transcription, Relecture, Bilan ;
-    avec transcription → Relecture, Bilan ; avec bilan → rien. Une transcription importée est
-    considérée comme non relue ; sans locuteurs, elle est attribuée à un seul locuteur.
-  - À la fin de l'import, une fenêtre demande de lancer le traitement maintenant ou plus tard.
-  - Les réunions du vault s'importent ainsi (vidéo, `.vtt` au format `[SPEAKER_00]: …`, bilan), sans
-    code propre au vault ; on accepte de perdre les horodatages au mot et le journal de relecture.
-- **US-1.8 · Cycle 2 · nouveau** — L'app me propose d'enregistrer quand une réunion de mon agenda
-  commence ou quand Meet / Zoom ouvre le micro.
-- **US-1.9 · Cycle 2 · nouveau** — Je choisis audio seul ou audio et écran, pour économiser le disque
-  (une réunion de 89 min fait environ 1,1 Go en vidéo).
+- **US-1.1 · Cycle 1 · parity** — As Alexandre, I start and stop a recording with one click (a
+  button in the app or the menu bar) or a global shortcut, without OBS or Raycast.
+  - Criteria: a single shortcut starts and stops; the app captures the screen, the Mac audio and
+    the microphone, in the vault's format (H.264 1080p 30 fps at 1200 kbps, AAC 160 kbps, 3 tracks:
+    mix, microphone only, Mac audio only); an icon stays visible in the menu bar for the whole
+    duration.
+- **US-1.2 · Cycle 1 · new** — While recording, I see the duration, the microphone and Mac audio
+  levels, and the active sources, to know it is recording properly.
+- **US-1.3 · Cycle 1 · new** — While recording, I set a **marker** with a shortcut (⌘M), to find
+  that moment on the timeline.
+- **US-1.4 · Cycle 1 · parity** — When stopped, the meeting appears in the list with its date and
+  duration; processing starts on its own if the setting is enabled.
+- **US-1.5 · Cycle 1 · parity** — A recording shorter than one minute is offered for deletion
+  rather than kept.
+- **US-1.6 · Cycle 1 · new** — If the app or the Mac crashes during a recording, I don't lose what
+  was captured.
+  - Criteria: the recording is written as it goes into the meeting's folder, in a format readable
+    even if interrupted; on relaunch, the meeting appears marked "enregistrement interrompu"
+    (recording interrupted) and can be processed; the Mac does not go to sleep during a recording.
+- **US-1.7 · Cycle 1 · parity** — I **import** a past meeting by drag and drop or from a menu: a
+  media file alone, a media file and its transcription, or a media file, its transcription and its
+  summary.
+  - Criteria: media = anything AVFoundation reads (mp4, mov, m4a, wav, mp3…), video or audio only;
+    transcription = Greffier's `transcription.json`, WebVTT or SRT, with speakers recognized at the
+    start of the utterance (`<v Name>`, `[Name]:` or `Name :`); summary = any `.md`, kept as is.
+  - The date comes from the media (creation date, otherwise modification date), editable at
+    import; the title comes from the summary if there is one, otherwise from the file name.
+  - Processing resumes at the first missing stage: media alone → Transcription, Review, Summary;
+    with a transcription → Review, Summary; with a summary → nothing. An imported transcription is
+    considered unreviewed; without speakers, it is attributed to a single speaker.
+  - At the end of the import, a window asks whether to start processing now or later.
+  - The vault's meetings import this way (video, `.vtt` in the `[SPEAKER_00]: …` format, summary),
+    without vault-specific code; we accept losing word-level timestamps and the review log.
+- **US-1.8 · Cycle 2 · new** — The app offers to record when a meeting from my calendar starts or
+  when Meet / Zoom opens the microphone.
+- **US-1.9 · Cycle 2 · new** — I choose audio only or audio and screen, to save disk space (an
+  89-minute meeting takes about 1.1 GB as video).
 
-### E2. Traiter : transcription, relecture, bilan
+### E2. Process: transcription, review, summary
 
-- **US-2.1 · Cycle 1 · parité** — Avant le traitement, j'indique le **nombre de locuteurs** (ou je laisse
-  « détecté »), parce que la séparation des locuteurs est bien meilleure avec le bon nombre.
-- **US-2.2 · Cycle 1 · parité** — Je vois l'avancement par étape (Transcription → Relecture → Bilan), avec
-  une progression et une estimation du temps restant, dans la liste et dans la réunion.
-- **US-2.3 · Cycle 1 · parité** — Les réunions à traiter attendent dans une file, une à la fois ; je vois
-  leur rang et je peux arrêter un traitement.
-  - Critères : la file se met en pause pendant un enregistrement et reprend après ; une étape déjà en
-    cours au début de l'enregistrement va jusqu'au bout ; le Mac ne se met pas en veille pendant un
-    traitement.
-- **US-2.4 · Cycle 1 · parité** — Une notification macOS m'avertit quand le bilan est prêt ; un clic
-  ouvre la réunion.
-- **US-2.5 · Cycle 1 · parité** — En cas d'erreur, l'étape en échec est marquée avec le message et un
-  bouton « Réessayer cette étape ».
-- **US-2.6 · Cycle 1 · parité** — Je peux refaire n'importe quelle étape et celles qui suivent : refaire
-  le bilan seul (après avoir nommé des locuteurs ou corrigé la transcription), refaire depuis la
-  relecture, ou refaire la transcription avec un autre nombre de locuteurs.
-- **US-2.7 · Cycle 1 · parité** — La relecture et le bilan sont confiés à un **agent** Claude Code, qui
-  peut raisonner, relire les bilans précédents et chercher du contexte, et pas seulement résumer la
-  transcription ([ADR 0002](adr/0002-relecture-et-bilan-par-claude-code.md)).
-  - Critères : mêmes outils autorisés qu'aujourd'hui (relecture : lecture seule ; bilan : lecture et
-    écriture), Bash et web interdits ; l'agent part du dossier de réunions et a accès aux **dossiers de
-    contexte** des réglages ; l'agent écrit `bilan.md` et renvoie titre, résumé et 3 actions pour la
-    fiche ; Greffier vérifie que le bilan contient les sujets horodatés, les décisions et les actions,
-    sinon l'étape est en échec.
-- **US-2.8 · Cycle 2 · nouveau** — L'app me dit clairement ce qui reste sur le Mac (transcription,
-  locuteurs) et ce qui part vers Claude (relecture, bilan).
+- **US-2.1 · Cycle 1 · parity** — Before processing, I give the **speaker count** (or leave
+  "détecté"), because diarization is much better with the right number.
+- **US-2.2 · Cycle 1 · parity** — I see progress per stage (Transcription → Review → Summary), with
+  a progress bar and an estimate of the remaining time, in the list and in the meeting.
+- **US-2.3 · Cycle 1 · parity** — Meetings to process wait in a queue, one at a time; I see their
+  position and I can stop a processing run.
+  - Criteria: the queue pauses during a recording and resumes after; a stage already running when
+    the recording starts runs to completion; the Mac does not go to sleep during processing.
+- **US-2.4 · Cycle 1 · parity** — A macOS notification tells me when the summary is ready; a click
+  opens the meeting.
+- **US-2.5 · Cycle 1 · parity** — On error, the failed stage is marked with the message and a
+  "Réessayer cette étape" (retry this stage) button.
+- **US-2.6 · Cycle 1 · parity** — I can redo any stage and the ones after it: redo the summary
+  alone (after naming speakers or correcting the transcription), redo from the review, or redo the
+  transcription with another speaker count.
+- **US-2.7 · Cycle 1 · parity** — The review and the summary are handed to a Claude Code **agent**,
+  which can reason, reread previous summaries and look up context, not just summarize the
+  transcription ([ADR 0002](adr/0002-review-and-summary-by-claude-code.md)).
+  - Criteria: same allowed tools as today (review: read only; summary: read and write), Bash and
+    web forbidden; the agent starts from the meetings folder and has access to the **context
+    folders** from the settings; the agent writes `bilan.md` and returns title, brief and 3 actions
+    for the sheet; Greffier checks that the summary contains the timestamped topics, the decisions
+    and the actions, otherwise the stage fails.
+- **US-2.8 · Cycle 2 · new** — The app tells me clearly what stays on the Mac (transcription,
+  speakers) and what goes to Claude (review, summary).
 
-### E3. Corriger : locuteurs et passages à vérifier
+### E3. Correct: speakers and passages to check
 
-- **US-3.1 · Cycle 1 · nouveau** — Je vois les locuteurs détectés (SPEAKER_00…) avec le nom que l'IA
-  propose et sa justification (« Khalid l'appelle Jérôme à 0:44:00 »), et je confirme ou corrige en un
-  clic.
-  - Critères : nommer un locuteur met à jour la fiche et `transcription.md` ; on peut fusionner deux
-    locuteurs (une même voix sous deux labels, erreur fréquente de la séparation des locuteurs).
-  - L'onglet « Personnes » du prototype s'appelle « Locuteurs ».
-- **US-3.2 · Cycle 1 · nouveau** — Je parcours un par un les **passages à vérifier** (25 sur la dernière
-  revue de release), avec le texte, l'hypothèse de l'IA et la réécoute ; j'écoute l'extrait, j'accepte
-  l'hypothèse, je garde l'original ou je tape la correction.
-- **US-3.3 · Cycle 1 · nouveau** — Je corrige un mot directement dans la transcription.
-- **US-3.4 · Cycle 2 · nouveau** — Je réattribue une réplique à un autre locuteur.
-- **US-3.5 · Cycle 2 · nouveau** — Mes corrections nourrissent le lexique.
-- **US-3.6 · Cycle 2 · nouveau** — Greffier reconnaît ma voix grâce à la piste micro seul et nomme
-  « Alexandre » le bon locuteur sans passer par l'IA.
+- **US-3.1 · Cycle 1 · new** — I see the detected speakers (SPEAKER_00…) with the name the AI
+  proposes and its justification ("Khalid l'appelle Jérôme à 0:44:00"), and I confirm or correct in
+  one click.
+  - Criteria: naming a speaker updates the sheet and `transcription.md`; two speakers can be merged
+    (the same voice under two labels, a frequent diarization error).
+  - The prototype's "Personnes" tab is called "Locuteurs".
+- **US-3.2 · Cycle 1 · new** — I go through the **passages to check** one by one (25 in the last
+  release review), with the text, the AI's hypothesis and the relisten; I listen to the clip, I
+  accept the hypothesis, keep the original or type the correction.
+- **US-3.3 · Cycle 1 · new** — I correct a word directly in the transcription.
+- **US-3.4 · Cycle 2 · new** — I reassign an utterance to another speaker.
+- **US-3.5 · Cycle 2 · new** — My corrections feed the lexicon.
+- **US-3.6 · Cycle 2 · new** — Greffier recognizes my voice thanks to the microphone-only track and
+  names the right speaker "Alexandre" without going through the AI.
 
-### E4. Revoir une réunion
+### E4. Revisit a meeting
 
-- **US-4.1 · Cycle 1 · parité** — J'ouvre une réunion et je vois d'abord le **bilan** : titre, en bref,
-  sujets, décisions, actions, questions ouvertes.
-  - Le bilan est du Markdown écrit par l'agent. L'app le rend stylé sans le restructurer et n'en lit que
-    ce dont l'interface a besoin : les sujets `### Titre (h:mm:ss)` deviennent les chapitres de la
-    timeline, les puces horodatées de « Décisions » ses ◆, chaque `(h:mm:ss)` un lien qui lance la
-    lecture. Les cases `- [ ]` se cochent dans le fichier.
-- **US-4.2 · Cycle 1 · nouveau** — La vidéo prend toute la largeur, les contrôles sont juste en dessous,
-  et la réplique en cours s'affiche en sous-titre.
-- **US-4.3 · Cycle 1 · nouveau** — Une **timeline** sous le lecteur montre qui parle quand (une piste par
-  locuteur), les sujets comme chapitres, les décisions et mes repères ; cliquer n'importe où y déplace
-  la lecture.
-- **US-4.4 · Cycle 1 · parité** — La transcription défile avec la lecture, la réplique en cours est mise
-  en avant ; cliquer une réplique y saute.
-- **US-4.5 · Cycle 1 · nouveau** — Chaque horodatage du bilan (sujet, décision) est cliquable et lance la
-  lecture à ce moment, pour vérifier une citation.
-- **US-4.6 · Cycle 1 · nouveau** — Je règle la vitesse de lecture (1×, 1,5×, 2×) et j'avance ou recule de
-  10 s au clavier.
-- **US-4.7 · Cycle 1 · nouveau** — Une réunion importée ou ancienne à laquelle il manque des données
-  (pas de timeline, pas de relecture…) s'affiche quand même, avec ce qui existe.
-- **US-4.8 · Cycle 2 · nouveau** — Je cherche un mot dans la transcription d'une réunion et les
-  occurrences s'affichent sur la timeline.
-- **US-4.9 · Cycle 2 · parité** — Je reprends la conversation du bilan avec Claude
-  (`claude --resume`) pour poser une question sur la réunion.
+- **US-4.1 · Cycle 1 · parity** — I open a meeting and first see the **summary**: title, brief,
+  topics, decisions, actions, open questions.
+  - The summary is Markdown written by the agent. The app renders it styled without restructuring
+    it and only reads what the UI needs: the `### Title (h:mm:ss)` topics become the timeline's
+    chapters, the timestamped bullets of "Décisions" its ◆, each `(h:mm:ss)` a link that starts
+    playback. The `- [ ]` boxes are checked in the file.
+- **US-4.2 · Cycle 1 · new** — The video takes the full width, the controls are just below, and the
+  current utterance is shown as a subtitle.
+- **US-4.3 · Cycle 1 · new** — A **timeline** under the player shows who speaks when (one track per
+  speaker), the topics as chapters, the decisions and my markers; clicking anywhere moves playback
+  there.
+- **US-4.4 · Cycle 1 · parity** — The transcription scrolls with playback, the current utterance is
+  highlighted; clicking an utterance jumps to it.
+- **US-4.5 · Cycle 1 · new** — Each timestamp in the summary (topic, decision) is clickable and
+  starts playback at that moment, to check a quote.
+- **US-4.6 · Cycle 1 · new** — I set the playback speed (1×, 1.5×, 2×) and skip forward or back
+  10 s with the keyboard.
+- **US-4.7 · Cycle 1 · new** — An imported or old meeting missing some data (no timeline, no
+  review…) still displays, with what exists.
+- **US-4.8 · Cycle 2 · new** — I search for a word in a meeting's transcription and the occurrences
+  show on the timeline.
+- **US-4.9 · Cycle 2 · parity** — I resume the summary conversation with Claude
+  (`claude --resume`) to ask a question about the meeting.
 
-### E5. Retrouver
+### E5. Find
 
-- **US-5.1 · Cycle 1 · parité** — La barre latérale liste les réunions par période (Aujourd'hui, Cette
-  semaine, Plus tôt), avec titre, heure, durée et état du traitement.
-- **US-5.2 · Cycle 1 · parité** — Une vue d'ensemble montre le total (27 réunions, 29 h 37), le temps
-  passé en réunion par jour et les réunions en attente.
-- **US-5.3 · Cycle 1 · nouveau** — Une recherche (⌘K) parcourt titres, bilans et transcriptions de toutes
-  les réunions ; un résultat ouvre la réunion au bon moment (la réplique, ou le sujet pour une ligne du
-  bilan).
-- **US-5.4 · Cycle 1 · nouveau** — Clic droit sur une réunion : Ouvrir, Lire la transcription, Refaire le
-  bilan, Afficher dans le Finder, Copier le bilan, **Supprimer** (avec confirmation : le dossier de la
-  réunion va à la corbeille).
-- **US-5.5 · Cycle 1 · nouveau** — Je change le titre d'une réunion ; le dossier et ses fichiers sont
-  renommés.
-- **US-5.6 · Cycle 2 · nouveau** — Je filtre par locuteur nommé (« toutes les réunions avec Jérôme ») et
-  par sujet.
-- **US-5.7 · Cycle 2 · nouveau** — Je donne des étiquettes à une réunion.
+- **US-5.1 · Cycle 1 · parity** — The sidebar lists meetings by period (Aujourd'hui, Cette semaine,
+  Plus tôt), with title, time, duration and processing state.
+- **US-5.2 · Cycle 1 · parity** — An overview shows the total (27 meetings, 29 h 37), the time spent
+  in meetings per day and the pending meetings.
+- **US-5.3 · Cycle 1 · new** — A search (⌘K) goes through the titles, summaries and transcriptions
+  of all meetings; a result opens the meeting at the right moment (the utterance, or the topic for
+  a summary line).
+- **US-5.4 · Cycle 1 · new** — Right-click on a meeting: Ouvrir, Lire la transcription, Refaire le
+  bilan, Afficher dans le Finder, Copier le bilan, **Supprimer** (open, read the transcription, redo
+  the summary, show in Finder, copy the summary, delete; with confirmation: the meeting's folder
+  goes to the trash).
+- **US-5.5 · Cycle 1 · new** — I change a meeting's title; the folder and its files are renamed.
+- **US-5.6 · Cycle 2 · new** — I filter by named speaker ("all meetings with Jérôme") and by
+  topic.
+- **US-5.7 · Cycle 2 · new** — I tag a meeting.
 
-### E6. Des fichiers ouverts
+### E6. Open files
 
-- **US-6.1 · Cycle 1 · nouveau** — Greffier range chaque réunion dans le dossier de réunions, en fichiers
-  au nom explicite (voir [Les fichiers d'une réunion](#les-fichiers-dune-réunion)), pour que moi et mes
-  agents puissions les lire, les partager et les exploiter sans l'app.
-  - Critères : chaque fichier se comprend seul (date et titre dans le nom) ; une modification faite
-    hors de l'app est prise en compte.
-- **US-6.2 · Cycle 2 · nouveau** — Je copie un bilan ou une liste d'actions (Markdown ou Slack) d'un clic,
-  et j'exporte une transcription en SRT, VTT ou texte.
-- **US-6.3 · Cycle 2 · à repenser** — Je crée une tâche à partir d'une action d'un bilan. (Dans le vault,
-  c'était une fiche dans `Tâches/` ; Greffier ne doit pas dépendre de cette structure.)
+- **US-6.1 · Cycle 1 · new** — Greffier keeps each meeting in the meetings folder, as files with
+  explicit names (see [Files of a meeting](#files-of-a-meeting)), so that my agents and I can read,
+  share and use them without the app.
+  - Criteria: each file makes sense on its own (date and title in the name); a change made outside
+    the app is taken into account.
+- **US-6.2 · Cycle 2 · new** — I copy a summary or a list of actions (Markdown or Slack) in one
+  click, and I export a transcription as SRT, VTT or text.
+- **US-6.3 · Cycle 2 · to rethink** — I create a task from a summary action. (In the vault, it was a
+  note in `Tâches/`; Greffier must not depend on that structure.)
 
-### E7. Réglages et santé
+### E7. Settings and health
 
-- **US-7.1 · Cycle 1 · parité** — Au premier lancement, l'app me guide avec un état clair par point.
-  - Critères : autorisations macOS (écran, micro, son du système) ; choix du dossier de réunions
-    (proposé : `~/Documents/Réunions`) ; téléchargement des modèles et du Python privé dans
-    `~/Library/Application Support/Greffier/`, avec progression et vérification sha256 ; présence et
-    connexion de la CLI `claude`, la seule dépendance non embarquée.
-- **US-7.2 · Cycle 1 · parité** — Je règle le dossier de réunions, les dossiers de contexte de l'agent, le
-  raccourci, les sources et le démarrage automatique du traitement ; je vois la place prise par les
-  modèles et j'ouvre le lexique dans mon éditeur.
-- **US-7.3 · Cycle 2 · nouveau** — J'édite le lexique et les prompts de relecture et de bilan depuis l'app.
+- **US-7.1 · Cycle 1 · parity** — At first launch, the app guides me with a clear state per item.
+  - Criteria: macOS permissions (screen, microphone, system audio); choice of the meetings folder
+    (suggested: `~/Documents/Réunions`); download of the models and the private Python into
+    `~/Library/Application Support/Greffier/`, with progress and sha256 check; presence and sign-in
+    of the `claude` CLI, the only dependency not bundled.
+- **US-7.2 · Cycle 1 · parity** — I set the meetings folder, the agent's context folders, the
+  shortcut, the sources and automatic start of processing; I see the space taken by the models and
+  I open the lexicon in my editor.
+- **US-7.3 · Cycle 2 · new** — I edit the lexicon and the review and summary prompts from the app.
 
-### E8. Installer (pendant les cycles)
+### E8. Install (during the cycles)
 
-- **US-8.1 · Cycle 1 · nouveau** — En tant qu'Alexandre développeur, une commande construit
-  `Greffier.app`, la signe avec une identité stable (« Greffier Dev ») et l'installe dans
-  `/Applications`, pour que les autorisations macOS survivent aux recompilations.
+- **US-8.1 · Cycle 1 · new** — As Alexandre the developer, one command builds `Greffier.app`, signs
+  it with a stable identity ("Greffier Dev") and installs it in `/Applications`, so that macOS
+  permissions survive rebuilds.
 
-## Le traitement repris du vault
+## Processing taken from the vault
 
-La qualité vient du vault ; les paramètres sont repris à l'identique (référence :
-`~/Vault/Falcon HQ/Outils/Réunions/src/`). Pas de choix de modèle dans l'app.
+The quality comes from the vault; the parameters are taken as is (reference:
+`~/Vault/Falcon HQ/Outils/Réunions/src/`). No model choice in the app.
 
-1. **Audio** : piste de mixage, convertie en wav mono 16 kHz PCM 16 bits, par AVFoundation au lieu de
-   ffmpeg — à condition de ne rien perdre sur les extraits A, B et C de `~/Bench-Transcription`
-   (taux d'erreur, termes clés, erreurs de locuteur, durée) ; sinon ffmpeg est embarqué en binaire
-   statique.
-2. **Transcription** (en parallèle de 3) : whisper.cpp large-v3 (`ggml-large-v3.bin`, sha256 figé), sur
-   Metal, `-l fr -t 6`, vocabulaire du lexique en prompt avec `--carry-initial-prompt`, un segment par
-   mot (`-ml 1 -sow`, sortie JSON complète), VAD Silero v5.1.2, valeurs par défaut de whisper-cli pour
-   le reste (beam 5, température 0 avec repli 0,2). Les bruits entre crochets sont retirés.
-3. **Séparation des locuteurs** : pyannote.audio 4.0.7, pipeline `speaker-diarization-community-1`, hors
-   ligne, sur MPS avec repli CPU, sortie « exclusive », nombre de locuteurs si indiqué. Dépendances
-   figées par le `uv.lock` du vault.
-4. **Attribution des mots** : mots décalés de +0,2 s, chacun au locuteur qui chevauche le plus ;
-   interruptions de 2 mots ou moins rendues au locuteur en cours ; changement de locuteur recalé sur la
-   fin de phrase à 3 mots près ; nouvelle réplique à chaque changement de locuteur, pause de 2 s, ou fin
-   de phrase après 220 caractères.
-5. **Relecture** : `claude -p` modèle opus, deux passes dans la même session. Passe 1 : corrections
-   sûres, changements de locuteur prouvés, passages douteux (30 au plus), ajouts au lexique. Réécoute de
-   chaque passage douteux (±1,5 s, 28 s au plus) avec la même transcription. Passe 2 : chaque passage est
-   corrigé ou reste à vérifier.
-6. **Bilan** : `claude -p` modèle opus avec le prompt du bilan ; sections En bref, Participants (chaque
-   locuteur nommé ou décrit), Sujets abordés horodatés, Décisions horodatées, Actions
-   (`- [ ] Qui — quoi — échéance`, celles d'Alexandre d'abord), Questions ouvertes.
+1. **Audio**: mixing track, converted to 16-bit PCM 16 kHz mono wav, by AVFoundation instead of
+   ffmpeg — provided nothing is lost on excerpts A, B and C of `~/Bench-Transcription` (error rate,
+   key terms, speaker errors, duration); otherwise ffmpeg is bundled as a static binary.
+2. **Transcription** (3 in parallel): whisper.cpp large-v3 (`ggml-large-v3.bin`, pinned sha256), on
+   Metal, `-l fr -t 6`, lexicon vocabulary as prompt with `--carry-initial-prompt`, one segment per
+   word (`-ml 1 -sow`, full JSON output), Silero VAD v5.1.2, whisper-cli defaults for the rest
+   (beam 5, temperature 0 with 0.2 fallback). Bracketed noises are removed.
+3. **Diarization**: pyannote.audio 4.0.7, `speaker-diarization-community-1` pipeline, offline, on
+   MPS with CPU fallback, "exclusive" output, speaker count if given. Dependencies pinned by the
+   vault's `uv.lock`.
+4. **Word attribution**: words shifted by +0.2 s, each to the speaker who overlaps it most;
+   interruptions of 2 words or fewer given back to the current speaker; speaker change realigned on
+   the end of the sentence within 3 words; new utterance at each speaker change, 2 s pause, or end
+   of sentence after 220 characters.
+5. **Review**: `claude -p` opus model, two passes in the same session. Pass 1: certain corrections,
+   proven speaker changes, doubtful passages (30 at most), lexicon additions. Relisten to each
+   doubtful passage (±1.5 s, 28 s at most) with the same transcription. Pass 2: each passage is
+   corrected or stays to check.
+6. **Summary**: `claude -p` opus model with the summary prompt; sections En bref (brief),
+   Participants (each speaker named or described), timestamped Sujets abordés (topics covered),
+   timestamped Décisions, Actions (`- [ ] Who — what — deadline`, Alexandre's first), Questions
+   ouvertes (open questions).
 
-Mesure de référence (20/11, réunion de 2 h 34) : transcription 36 min, relecture 6 min, bilan 2 min.
+Reference measurement (Nov 20, 2 h 34 meeting): transcription 36 min, review 6 min, summary 2 min.
 
-Le banc d'essai place large-v3-turbo à égalité avec large-v3 pour 25 % de temps en moins ; on garde
-large-v3 tant que les références du banc ne sont pas validées.
+The test bench puts large-v3-turbo on par with large-v3 for 25% less time; we keep large-v3 as long
+as the bench references are not validated.
 
-## Avant la 1.0.0
+## Before 1.0.0
 
-Critères de sortie de la période des cycles, à traiter dans un cycle ultérieur :
+Exit criteria for the cycles period, to handle in a later cycle:
 
-- **Installation depuis les sources** : un guide court (quelques commandes), avec un fichier de
-  configuration mise ou nix pour l'outillage ; le choix se fera au moment d'écrire le guide.
-- **Release GitHub** : une GitHub Action publie à chaque tag un `.dmg` qu'on installe d'un double-clic,
-  sans alerte de Gatekeeper, donc signé Developer ID et notarisé par Apple (compte Apple Developer à
-  prendre à ce moment-là), avec sommes sha256.
-- **Macs visés** : idéalement n'importe quel Mac. À évaluer : ce qui est possible sur les Mac Intel et
-  les petites cartes graphiques (whisper large-v3 et pyannote sans Metal ni MPS), et la version minimale
-  de macOS (ScreenCaptureKit, Rune).
-- **Redistribution des modèles** : pyannote `community-1` (CC-BY-4.0) publié en release du dépôt avec un
-  fichier `ATTRIBUTION` ; whisper.cpp et Silero sous MIT.
+- **Installation from source**: a short guide (a few commands), with a mise or nix configuration
+  file for the tooling; the choice will be made when writing the guide.
+- **GitHub release**: a GitHub Action publishes at each tag a `.dmg` installed with a double-click,
+  without a Gatekeeper warning, so signed with Developer ID and notarized by Apple (Apple Developer
+  account to get at that time), with sha256 sums.
+- **Target Macs**: ideally any Mac. To evaluate: what is possible on Intel Macs and small GPUs
+  (whisper large-v3 and pyannote without Metal or MPS), and the minimum macOS version
+  (ScreenCaptureKit, Rune).
+- **Model redistribution**: pyannote `community-1` (CC-BY-4.0) published as a release of the
+  repository with an `ATTRIBUTION` file; whisper.cpp and Silero under MIT.
 
-## Ce que montre le prototype
+## What the prototype shows
 
-Le prototype (`src/`) est **l'interface seule**, avec des données fictives et des traitements simulés.
-La vraie app se construit dessus en remplaçant peu à peu le faux par le vrai ; ses scènes sans fenêtre
-(`--snap`, `--script`) servent de tests visuels.
+The prototype (`src/`) is **the UI alone**, with demo data and simulated processing. The real app
+is built on top of it by gradually replacing the fake with the real; its windowless scenes
+(`--snap`, `--script`) serve as visual tests.
 
-1. **Vue d'ensemble** (US-5.2) : totaux, dernières réunions, temps en réunion par jour.
-2. **Enregistrer** (US-1.1 → 1.4) : bouton dans la barre latérale ou ⇧⌘R, durée, niveaux, sources,
-   repères (⌘M), puis Arrêter.
-3. **Traitement simulé** (US-2.1 → 2.4) : Transcription → Relecture → Bilan, visible dans la liste et
-   dans la réunion (accéléré).
-4. **Réunion** (US-4.1 → 4.6) : vidéo pleine largeur, timeline par sujet et par locuteur, onglets
-   Bilan / Transcription / À vérifier / Personnes (à renommer Locuteurs) / Infos.
-5. **Bilan en Markdown** (US-4.1) : rendu stylé, horodatages cliquables, cases cochables, « Refaire le
-   bilan ».
-6. **Locuteurs** (US-3.1) : nom proposé par l'IA, confirmer, changer, fusionner.
-7. **À vérifier** (US-3.2) : écouter, remplacer par l'hypothèse de l'IA, garder l'original.
-8. **Recherche ⌘K** (US-5.3) et **clic droit / Supprimer** (US-5.4).
+1. **Overview** (US-5.2): totals, latest meetings, time in meetings per day.
+2. **Record** (US-1.1 → 1.4): button in the sidebar or ⇧⌘R, duration, levels, sources, markers
+   (⌘M), then Arrêter (stop).
+3. **Simulated processing** (US-2.1 → 2.4): Transcription → Review → Summary, visible in the list
+   and in the meeting (accelerated).
+4. **Meeting** (US-4.1 → 4.6): full-width video, timeline by topic and by speaker, tabs
+   Bilan / Transcription / À vérifier / Personnes (to rename Locuteurs) / Infos.
+5. **Markdown summary** (US-4.1): styled rendering, clickable timestamps, checkable boxes, "Refaire
+   le bilan" (redo the summary).
+6. **Speakers** (US-3.1): name proposed by the AI, confirm, change, merge.
+7. **Passages to check** (US-3.2): listen, replace with the AI's hypothesis, keep the original.
+8. **⌘K search** (US-5.3) and **right-click / Supprimer** (US-5.4).
 
-Hors prototype : capture réelle, import, Whisper, pyannote, Claude, écriture des fichiers.
+Outside the prototype: real capture, import, Whisper, pyannote, Claude, writing the files.

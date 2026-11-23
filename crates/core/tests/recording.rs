@@ -1,0 +1,374 @@
+//! Recording through the fake capture: the one-minute rule, markers in the sheet, automatic start
+//! of processing, permissions, recovery of a cut recording.
+
+mod bench;
+
+use bench::Bench;
+use greffier_core::adapters::{Permission, Permissions, PermissionState, Sources};
+use greffier_core::fake::FakeCapture;
+use greffier_core::{Command, Stage, Event, Rejection, Settings, Role, Status};
+
+#[test]
+fn a_recording_under_a_minute_is_offered_for_deletion() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(59.0);
+    let events = bench.execute(Command::StopRecording);
+    let id = bench.greffier.meetings()[0].id;
+    assert_eq!(events[0], Event::MeetingRecorded(id));
+    assert!(events.contains(&Event::DeletionProposed(id)), "{events:?}");
+}
+
+#[test]
+fn a_recording_of_a_minute_or_more_is_not_offered_for_deletion() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(60.0);
+    let events = bench.execute(Command::StopRecording);
+    assert!(!events.iter().any(|e| matches!(e, Event::DeletionProposed(_))), "{events:?}");
+    // Nothing to decide: it is queued right away.
+    let id = bench.greffier.meetings()[0].id;
+    assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
+}
+
+/// Records a recording of `duration` seconds and checks it was offered for deletion.
+fn record_short(bench: &mut Bench, duration: f64) -> greffier_core::MeetingId {
+    bench.execute(Command::StartRecording);
+    bench.advance(duration);
+    let events = bench.execute(Command::StopRecording);
+    let id = bench.greffier.meetings()[0].id;
+    assert!(events.contains(&Event::DeletionProposed(id)), "{events:?}");
+    id
+}
+
+/// The events a processing stage gives.
+fn processing_events(events: &[Event]) -> Vec<&Event> {
+    events.iter().filter(|e| matches!(e, Event::StageDone { .. } | Event::StageFailed { .. } | Event::SummaryReady { .. })).collect()
+}
+
+#[test]
+fn a_short_recording_is_not_processed_while_its_deletion_is_proposed() {
+    let mut bench = Bench::new();
+    assert!(bench.greffier.settings().process_on_stop);
+    let id = record_short(&mut bench, 30.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+    assert!(!bench.greffier.busy());
+}
+
+#[test]
+fn keeping_a_short_recording_processes_it_when_process_on_stop_is_set() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.advance(2.0);
+    bench.execute(Command::KeepShortRecording(id));
+    assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
+    assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+}
+
+#[test]
+fn keeping_a_short_recording_without_process_on_stop_leaves_it_to_process() {
+    let mut bench = Bench::new();
+    bench.execute(Command::ChangeSettings(Settings { process_on_stop: false, ..Settings::default() }));
+    let id = record_short(&mut bench, 30.0);
+    bench.execute(Command::KeepShortRecording(id));
+    bench.advance(10.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+}
+
+/// Two short recordings stopped one after the other: each waits for its own answer, which the app
+/// asks one after the other (`App::short_recordings`), and keeping one does not keep the other.
+#[test]
+fn two_short_recordings_in_a_row_each_wait_for_their_own_answer() {
+    let mut bench = Bench::new();
+    let first = record_short(&mut bench, 20.0);
+    let second = record_short(&mut bench, 15.0);
+    assert_ne!(first, second);
+    bench.advance(5.0);
+    assert_eq!((bench.meeting(first).status.clone(), bench.meeting(second).status.clone()), (Status::ToProcess, Status::ToProcess));
+
+    bench.execute(Command::KeepShortRecording(second));
+    bench.advance_until(second, |s| *s == Status::Done);
+    assert_eq!(bench.meeting(first).status, Status::ToProcess, "the first one still waits for its answer");
+
+    bench.execute(Command::KeepShortRecording(first));
+    assert_eq!(bench.advance_until(first, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+}
+
+#[test]
+fn deleting_a_short_recording_never_processes_it() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.advance(2.0);
+    bench.execute(Command::Delete(id));
+    assert!(bench.greffier.meeting(id).is_none());
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    assert!(!bench.greffier.busy());
+}
+
+#[test]
+fn a_short_recording_left_undecided_when_the_app_quits_stays_to_process() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    let name = bench.meeting(id).folder_name.clone();
+    // The app quits with the question still open.
+    bench.reopen();
+    assert_eq!(bench.named_meeting(&name).status, Status::ToProcess);
+    let events = bench.advance(10.0);
+    assert!(processing_events(&events).is_empty(), "{events:?}");
+    // The user processes it whenever they want.
+    let id = bench.named_meeting(&name).id;
+    bench.execute(Command::Process(id));
+    bench.advance_until(id, |s| *s == Status::Done);
+}
+
+#[test]
+fn keeping_a_meeting_already_in_the_queue_changes_nothing() {
+    let mut bench = Bench::new();
+    let id = record_short(&mut bench, 30.0);
+    bench.execute(Command::Process(id));
+    bench.advance(0.5);
+    let status = bench.meeting(id).status.clone();
+    assert!(status.is_processing(), "{status:?}");
+    bench.execute(Command::KeepShortRecording(id));
+    assert_eq!(bench.meeting(id).status, status);
+    assert_eq!(bench.greffier.rank(id), Some(0));
+    bench.advance_until(id, |s| *s == Status::Done);
+}
+
+#[test]
+fn placed_markers_are_kept_in_the_sheet_and_read_back_on_next_launch() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(312.0);
+    bench.execute(Command::AddMarker);
+    bench.advance(10.5);
+    bench.execute(Command::AddMarker);
+    bench.advance(5.0);
+    let id = bench.finish_recording();
+    let name = bench.meeting(id).folder_name.clone();
+
+    let sheet = bench.read(&bench.folder.join(format!("{name}/{name} - réunion.md")));
+    assert!(sheet.contains("reperes:\n  - instant: \"0:05:12\"\n    libelle: \"Repère 1\"\n  - instant: \"0:05:22.5\"\n    libelle: \"Repère 2\"\n"), "{sheet}");
+
+    bench.reopen();
+    let r = bench.named_meeting(&name);
+    let markers: Vec<(f64, &str)> = r.markers.iter().map(|x| (x.instant, x.label.as_str())).collect();
+    assert_eq!(markers, [(312.0, "Repère 1"), (322.5, "Repère 2")]);
+}
+
+#[test]
+fn without_auto_start_the_meeting_stays_to_process() {
+    let mut bench = Bench::new();
+    bench.execute(Command::ChangeSettings(Settings { process_on_stop: false, ..Settings::default() }));
+    let id = bench.record(90.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+    bench.advance(5.0);
+    assert_eq!(bench.meeting(id).status, Status::ToProcess);
+}
+
+#[test]
+fn with_auto_start_the_meeting_is_queued_and_processed() {
+    let mut bench = Bench::new();
+    let id = bench.record(90.0);
+    assert_eq!(bench.meeting(id).status, Status::Pending(Stage::Transcription));
+    assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+}
+
+fn bench_with_permissions(permissions: Permissions) -> Bench {
+    let mut a = bench::adapters();
+    a.capture = Box::new(FakeCapture::new(1.0, 0.0).with_permissions(permissions));
+    Bench::with(a)
+}
+
+fn rejection(bench: &mut Bench, command: Command) -> String {
+    match bench.greffier.execute(command) {
+        Err(Rejection::Impossible(m)) => m,
+        other => panic!("rejection expected, got {other:?}"),
+    }
+}
+
+
+#[test]
+fn without_screen_permission_recording_is_rejected_without_creating_anything() {
+    let mut bench = bench_with_permissions(Permissions { screen: PermissionState::Denied, ..Permissions::GRANTED });
+    assert_eq!(bench.greffier.permissions().screen, PermissionState::Denied);
+
+    let message = rejection(&mut bench, Command::StartRecording);
+    assert!(message.contains("Enregistrement de l'écran"), "{message}");
+    assert!(bench.greffier.recording().is_none());
+    assert_eq!(std::fs::read_dir(&bench.folder).unwrap().count(), 0);
+}
+
+#[test]
+fn a_disabled_source_does_not_need_its_permission() {
+    let mut bench = bench_with_permissions(Permissions { micro: PermissionState::Denied, ..Permissions::GRANTED });
+    assert!(rejection(&mut bench, Command::StartRecording).contains("Micro"));
+
+    let mut settings = Settings::default();
+    settings.sources.micro = false;
+    bench.execute(Command::ChangeSettings(settings));
+    bench.execute(Command::StartRecording);
+    assert_eq!(bench.greffier.recording().expect("in progress").sources, Sources { screen: true, mac_audio: true, micro: false });
+}
+
+#[test]
+fn a_never_requested_permission_is_requested_at_startup() {
+    let mut bench = bench_with_permissions(Permissions { micro: PermissionState::ToRequest, ..Permissions::GRANTED });
+    let message = rejection(&mut bench, Command::StartRecording);
+    assert!(message.contains("micro"), "{message}");
+    // The fake capture accepts every request, like the user clicking « Autoriser ».
+    assert_eq!(bench.greffier.permissions(), Permissions::GRANTED);
+    bench.execute(Command::StartRecording);
+    assert!(bench.greffier.recording().is_some());
+}
+
+#[test]
+fn requesting_a_permission_from_settings() {
+    let mut bench = bench_with_permissions(Permissions { screen: PermissionState::ToRequest, ..Permissions::GRANTED });
+    bench.execute(Command::RequestPermission(Permission::Screen));
+    assert_eq!(bench.greffier.permissions().screen, PermissionState::Granted);
+}
+
+#[test]
+fn without_any_source_recording_is_rejected() {
+    let mut bench = Bench::new();
+    bench.execute(Command::ChangeSettings(Settings { sources: Sources { screen: false, mac_audio: false, micro: false }, ..Settings::default() }));
+    assert!(rejection(&mut bench, Command::StartRecording).contains("source"));
+}
+
+#[test]
+fn a_cut_recording_keeps_the_duration_already_written_in_its_fragments() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(90.0);
+    bench.execute(Command::AddMarker);
+    bench.advance(4.0);
+    // The app stops dead: no `StopRecording`.
+    bench.reopen();
+
+    let r = bench.named_meeting("2026-11-21 14h02 - Réunion");
+    assert_eq!(r.status, Status::RecordingInterrupted);
+    assert!((r.duration - 94.0).abs() < 0.05, "duration {}", r.duration);
+}
+
+#[test]
+fn markers_and_speaker_count_survive_the_app_quitting() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(90.0);
+    bench.execute(Command::AddMarker);
+    bench.execute(Command::RecordingSpeakerCount(Some(3)));
+    bench.advance(4.0);
+    bench.reopen();
+
+    let r = bench.named_meeting("2026-11-21 14h02 - Réunion");
+    assert_eq!(r.status, Status::RecordingInterrupted);
+    let markers: Vec<(f64, &str)> = r.markers.iter().map(|x| (x.instant, x.label.as_str())).collect();
+    assert_eq!(markers, [(90.0, "Repère 1")]);
+    assert_eq!(r.speaker_count, Some(3));
+}
+
+#[test]
+fn an_interrupted_recording_is_read_and_processed_up_to_the_summary() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(75.0);
+    bench.reopen();
+
+    let r = bench.named_meeting("2026-11-21 14h02 - Réunion");
+    assert!(r.files.contains(&Role::Recording), "{:?}", r.files);
+    assert!((r.duration - 75.0).abs() < 0.05, "duration {}", r.duration);
+    let id = r.id;
+    bench.execute(Command::Process(id));
+    assert_eq!(bench.advance_until(id, |s| *s == Status::Done), [Stage::Transcription, Stage::Review, Stage::Summary]);
+    assert_eq!(bench.meeting(id).utterances.len(), 2);
+
+    // And it is no longer interrupted at the next launch.
+    // The summary title renamed the folder.
+    bench.reopen();
+    assert_eq!(bench.named_meeting("2026-11-21 14h02 - Point d'équipe - démo").status, Status::Done);
+}
+
+fn bench_with_capture(capture: FakeCapture) -> Bench {
+    let mut a = bench::adapters();
+    a.capture = Box::new(capture);
+    Bench::with(a)
+}
+
+#[test]
+fn a_capture_stopped_by_macos_keeps_the_meeting_interrupted_with_what_was_captured() {
+    let mut bench = bench_with_capture(FakeCapture::new(1.0, 0.0).broken_at(80.0, "L'écran a été débranché."));
+    bench.execute(Command::StartRecording);
+    bench.advance(30.0);
+    bench.execute(Command::AddMarker);
+    let events = bench.advance(60.0);
+
+    assert!(bench.greffier.recording().is_none());
+    let r = &bench.greffier.meetings()[0];
+    let id = r.id;
+    assert_eq!(events, [Event::RecordingInterrupted { meeting: id, message: "L'écran a été débranché.".into() }]);
+    assert_eq!(r.status, Status::RecordingInterrupted);
+    assert!((r.duration - 80.0).abs() < 0.15, "duration {}", r.duration);
+    assert_eq!(r.markers.len(), 1);
+    assert!(r.files.contains(&Role::Recording));
+    // No automatic processing: it is started whenever we want.
+    bench.advance(2.0);
+    assert_eq!(bench.meeting(id).status, Status::RecordingInterrupted);
+    bench.execute(Command::Process(id));
+    bench.advance_until(id, |s| *s == Status::Done);
+
+    // The summary title renamed the folder.
+    bench.reopen();
+    assert_eq!(bench.named_meeting("2026-11-21 14h02 - Point d'équipe - démo").status, Status::Done);
+}
+
+#[test]
+fn a_failed_stop_keeps_the_meeting_interrupted_with_its_fragments_duration() {
+    let mut bench = bench_with_capture(FakeCapture::new(1.0, 0.0).failing_on_stop("Le fichier n'a pas pu être fini."));
+    bench.execute(Command::StartRecording);
+    bench.advance(70.0);
+    let events = bench.execute(Command::StopRecording);
+
+    assert!(bench.greffier.recording().is_none());
+    let r = &bench.greffier.meetings()[0];
+    assert_eq!(events, [Event::RecordingInterrupted { meeting: r.id, message: "Le fichier n'a pas pu être fini.".into() }]);
+    assert_eq!(r.status, Status::RecordingInterrupted);
+    assert!((r.duration - 70.0).abs() < 0.15, "duration {}", r.duration);
+    bench.reopen();
+    assert_eq!(bench.named_meeting("2026-11-21 14h02 - Réunion").status, Status::RecordingInterrupted);
+}
+
+#[test]
+fn fake_capture_writes_an_mp4_whose_duration_is_read() {
+    let mut bench = Bench::new();
+    let id = bench.record(75.0);
+    let name = bench.meeting(id).folder_name.clone();
+    let file = bench.greffier.folder().file(&name, Role::Recording);
+    let duration = greffier_core::folder::mp4_duration(&file).expect("mp4 duration");
+    assert!((duration - 75.0).abs() < 0.05, "{duration}");
+}
+
+#[test]
+fn an_avassetwriter_mp4_cut_mid_recording_keeps_its_duration() {
+    // Written by the real capture, quitting before finishing the file:
+    // 2 s in the moov, then fragments without tfdt; ffprobe reads 6.04 s.
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/avassetwriter-cut.mp4");
+    let duration = greffier_core::folder::mp4_duration(&file).expect("duration");
+    assert!((duration - 6.04).abs() < 0.01, "{duration}");
+}
+
+#[test]
+fn neither_a_running_recording_nor_its_stop_count_as_outside_changes() {
+    let mut bench = Bench::new();
+    bench.execute(Command::StartRecording);
+    bench.advance(30.0);
+    assert_eq!(bench.greffier.rescan_folder(), []);
+    bench.advance(45.0);
+    let id = bench.finish_recording();
+    assert_eq!(bench.greffier.rescan_folder(), []);
+    assert_eq!(bench.greffier.meetings().iter().filter(|r| r.id == id).count(), 1);
+}

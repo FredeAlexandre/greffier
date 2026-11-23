@@ -1,1 +1,3 @@
 /target
+# CLI output accidentally written under an option's name (`--scene`…).
+/--*

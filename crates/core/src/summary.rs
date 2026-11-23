@@ -1,0 +1,211 @@
+//! The summary is Markdown written by the agent from the summary prompt. Greffier stores only
+//! this text. It derives what it needs from it: the topics (chapters of the timeline), the
+//! decisions (◆), the brief, the actions, and makes the "(0:44:12)" timestamps clickable.
+
+use crate::meeting::{Decision, Topic};
+
+/// Reads "h:mm:ss" at the start of `s`. Returns the seconds and the length read.
+fn read_timestamp(s: &str) -> Option<(f64, usize)> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i > 2 || b.len() < i + 6 || b[i] != b':' || b[i + 3] != b':' {
+        return None;
+    }
+    let digits = |a: usize| b[a].is_ascii_digit() && b[a + 1].is_ascii_digit();
+    if !digits(i + 1) || !digits(i + 4) {
+        return None;
+    }
+    let h: f64 = s[..i].parse().ok()?;
+    let m: f64 = s[i + 1..i + 3].parse().ok()?;
+    let sec: f64 = s[i + 4..i + 6].parse().ok()?;
+    Some((h * 3600.0 + m * 60.0 + sec, i + 6))
+}
+
+/// All the "(h:mm:ss)" of a line: (position of the opening parenthesis, length, seconds).
+fn timestamps(line: &str) -> Vec<(usize, usize, f64)> {
+    let mut out = Vec::new();
+    for (i, _) in line.match_indices('(') {
+        if let Some((t, n)) = read_timestamp(&line[i + 1..])
+            && line[i + 1 + n..].starts_with(')')
+        {
+            out.push((i, n + 2, t));
+        }
+    }
+    out
+}
+
+/// The first "(h:mm:ss)" of a line, in seconds.
+pub(crate) fn first_timestamp(line: &str) -> Option<f64> {
+    timestamps(line).first().map(|h| h.2)
+}
+
+fn clean(s: &str) -> String {
+    s.replace("**", "").trim().to_string()
+}
+
+/// The lines of a `## Title` section (up to the next `## `).
+fn section<'a>(md: &'a str, title: &str) -> impl Iterator<Item = &'a str> {
+    let mut inside = false;
+    md.lines().filter(move |l| {
+        if let Some(h) = l.strip_prefix("## ") {
+            inside = h.trim().starts_with(title);
+            return false;
+        }
+        inside
+    })
+}
+
+fn is_checkbox(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("- [ ]") || t.starts_with("- [x]") || t.starts_with("- [X]")
+}
+
+/// The topics: the `### Title (h:mm:ss)` headings of "Sujets abordés".
+pub fn topics(md: &str) -> Vec<Topic> {
+    let mut v: Vec<Topic> = section(md, "Sujets")
+        .filter_map(|l| {
+            let h = l.strip_prefix("### ")?;
+            let (i, _, t) = *timestamps(h).first()?;
+            Some(Topic { start: t, title: clean(&h[..i]) })
+        })
+        .collect();
+    v.sort_by(|a, b| a.start.total_cmp(&b.start));
+    v
+}
+
+/// A bullet that says the list is empty (« Aucune décision. », « Pas d'action »): summaries
+/// written before the prompt allowed an empty list put one there, sometimes timestamped.
+fn says_none(text: &str) -> bool {
+    let t = text.replace(['*', '_'], "").replace('’', "'").to_lowercase();
+    let t = t.trim_start();
+    ["aucune décision", "pas de décision", "aucune action", "pas d'action", "aucune tâche", "rien à faire"].iter().any(|p| t.starts_with(p))
+}
+
+/// The decisions: the timestamped bullets of "Décisions".
+pub fn decisions(md: &str) -> Vec<Decision> {
+    section(md, "Décisions")
+        .filter_map(|l| {
+            let item = l.trim_start().strip_prefix("- ")?;
+            let (i, n, t) = *timestamps(item).first()?;
+            let text = clean(&format!("{}{}", &item[..i], &item[i + n..]));
+            (!says_none(&text)).then_some(Decision { instant: t, text })
+        })
+        .collect()
+}
+
+/// The actions: the `- [ ]` checkboxes of the "Actions" section.
+pub fn actions(md: &str) -> Vec<String> {
+    section(md, "Actions").filter(|l| is_checkbox(l)).map(|l| clean(&l.trim_start()[5..])).filter(|a| !says_none(a)).collect()
+}
+
+/// The first paragraph of "En bref".
+pub fn brief(md: &str) -> String {
+    section(md, "En bref").map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+/// What the summary lacks for the interface to use it, or nothing. A meeting may decide nothing
+/// and leave nothing to do, but its timeline needs its timestamped topics.
+pub fn missing_parts(md: &str) -> Option<String> {
+    topics(md).is_empty().then(|| "Le bilan n'a pas de sujets horodatés.".to_string())
+}
+
+/// The summary without its YAML front matter (`---` … `---`), which is for agents, not for display.
+pub fn without_front_matter(md: &str) -> &str {
+    let Some(rest) = md.strip_prefix("---\n").or_else(|| md.strip_prefix("---\r\n")) else { return md };
+    let mut offset = 0;
+    for line in rest.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim_end() == "---" {
+            return &rest[offset..];
+        }
+    }
+    md
+}
+
+/// Prepares the summary for display: no front matter, and clickable timestamps ("(0:44:12)"
+/// becomes a `t:2652` link).
+pub fn with_playback_links(md: &str) -> String {
+    let md = without_front_matter(md);
+    let mut out = String::with_capacity(md.len() + 256);
+    for line in md.lines() {
+        let mut last = 0;
+        for (i, n, t) in timestamps(line) {
+            out.push_str(&line[last..i]);
+            let label = &line[i + 1..i + n - 1];
+            out.push_str(&format!("[▶ {label}](t:{})", t as u64));
+            last = i + n;
+        }
+        out.push_str(&line[last..]);
+        out.push('\n');
+    }
+    out
+}
+
+/// The position, in bytes, of the character between the brackets of the `index`-th `- [ ]` checkbox.
+pub fn checkbox_position(md: &str, index: usize) -> Option<usize> {
+    let mut start = 0;
+    let mut n = 0;
+    for line in md.split_inclusive('\n') {
+        if is_checkbox(line) {
+            if n == index {
+                return Some(start + (line.len() - line.trim_start().len()) + 3);
+            }
+            n += 1;
+        }
+        start += line.len();
+    }
+    None
+}
+
+/// The number of `- [ ]` checkboxes in the Markdown.
+pub fn checkbox_count(md: &str) -> usize {
+    md.lines().filter(|l| is_checkbox(l)).count()
+}
+
+/// Ticks or unticks the Markdown's `index`-th `- [ ]` checkbox, without touching the rest. True
+/// if the checkbox changed.
+pub fn tick(md: &mut String, index: usize, done: bool) -> bool {
+    let Some(p) = checkbox_position(md, index) else { return false };
+    if (md.as_bytes()[p] != b' ') == done {
+        return false;
+    }
+    md.replace_range(p..p + 1, if done { "x" } else { " " });
+    true
+}
+
+/// The index of the checkbox whose `[` is at `offset` in `src`.
+pub fn checkbox_index(src: &str, offset: usize) -> usize {
+    src[..offset.min(src.len())].lines().filter(|l| is_checkbox(l)).count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MD: &str = "## En bref\nUn.\nDeux.\n\n## Sujets abordés\n### Bandeau (0:00:01)\n- a\n### Search **fermé** (1:05:17)\n## Décisions\n- (0:44:12) On vend.\n- Rien\n## Actions\n- [ ] A\n- [x] B\n";
+
+    #[test]
+    fn reads_the_summary_template() {
+        assert_eq!(topics(MD), vec![Topic { start: 1.0, title: "Bandeau".into() }, Topic { start: 3917.0, title: "Search fermé".into() }]);
+        assert_eq!(decisions(MD), vec![Decision { instant: 2652.0, text: "On vend.".into() }]);
+        assert_eq!(brief(MD), "Un. Deux.");
+        assert_eq!(actions(MD), vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(missing_parts(MD), None);
+        let nothing = "## Sujets abordés\n### Essai (0:00:01)\n## Décisions\n- (0:00:25) **Aucune décision** n'a été prise.\n- Aucune décision.\n## Actions\n- [ ] Aucune action.\nRien à faire.\n## Questions ouvertes\n";
+        assert_eq!(decisions("## Décisions\n- (0:01:00) Pas de mise en prod avant lundi.\n").len(), 1);
+        assert_eq!((decisions(nothing), actions(nothing), missing_parts(nothing)), (vec![], Vec::<String>::new(), None));
+        assert_eq!(missing_parts("## Sujets abordés\nRien.\n").as_deref(), Some("Le bilan n'a pas de sujets horodatés."));
+        assert!(with_playback_links(MD).contains("[▶ 0:44:12](t:2652)"));
+        let with_front_matter = format!("---\ntype: bilan\ndate: 2026-11-22\n---\n{MD}");
+        assert_eq!(without_front_matter(&with_front_matter), MD);
+        assert_eq!(with_playback_links(&with_front_matter), with_playback_links(MD));
+        assert_eq!(without_front_matter("---\nnot closed\n"), "---\nnot closed\n");
+        let mut m = MD.to_string();
+        tick(&mut m, 1, false);
+        tick(&mut m, 0, true);
+        assert!(m.contains("- [x] A\n- [ ] B"));
+    }
+}

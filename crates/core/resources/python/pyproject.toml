@@ -1,0 +1,12 @@
+[project]
+name = "greffier-diarization"
+version = "1.0.0"
+description = "pyannote for Greffier: speaker diarization. Installed by the app with its bundled uv."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pyannote.audio>=4.0.1,<5",
+  "numpy",
+]
+
+[tool.uv]
+package = false
