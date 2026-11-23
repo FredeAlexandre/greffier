@@ -1168,6 +1168,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "greffier-cli"
+version = "0.0.1"
+dependencies = [
+ "greffier-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "greffier-core"
 version = "0.0.1"
 dependencies = [
