@@ -194,9 +194,12 @@ fn a_background_process_quits_after_its_idle_time() {
 #[test]
 fn a_shown_window_or_a_normal_launch_never_quits_on_its_own() {
     let mut shown = IdlePolicy::new(true, 300.0, 0.0);
+    assert!(shown.may_quit());
     shown.window_shown();
+    assert!(!shown.may_quit());
     assert!(!shown.should_quit(10_000.0, false));
     let mut normal = IdlePolicy::new(false, 300.0, 0.0);
+    assert!(!normal.may_quit());
     assert!(!normal.should_quit(10_000.0, false));
     assert_eq!(server::IDLE_QUIT, 300.0);
 }

@@ -32,11 +32,16 @@ impl IdlePolicy {
         self.window_shown = true;
     }
 
+    /// Whether it may still quit on its own: started in the background, its window never shown.
+    pub fn may_quit(&self) -> bool {
+        self.background && !self.window_shown
+    }
+
     /// Whether to quit now; `busy`: what the core is doing.
     pub fn should_quit(&mut self, now: f64, busy: bool) -> bool {
         if busy {
             self.since = now;
         }
-        self.background && !self.window_shown && now - self.since >= self.timeout
+        self.may_quit() && now - self.since >= self.timeout
     }
 }
