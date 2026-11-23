@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::Failure;
@@ -53,10 +53,11 @@ impl Launch {
         }
     }
 
-    /// Starts the process; it outlives the command line.
-    pub fn launch(&self) -> Result<(), String> {
+    /// Starts the process; it outlives the command line. The program launched directly comes
+    /// back as a child, to see whether it exits; the app launched by `open` does not.
+    pub fn launch(&self) -> Result<Option<Child>, String> {
         match self {
-            Launch::Nothing => Ok(()),
+            Launch::Nothing => Ok(None),
             Launch::Program { program, env } => std::process::Command::new(program)
                 .arg("--background")
                 .envs(env.iter().map(|(k, v)| (k, v)))
@@ -66,7 +67,7 @@ impl Launch {
                 // Out of the terminal's process group: a ⌃C on the command line does not stop it.
                 .process_group(0)
                 .spawn()
-                .map(|_| ())
+                .map(Some)
                 .map_err(|e| format!("lancement de {} : {e}", program.display())),
             Launch::Bundle(id) => {
                 let status = std::process::Command::new("/usr/bin/open")
@@ -76,7 +77,7 @@ impl Launch {
                     .stderr(Stdio::null())
                     .status()
                     .map_err(|e| format!("open : {e}"))?;
-                if status.success() { Ok(()) } else { Err(format!("open -b {id} a échoué ({status}) : Greffier est-il installé ? (cargo xtask install-app)")) }
+                if status.success() { Ok(None) } else { Err(format!("open -b {id} a échoué ({status}) : Greffier est-il installé ? (cargo xtask install-app)")) }
             }
         }
     }
@@ -86,6 +87,21 @@ impl Launch {
 fn in_bundle(executable: &Path) -> bool {
     executable.components().any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
 }
+
+/// At most this many launches while waiting for the process to answer.
+const LAUNCHES: u32 = 3;
+
+/// A process launched that exits at once (it found the app folder's lock still held by a
+/// process quitting) is launched again no sooner than this after the previous launch, the time
+/// for the one quitting to be gone.
+const RELAUNCH_AFTER: Duration = Duration::from_secs(1);
+
+/// The app launched by `open` cannot be watched: it is launched again if, this long after the
+/// previous launch, the socket does not answer and no live process holds the app folder's lock
+/// (`open` only woke up an instance quitting, or the instance launched found the lock held). Long
+/// enough for an instance starting to have taken the lock: `open` sent to an instance running
+/// would show its window.
+const REOPEN_AFTER: Duration = Duration::from_secs(3);
 
 /// How the command line reaches the Greffier process.
 #[derive(Clone, Debug)]
@@ -126,15 +142,35 @@ impl Process {
         if let Ok(c) = Connection::open(&self.socket) {
             return c.greet(meetings_folder);
         }
-        self.launch.launch().map_err(Failure::Unreachable)?;
         let deadline = Instant::now() + self.patience;
+        let mut child = self.launch.launch().map_err(Failure::Unreachable)?;
+        let (mut launches, mut launched) = (1, Instant::now());
         loop {
             std::thread::sleep(Duration::from_millis(50));
             if let Ok(c) = Connection::open(&self.socket) {
                 return c.greet(meetings_folder);
             }
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 return Err(Failure::Unreachable(not_answering(&self.socket)));
+            }
+            // The process launched is gone without answering: launched again, a few times.
+            let gone = match &mut child {
+                Some(c) => matches!(c.try_wait(), Ok(Some(_))),
+                None => matches!(self.launch, Launch::Bundle(_)) && now - launched >= REOPEN_AFTER && !lock_held(&self.socket),
+            };
+            if !gone {
+                continue;
+            }
+            if launches == LAUNCHES {
+                if child.is_some() {
+                    return Err(Failure::Unreachable(not_answering(&self.socket)));
+                }
+                continue;
+            }
+            if now - launched >= RELAUNCH_AFTER {
+                child = self.launch.launch().map_err(Failure::Unreachable)?;
+                (launches, launched) = (launches + 1, now);
             }
         }
     }
@@ -154,6 +190,15 @@ impl Process {
 /// nobody answers. For the app's second launch: [`Request::OpenWindow`] to the first one.
 pub fn ask_once(socket: &Path, request: &Request) -> Option<Response> {
     Connection::open(socket).ok()?.ask(request).ok()
+}
+
+/// Whether a live process holds the lock of the app folder this socket is in: the lock file
+/// gives the pid of its last holder.
+fn lock_held(socket: &Path) -> bool {
+    let Some(app_folder) = socket.parent() else { return false };
+    let Ok(pid) = std::fs::read_to_string(crate::server::lock_path(app_folder)) else { return false };
+    let pid = pid.trim();
+    !pid.is_empty() && std::process::Command::new("/bin/kill").args(["-0", pid]).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
 /// « Greffier ne répond pas », and the likely cause: an older Greffier, open without a socket

@@ -93,6 +93,35 @@ fn a_write_launches_greffier_in_the_background() {
 }
 
 #[test]
+fn a_launch_that_meets_a_process_still_quitting_is_tried_again() {
+    let s = setup();
+    // A process quitting still holds the app folder's lock: the first test host launched finds
+    // it held and exits at once, before the socket answers.
+    let quitting = server::lock_instance(&s.app.0).expect("lock");
+    let quit = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        drop(quitting);
+    });
+    let o = run_in(&s.cx(10.0, 60.0), &["rename", "2026-11-20", "Revue"]);
+    quit.join().unwrap();
+    assert_eq!(o.code, 0, "{}", o.err);
+    assert!(s.folder.0.join("2026-11-20 10h00 - Revue").is_dir());
+    assert!(s.answering() && s.locked());
+}
+
+#[test]
+fn a_process_that_keeps_exiting_is_given_up_after_a_few_launches() {
+    let s = setup();
+    let _held = server::lock_instance(&s.app.0).expect("lock");
+    let start = Instant::now();
+    let o = run_in(&s.cx(10.0, 60.0), &["rename", "2026-11-20", "Revue"]);
+    assert_eq!(o.code, 3, "{}", o.err);
+    assert!(o.err.starts_with(&format!("greffier : Greffier ne répond pas sur {}.", s.socket().display())), "{}", o.err);
+    assert!(start.elapsed() < Duration::from_secs(10), "without waiting for the 15 s: {:?}", start.elapsed());
+    assert!(s.folder.0.join(RELEASE).is_dir());
+}
+
+#[test]
 fn import_waits_until_the_meeting_is_done() {
     let s = setup();
     let (_outside, file) = media();
