@@ -205,18 +205,38 @@ fn list_in_json_mirrors_the_sheet() {
 // --- show ---
 
 #[test]
-fn show_gives_a_header_then_the_summary() {
+fn show_gives_a_header_then_an_outline_of_the_summary() {
     let f = meetings();
     for name in ["2026-11-20-1000", RELEASE, &f.0.join(RELEASE).to_string_lossy(), "2026-11-20"] {
         let o = greffier(&f, &["show", name]);
         assert_eq!(o.code, 0, "{name}: {}", o.err);
-        let header = format!(
-            "2026-11-20-1000 · Revue de release\n2026-11-20 10h00 · 0:00:12 · terminée, 1 à vérifier\nLocuteurs : Alexandre, Khalid ?\nDossier : {}\n## En bref\n",
-            f.0.join(RELEASE).display()
+        assert_eq!(
+            o.out,
+            format!(
+                "2026-11-20-1000 · Revue de release\n\
+                 2026-11-20 10h00 · 0:00:12 · terminée, 1 à vérifier\n\
+                 Locuteurs : Alexandre, Khalid ?\n\
+                 Dossier : {}\n\
+                 En bref : On publie la release lundi si la recette passe vendredi.\n\
+                 Sujets :\n  [0:00:00] Date de la release\n  [0:00:05] Support\n\
+                 Décisions :\n  [0:00:02] Release lundi si la recette passe vendredi.\n\
+                 Actions : 2\n\
+                 Suite : --bilan (bilan complet), --actions, --transcription --from h:mm:ss --to h:mm:ss (un passage)\n",
+                f.0.join(RELEASE).display()
+            ),
+            "{name}"
         );
-        assert!(o.out.starts_with(&header), "{name}:\n{}", o.out);
-        assert!(o.out.ends_with("## Questions ouvertes\n\n- Aucune.\n"));
     }
+}
+
+#[test]
+fn the_outline_says_when_there_is_no_decision() {
+    let f = meetings();
+    let file = f.0.join(RELEASE).join(format!("{RELEASE} - bilan.md"));
+    let summary = std::fs::read_to_string(&file).unwrap().replace("- (0:00:02) Release lundi si la recette passe vendredi.", "- Aucune décision.");
+    std::fs::write(&file, summary).unwrap();
+    let o = greffier(&f, &["show", "2026-11-20-1000"]);
+    assert!(o.out.contains("\nDécisions : aucune\nActions : 2\n"), "{}", o.out);
 }
 
 #[test]
@@ -233,6 +253,8 @@ fn show_without_a_summary_says_where_the_meeting_stands() {
     );
     let o = greffier(&f, &["show", "2026-11-19"]);
     assert!(o.out.ends_with("Pas encore de bilan (aucune étape faite).\n"), "{}", o.out);
+    let o = greffier(&f, &["show", "2026-11-18"]);
+    assert!(o.out.ends_with("Pas encore de bilan (étape faite : Transcription).\nSuite : --transcription [--from h:mm:ss --to h:mm:ss]\n"), "{}", o.out);
 }
 
 #[test]
@@ -355,7 +377,11 @@ fn show_views_in_json() {
     let v = greffier(&f, &["show", "2026-11-20-1000", "--json"]).json();
     assert_eq!(v["id"], "2026-11-20-1000");
     assert_eq!(v["statut"], "terminee");
-    assert!(v["bilan"].as_str().unwrap().starts_with("## En bref\n"));
+    assert!(v.get("bilan").is_none(), "the whole summary is --bilan's");
+    assert_eq!(v["en_bref"], "On publie la release lundi si la recette passe vendredi.");
+    assert_eq!(v["sujets"][1], serde_json::json!({ "debut": 5.0, "horodatage": "0:00:05", "titre": "Support" }));
+    assert_eq!(v["decisions"][0], serde_json::json!({ "debut": 2.0, "horodatage": "0:00:02", "texte": "Release lundi si la recette passe vendredi." }));
+    assert_eq!(v["actions"], 2);
     let speakers = v["locuteurs"].as_array().unwrap();
     assert_eq!(speakers.len(), 3);
     assert_eq!(speakers[1]["label"], "SPEAKER_01");
@@ -364,7 +390,8 @@ fn show_views_in_json() {
     assert_eq!(speakers[1]["affiche"], "Khalid ?");
     assert_eq!(speakers[2]["fusionne_dans"], "SPEAKER_00");
     assert_eq!(speakers[0]["temps_de_parole"], 3);
-    assert!(greffier(&f, &["show", "2026-11-21-0939", "--json"]).json()["bilan"].is_null());
+    let v = greffier(&f, &["show", "2026-11-21-0939", "--json"]).json();
+    assert_eq!((v["en_bref"].is_null(), v["sujets"].is_null(), v["decisions"].is_null(), v["actions"].is_null()), (true, true, true, true), "no summary yet");
 
     let v = greffier(&f, &["show", "2026-11-20-1000", "--actions", "--json"]).json();
     assert_eq!(v["actions"][1]["numero"], 2);

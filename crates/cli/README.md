@@ -29,8 +29,11 @@ string next to them where it helps.
 **`status`**: a meeting (or an array of the meetings not done) plus `rang` (place in the queue,
 from 1), `progression` (0 to 1) and `temps_restant` (seconds), `null` while read from disk.
 
-**`show <réunion>`**: a meeting plus `locuteurs` (see below) and `bilan` (Markdown without its
-front matter, `null` until there is one). Views, each with `id`:
+**`show <réunion>`**: a meeting plus `locuteurs` (see below) and the summary's outline, each
+`null` until there is a summary: `en_bref` (the brief's first paragraph), `sujets` (`debut`,
+`horodatage`, `titre`), `decisions` (`debut`, `horodatage`, `texte`) and `actions` (how many).
+The text view gives the same: a few lines even for a long meeting (about 3.5 KB for 2.5 h,
+against 20 KB for the whole summary), then where to read on. Views, each with `id`:
 
 - `--bilan`: `bilan`; `--fiche`: `fiche` (the file as is).
 - `--transcription`: `repliques`: `numero` (from 1), `debut`, `fin`, `horodatage`, `locuteur`

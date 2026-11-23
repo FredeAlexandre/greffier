@@ -111,7 +111,7 @@ greffier : les réunions du dossier de réunions, en ligne de commande. Sans com
 greffier list [--date J|M] [--since J] [--until J] [--limit N]
   Les réunions, de la plus récente à la plus ancienne : identifiant · durée · statut · titre.
 greffier show <réunion> [--bilan | --transcription | --fiche | --locuteurs | --actions | --passages]
-  Sans vue : en-tête et bilan. --bilan : le bilan seul. --fiche : la fiche telle quelle.
+  Sans vue : en-tête, en bref, sujets, décisions. --bilan : le bilan complet. --fiche : la fiche.
   --transcription [--from T] [--to T] [--numeros] : les répliques, [h:mm:ss] Nom : texte.
   --locuteurs : index · label · nom · temps de parole. --actions : les cases du bilan, numérotées.
   --passages [--from T] [--to T] : les passages à vérifier, numérotés.

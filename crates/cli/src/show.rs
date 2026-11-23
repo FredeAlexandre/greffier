@@ -1,10 +1,11 @@
-//! `greffier show <réunion>`: a meeting, by default its header and its summary; or one view:
-//! the summary, the sheet, the transcription, the speakers, the actions or the passages to check.
-//! Utterances, actions and passages are numbered from 1 (`#n`); speakers by their index, as in
-//! their label (SPEAKER_00 is 0).
+//! `greffier show <réunion>`: a meeting, by default its header and its summary's outline (brief,
+//! topics, decisions, number of actions); or one view: the summary, the sheet, the
+//! transcription, the speakers, the actions or the passages to check. Utterances, actions and
+//! passages are numbered from 1 (`#n`); speakers by their index, as in their label (SPEAKER_00
+//! is 0).
 
-use greffier_core::summary::{checkboxes, without_front_matter};
-use greffier_core::{Meeting, PassageStatus, Role, playback_timestamp};
+use greffier_core::summary::{self, checkboxes, without_front_matter};
+use greffier_core::{Decision, Meeting, PassageStatus, Role, Topic, playback_timestamp};
 use serde::Serialize;
 
 use crate::library::{Entry, Library, MeetingJson};
@@ -89,16 +90,77 @@ struct ShowJson {
     #[serde(flatten)]
     meeting: MeetingJson,
     locuteurs: Vec<SpeakerJson>,
-    /// The summary's Markdown without its front matter; `null` until there is one.
-    bilan: Option<String>,
+    /// The summary's outline; each `null` until there is one.
+    en_bref: Option<String>,
+    sujets: Option<Vec<MomentJson>>,
+    decisions: Option<Vec<MomentJson>>,
+    /// The number of actions.
+    actions: Option<usize>,
+}
+
+/// A topic (`titre`) or a decision (`texte`) of the summary, at its moment.
+#[derive(Serialize)]
+struct MomentJson {
+    /// In seconds.
+    debut: f64,
+    horodatage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    titre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    texte: Option<String>,
+}
+
+/// What the default view shows of the summary: the brief, the topics, the decisions and how
+/// many actions; the rest is `--bilan`'s, so that a long meeting stays a few lines.
+struct Outline {
+    brief: String,
+    topics: Vec<Topic>,
+    decisions: Vec<Decision>,
+    actions: usize,
+}
+
+impl Outline {
+    fn of(m: &Meeting) -> Option<Outline> {
+        let md = summary_text(m)?;
+        Some(Outline { brief: summary::brief(&md), topics: summary::topics(&md), decisions: summary::decisions(&md), actions: summary::actions(&md).len() })
+    }
+
+    fn text(&self) -> String {
+        let mut s = String::new();
+        if !self.brief.is_empty() {
+            s += &format!("En bref : {}\n", self.brief);
+        }
+        if !self.topics.is_empty() {
+            s += "Sujets :\n";
+            s += &self.topics.iter().map(|t| format!("  [{}] {}\n", playback_timestamp(t.start), t.title)).collect::<String>();
+        }
+        match self.decisions.as_slice() {
+            [] => s += "Décisions : aucune\n",
+            d => {
+                s += "Décisions :\n";
+                s += &d.iter().map(|d| format!("  [{}] {}\n", playback_timestamp(d.instant), d.text)).collect::<String>();
+            }
+        }
+        s += &format!("Actions : {}\n", self.actions);
+        s + "Suite : --bilan (bilan complet), --actions, --transcription --from h:mm:ss --to h:mm:ss (un passage)\n"
+    }
 }
 
 /// The header (identifier · title; date and time, duration, status; failure; speakers; folder),
-/// then the summary or where the meeting stands.
+/// then the summary's outline or where the meeting stands.
 fn default(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> {
     let m = &e.meeting;
+    let outline = Outline::of(m);
     if json {
-        return Ok(crate::json(&ShowJson { meeting: MeetingJson::new(e, &library.folder), locuteurs: speaker_list(m), bilan: summary_text(m) }));
+        let moment = |t: f64, titre: Option<String>, texte: Option<String>| MomentJson { debut: t, horodatage: playback_timestamp(t), titre, texte };
+        return Ok(crate::json(&ShowJson {
+            meeting: MeetingJson::new(e, &library.folder),
+            locuteurs: speaker_list(m),
+            en_bref: outline.as_ref().map(|o| o.brief.clone()),
+            sujets: outline.as_ref().map(|o| o.topics.iter().map(|t| moment(t.start, Some(t.title.clone()), None)).collect()),
+            decisions: outline.as_ref().map(|o| o.decisions.iter().map(|d| moment(d.instant, None, Some(d.text.clone()))).collect()),
+            actions: outline.as_ref().map(|o| o.actions),
+        }));
     }
     let mut s = format!("{} · {}\n{} · {} · {}\n", e.id, m.title, m.start.timestamp(), playback_timestamp(m.duration), text::status(m, e.live.as_ref()));
     if let greffier_core::Status::Failed { message, .. } = &m.status {
@@ -111,9 +173,14 @@ fn default(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> 
         s += &format!("Locuteurs : {}\n", names.join(", "));
     }
     s += &format!("Dossier : {}\n", library.folder.folder(&m.folder_name).display());
-    match summary_text(m) {
-        Some(summary) => s += &summary,
-        None => s += &format!("Pas encore de bilan {}.\n", text::completed_stage(m)),
+    match outline {
+        Some(outline) => s += &outline.text(),
+        None => {
+            s += &format!("Pas encore de bilan {}.\n", text::completed_stage(m));
+            if !m.utterances.is_empty() {
+                s += "Suite : --transcription [--from h:mm:ss --to h:mm:ss]\n";
+            }
+        }
     }
     Ok(s)
 }
