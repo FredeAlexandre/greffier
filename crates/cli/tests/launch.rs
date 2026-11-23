@@ -52,7 +52,7 @@ impl Setup {
         let Launch::Program { program, .. } = Launch::rule(Some(program), false, None) else { panic!("a program") };
         let mut process = Process::new(&self.app.0, Launch::Program { program, env: env.into_iter().map(|(k, v)| (k.to_string(), v)).collect() });
         process.poll = Duration::from_millis(100);
-        Context { meetings_folder: Some(self.folder.0.clone()), live: None, process: Some(process) }
+        Context { meetings_folder: Some(self.folder.0.clone()), app_folder: None, live: None, process: Some(process) }
     }
 
     fn socket(&self) -> PathBuf {
@@ -101,7 +101,7 @@ fn import_waits_until_the_meeting_is_done() {
     let lines: Vec<&str> = o.out.lines().collect();
     assert_eq!(lines.len(), 2, "{}", o.out);
     assert_eq!(lines[1], format!("{} · terminée · Point produit : maquettes bookmarks, staging", lines[0]));
-    let shown = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), live: None, process: None }, &["show", lines[0], "--bilan"]);
+    let shown = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), app_folder: None, live: None, process: None }, &["show", lines[0], "--bilan"]);
     assert_eq!(shown.code, 0, "{}", shown.err);
     assert!(shown.out.starts_with("## En bref"), "{}", shown.out);
 }
