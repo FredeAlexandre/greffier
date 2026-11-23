@@ -115,7 +115,8 @@ greffier : les réunions du dossier de réunions, en ligne de commande. Sans com
 
 greffier search <requête> [--since J] [--until J] [--date J|M] [--speaker NOM] [--in OÙ] [--context N] [--limit N]
   Ce qui a été dit : les lignes qui ont tous les mots et \"expressions exactes\" (casse et accents
-  ignorés), par réunion, de la plus récente : bilan puis répliques, [h:mm:ss] Nom : extrait.
+  ignorés ; un mot trouve ceux qui le contiennent : bookmark trouve bookmarks, tapez le radical),
+  par réunion, de la plus récente : bilan puis répliques, [h:mm:ss] Nom : extrait.
   --in bilan,transcription,titre. --context N : N répliques autour. --limit : 30 en tout.
 greffier list [--date J|M] [--since J] [--until J] [--limit N]
   Les réunions, de la plus récente à la plus ancienne : identifiant · durée · statut · titre.
@@ -134,7 +135,7 @@ J : AAAA-MM-JJ. M : AAAA-MM. T : h:mm:ss, m:ss ou secondes.
 GREFFIER_FOLDER remplace le dossier de réunions, GREFFIER_APP_FOLDER le dossier de l'app.
 
 Exemples :
-  greffier search bookmarks labels --since 2026-11-16
+  greffier search bookmark label --since 2026-11-16
   greffier search '\"fiscal year\"' --speaker Jérôme --context 2
   greffier show 2026-11-20-0939 --transcription --from 1:25:00 --to 1:30:00
 ";

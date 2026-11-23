@@ -10,7 +10,7 @@
 //! The text groups the lines by meeting, most recent first, the summary's before the
 //! transcription's; the JSON gives the same lines flat, with their highlights.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use greffier_core::adapters::{
@@ -94,6 +94,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     query.summary_lines = share(found.iter().map(|(_, c)| c), limit);
     query.utterances = query.summary_lines;
     let report = g.find(&query);
+    let width = query.width;
     let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &library, f)).collect();
 
     if a.flag("--json") {
@@ -104,25 +105,26 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     }
     let mut s = String::new();
     let mut shown: HashMap<MeetingId, usize> = HashMap::new();
-    let mut printed: HashSet<usize> = HashSet::new();
-    for (i, r) in results.iter().enumerate() {
-        if i == 0 || results[i - 1].found.meeting != r.found.meeting {
-            s += &format!("{} · {}\n", r.id, r.title);
-            printed.clear();
-        }
-        *shown.entry(r.found.meeting).or_default() += 1;
-        let nearby = |u: &NearbyUtterance, printed: &mut HashSet<usize>| if printed.insert(u.index) { format!("    {}\n", utterance(u.start, u.speaker.as_deref(), &u.text)) } else { String::new() };
-        s += &r.found.before.iter().map(|u| nearby(u, &mut printed)).collect::<String>();
-        let at = r.found.instant.map(|t| format!("[{}] ", playback_timestamp(t))).unwrap_or_default();
-        s += &match r.found.location {
-            Location::Title => "  titre\n".to_string(),
-            Location::Summary => format!("  {at}bilan · {}\n", r.excerpt),
-            Location::Transcription => {
-                printed.extend(r.found.utterance);
-                format!("  {at}{} : {}\n", r.found.speaker.as_deref().unwrap_or("?"), r.excerpt)
+    for meeting in results.chunk_by(|a, b| a.found.meeting == b.found.meeting) {
+        s += &format!("{} · {}\n", meeting[0].id, meeting[0].title);
+        shown.insert(meeting[0].found.meeting, meeting.len());
+        // The utterances found and those around them, in order, each once: found wins.
+        let mut conversation: BTreeMap<usize, String> = BTreeMap::new();
+        for r in meeting {
+            let f = &r.found;
+            let at = f.instant.map(|t| format!("[{}] ", playback_timestamp(t))).unwrap_or_default();
+            match (f.location, f.utterance) {
+                (Location::Title, _) => s += "  titre\n",
+                (Location::Transcription, Some(i)) => {
+                    conversation.insert(i, format!("  {at}{} : {}\n", f.speaker.as_deref().unwrap_or("?"), r.excerpt));
+                }
+                _ => s += &format!("  {at}bilan · {}\n", r.excerpt),
             }
-        };
-        s += &r.found.after.iter().map(|u| nearby(u, &mut printed)).collect::<String>();
+            for u in f.before.iter().chain(&f.after) {
+                conversation.entry(u.index).or_insert_with(|| format!("    {}\n", utterance(u.start, u.speaker.as_deref(), &clip(&u.text, width))));
+            }
+        }
+        s += &conversation.into_values().collect::<String>();
     }
     // What the limits left out, meeting by meeting, most recent first.
     let left: Vec<(MeetingId, usize)> = found.iter().map(|(m, c)| (*m, c.total() - shown.get(m).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
@@ -177,6 +179,13 @@ impl Count {
 fn share<'a>(counts: impl Iterator<Item = &'a Count> + Clone, limit: usize) -> usize {
     let most = counts.clone().map(|c| c.summary.max(c.transcription)).max().unwrap_or(0).min(limit);
     (PER_MEETING..=most).rev().find(|&cap| counts.clone().map(|c| c.within(cap)).sum::<usize>() <= limit).unwrap_or(PER_MEETING)
+}
+
+/// `text` cut to `width` characters, between two words, with "…".
+fn clip(text: &str, width: usize) -> String {
+    let Some((end, _)) = text.char_indices().nth(width) else { return text.to_string() };
+    let end = text[..end].rfind(' ').filter(|&i| i > 0).unwrap_or(end);
+    format!("{}…", text[..end].trim_end_matches([' ', ',', ';', ':']))
 }
 
 /// `[0:47:30] Jérôme ? : texte`
@@ -379,5 +388,26 @@ impl Trash for ReadOnly {
 impl Mp4Muxer for ReadOnly {
     fn to_mp4(&self, _: &Path, _: &Path) -> Result<(), String> {
         Err(READ_ONLY.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_utterance_around_is_clipped_between_two_words() {
+        assert_eq!(clip("Oui.", 10), "Oui.");
+        assert_eq!(clip("Le serveur des bookmarks tombe le lundi.", 20), "Le serveur des…");
+        assert_eq!(clip("Anticonstitutionnellement", 10), "Anticonsti…");
+        assert_eq!(clip("Évidemment, ça dépend", 12), "Évidemment…");
+    }
+
+    #[test]
+    fn a_summary_line_loses_the_timestamp_its_moment_already_gives() {
+        assert_eq!(without_stamp("(0:44:12) On vend 10 000 marques.", &[(18, 20)], 2652.0), ("On vend 10 000 marques.".to_string(), vec![(8, 10)]));
+        assert_eq!(without_stamp("Bookmarks (1:58:31)", &[(0, 9)], 7111.0), ("Bookmarks".to_string(), vec![(0, 9)]));
+        assert_eq!(without_stamp("…le test (0:00:05) suit", &[], 5.0).0, "…le test suit");
+        assert_eq!(without_stamp("Vu à (0:00:05).", &[], 6.0).0, "Vu à (0:00:05).", "another moment stays");
     }
 }

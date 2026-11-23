@@ -229,6 +229,19 @@ fn context_gives_the_utterances_around_once() {
          \x20 [0:04:00] Alexandre : Les bookmarks, point 4.\n\
          \x20   [0:05:00] Khalid ? : Et les labels ? (5)\n"
     );
+    // An utterance found is shown once, as found, even when it is also around another one.
+    let o = search(&f, &["point", "--context", "2", "--in", "transcription", "--date", "2026-11-23", "--limit", "2"]);
+    assert_eq!(
+        o.out,
+        "2026-11-23-0932 · Démo bookmarks\n\
+         \x20 [0:00:00] Alexandre : Les bookmarks, point 0.\n\
+         \x20   [0:01:00] Khalid ? : Et les labels ? (1)\n\
+         \x20 [0:02:00] Alexandre : Les bookmarks, point 2.\n\
+         \x20   [0:03:00] Khalid ? : Et les labels ? (3)\n\
+         \x20   [0:04:00] Alexandre : Les bookmarks, point 4.\n\
+         … 5 autres résultats dans 1 réunion : 2026-11-23-0932 (5)\n\
+         Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n"
+    );
     // « point » is also said on 2026-11-18, a meeting not shown.
     let o = search(&f, &["point", "--context", "1", "--limit", "2"]);
     assert_eq!(
