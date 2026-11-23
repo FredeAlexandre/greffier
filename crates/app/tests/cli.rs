@@ -93,4 +93,9 @@ fn help_and_usage_errors_come_from_the_command_line() {
     let o = greffier(&app, None, &["list", "--frobnicate"]);
     assert_eq!(o.status.code(), Some(2));
     assert!(text(&o.stderr).starts_with("greffier : option inconnue : --frobnicate"));
+    // A mistyped command is not taken for the window's arguments.
+    let o = greffier(&app, None, &["lsit"]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(text(&o.stderr).starts_with("greffier : commande inconnue : lsit"), "{}", text(&o.stderr));
+    assert!(o.stdout.is_empty());
 }

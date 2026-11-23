@@ -85,9 +85,9 @@ fn greffier(folder: &Folder, args: &[&str]) -> Output {
 // --- Dispatch, help, usage ---
 
 #[test]
-fn only_known_commands_are_for_the_command_line() {
+fn words_are_for_the_command_line_and_options_for_the_window() {
     let is = |args: &[&str]| greffier_cli::is_command(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
-    for args in [&["list"][..], &["show", "x"], &["status"], &["search", "x"], &["help"], &["--help"], &["-h"]] {
+    for args in [&["list"][..], &["show", "x"], &["status"], &["search", "x"], &["help"], &["--help"], &["-h"], &["lsit"], &["shwo", "--json"]] {
         assert!(is(args), "{args:?}");
     }
     for args in [&[][..], &["--snap", "out.png", "--scene", "meeting"], &["--list-scenes"], &["--scene", "list"], &["--background"]] {
@@ -123,6 +123,7 @@ fn usage_errors_exit_with_2() {
         (&["show", "2026-11-20", "--from", "0:10"], "--from et --to vont avec --transcription ou --passages"),
         (&["show", "2026-11-20", "--transcription", "--from", "dix"], "instant invalide : « dix »"),
         (&["status", "a", "b"], "argument en trop : « b »"),
+        (&["lsit"], "commande inconnue : lsit"),
         (&["search", "release"], "search n'est pas encore disponible"),
     ] {
         let o = greffier(&f, args);

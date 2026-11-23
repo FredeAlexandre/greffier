@@ -58,13 +58,11 @@ impl Context {
     }
 }
 
-/// The commands, the first argument.
-const COMMANDS: [&str; 7] = ["list", "show", "status", "search", "help", "--help", "-h"];
-
 /// Whether these arguments (without the program's name) are a command for the command line,
-/// rather than the window's (Rune's `--snap`, `--scene`…): the first one is a known command.
+/// rather than the window's (Rune's `--snap`, `--scene`, `--list-scenes`…): the first one is a
+/// word, known or not (a mistyped command must fail, not open the window), or `--help`/`-h`.
 pub fn is_command(args: &[String]) -> bool {
-    args.first().is_some_and(|a| COMMANDS.contains(&a.as_str()))
+    args.first().is_some_and(|a| !a.starts_with('-') || a == "--help" || a == "-h")
 }
 
 /// Runs the command in `args` (without the program's name) with the meetings folder of the
