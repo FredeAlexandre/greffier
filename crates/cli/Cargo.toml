@@ -9,3 +9,10 @@ description = "Greffier's command line for agents: reads the meetings folder (li
 greffier-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# A Greffier process without a window, for the command line's end-to-end tests.
+[[bin]]
+name = "greffier-test-server"
+path = "src/bin/greffier-test-server.rs"
+doc = false
+test = false
