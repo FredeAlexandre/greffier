@@ -5,7 +5,8 @@ the meetings folder (and the app's search cache) through the core and never writ
 `process`, `redo`, `stop`, `rename`, `speaker`, `correct`, `resolve`, `check-action`, `delete`
 are sent to the Greffier process over its socket, which is started without a window if it does
 not run. `greffier help` gives the usage. A meeting is named by its identifier
-(`2026-11-20-0939`), its folder name or path, a date or the start of an identifier. Any first
+(`2026-11-20-0939`), its folder name, a path to its folder (only inside the meetings folder:
+the same name elsewhere is refused), a date or the start of an identifier. Any first
 argument that does not start with `-` is a command (a mistyped one fails with exit code 2);
 `greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window, and
 `greffier --background` starts the app without a window, as the command line launches it (the
@@ -68,7 +69,9 @@ stage: transcription|relecture|bilan}`, `stop`, `rename {meeting, title}`, `name
 {meeting, speaker, name}`, `merge_speaker {meeting, speaker, into}`, `split_speaker`, `correct
 {meeting, utterance, text}`, `resolve {meeting, passage, resolution: "accept"|"keep"|"reopen"|
 {"correct": text}}`, `check_action {meeting, action, done}`, `delete {meeting}`, `import {files,
-title, speakers, process}`. Responses: `{"hello":{version, pid, meetings_folder, background}}`,
+title, speakers, process}`. The process reads the meetings folder again before each status and
+action, so that a meeting is named against the folder as `list` reads it. Responses:
+`{"hello":{version, pid, meetings_folder, background}}`,
 `{"status":{busy, meetings: [{identifiant, folder_name, title, status, rank, time_remaining}]}}`,
 `{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`. Types in `src/protocol.rs`.
 
@@ -77,11 +80,17 @@ The command line refuses a process on another meetings folder. If nobody answers
 an app bundle, else the installed app (`open -g -j -b io.github.fredealexandre.greffier --args
 --background`; with `GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` set, `open -n -g -j -b … --env
 GREFFIER_FOLDER=… --env GREFFIER_APP_FOLDER=… --args --background`, a separate instance that keeps
-the bundle's permissions), and waits up to 15 s. `status` never launches it.
+the bundle's permissions), and waits up to 15 s: a process launched that exits before answering
+(it found the lock of one still quitting) is launched again, three launches at most. `status`
+never launches it. An app folder whose socket path would pass 103 bytes fails at once (exit 3).
+The process has 30 s to answer `hello` and `status`, 2 min an action, 10 min an import (the
+media is copied and converted first); past that, the command line says the action may still
+complete, to be checked with `greffier list` or `greffier status`.
 
 Writing prints one line: `2026-11-20-1000 · renommée : Revue` (`import`: the new identifier).
-With `--json`: `{"identifiant", "dossier", "message"}`. `--wait` follows the processing on stderr, one
-line per stage, then prints `<identifiant> · terminée · <titre>` (`{"identifiant", "statut", "titre"}`).
+With `--json`: `{"identifiant", "dossier", "message"}`. `--wait` follows the processing on
+stderr, one line per stage, then prints `<identifiant> · terminée · <titre>` (`{"identifiant",
+"statut", "titre"}`).
 
 ## JSON (`--json`)
 
