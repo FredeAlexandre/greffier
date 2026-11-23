@@ -141,6 +141,12 @@ impl Process {
     }
 }
 
+/// Sends one request to the process listening on `socket` and returns its response; `None` if
+/// nobody answers. For the app's second launch: [`Request::OpenWindow`] to the first one.
+pub fn ask_once(socket: &Path, request: &Request) -> Option<Response> {
+    Connection::open(socket).ok()?.ask(request).ok()
+}
+
 /// « Greffier ne répond pas », and why it may be.
 fn not_answering(socket: &Path) -> String {
     let mut m = format!("Greffier ne répond pas sur {}.", socket.display());

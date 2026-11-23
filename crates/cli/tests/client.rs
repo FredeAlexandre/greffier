@@ -264,3 +264,13 @@ fn the_launch_follows_where_the_command_line_runs() {
     assert_eq!(Launch::rule(None, false, Some(built.clone())), Launch::Program { program: built, env: vec![] });
     assert_eq!(BUNDLE_ID, "io.github.fredealexandre.greffier");
 }
+
+#[test]
+fn a_second_launch_asks_the_first_one_to_show_its_window() {
+    use greffier_cli::protocol::{Request, Response};
+    let s = serve(fixtures(), adapters, 0.0);
+    let socket = greffier_cli::server::socket_path(&s.app.0);
+    assert!(matches!(greffier_cli::client::ask_once(&socket, &Request::OpenWindow), Some(Response::Ok(_))));
+    let nobody = Temp::new();
+    assert_eq!(greffier_cli::client::ask_once(&greffier_cli::server::socket_path(&nobody.0), &Request::OpenWindow), None);
+}
