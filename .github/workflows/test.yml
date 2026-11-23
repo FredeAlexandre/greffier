@@ -1,0 +1,32 @@
+# Every push and pull request: the whole workspace's tests, on the fake adapters (core, UI driven
+# headless, the testable parts of the other crates). The tests against the real Mac — capture,
+# whisper, pyannote, the `claude` CLI — are `#[ignore]`d here: they need macOS permissions, the
+# models and a signed-in `claude`, so they run on the author's Mac with `cargo xtask smoke`.
+name: Tests
+
+on:
+  push:
+    branches: [main, "cycle-*"]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain is pinned by rust-toolchain.toml; rustup installs it on first use.
+      - run: rustup show active-toolchain
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - run: cargo test --workspace --locked
