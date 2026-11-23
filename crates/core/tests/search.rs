@@ -456,3 +456,40 @@ fn a_wide_excerpt_is_cut_around_the_first_word_found_and_a_short_line_is_whole()
     assert_eq!(highlighted(r), ["kangourou"]);
     assert!(quick[1].excerpt.starts_with('…'));
 }
+
+// --- The cache read by another process -------------------------------------------------------
+
+/// The cache folder's files: names and bytes.
+fn snapshot(cache: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    std::fs::read_dir(cache).unwrap().map(|f| f.unwrap()).map(|f| (f.file_name().to_string_lossy().into_owned(), std::fs::read(f.path()).unwrap())).collect()
+}
+
+#[test]
+fn the_command_line_reads_the_cache_without_ever_writing_into_it() {
+    let (mut bench, _) = with_workshop();
+    let cache = bench.enable_search_cache();
+    let release = cache_file(&cache, RELEASE);
+    // An entry up to date (changed here only to see that it is read), a stale one, a missing
+    // one, one whose meeting is gone, and an interrupted write.
+    let tampered = bench.read(&release).replace("prévient le support", "prévient le kangourou");
+    std::fs::write(&release, tampered).unwrap();
+    let transcription = bench.folder.join("2026-11-18 09h15 - Réunion/2026-11-18 09h15 - Réunion - transcription.json");
+    std::fs::write(&transcription, bench.read(&transcription).replace("deux mesures", "trois mesures")).unwrap();
+    std::fs::remove_file(cache_file(&cache, WORKSHOP)).unwrap();
+    std::fs::write(cache_file(&cache, "2026-11-01 09h00 - Réunion"), "{}").unwrap();
+    std::fs::write(cache.join(".2026-11-01 09h00 - Réunion.json.partial"), "{").unwrap();
+    let before = snapshot(&cache);
+
+    bench.reopen();
+    bench.greffier.read_search_cache(&cache);
+
+    let found = |bench: &Bench, text: &str| bench.greffier.find(&query(text)).total;
+    assert_eq!(found(&bench, "prévient le kangourou"), 1);
+    assert_eq!((found(&bench, "trois mesures"), found(&bench, "deux mesures")), (1, 0));
+    assert_eq!(found(&bench, "tombe"), 1);
+    // A change while it runs: still nothing written.
+    std::fs::write(&transcription, bench.read(&transcription).replace("trois mesures", "quatre mesures")).unwrap();
+    bench.greffier.rescan_folder();
+    assert_eq!(found(&bench, "quatre mesures"), 1);
+    assert_eq!(snapshot(&cache), before);
+}

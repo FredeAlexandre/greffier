@@ -367,20 +367,23 @@ impl Index {
     }
 
     /// Takes `cache` as the cache folder: the index restarts from the entries in it that are up
-    /// to date (`up_to_date(name, fingerprints)`), the other files are erased.
-    fn open(&mut self, cache: Option<PathBuf>, up_to_date: impl Fn(&str, &Fingerprints) -> bool) {
+    /// to date (`up_to_date(name, fingerprints)`), the other files are erased. Read-only, the
+    /// folder is only read, and the index then stays in memory.
+    fn open(&mut self, cache: Option<PathBuf>, read_only: bool, up_to_date: impl Fn(&str, &Fingerprints) -> bool) {
         self.entries.clear();
-        self.cache = cache;
-        let Some(cache) = &self.cache else { return };
-        for f in std::fs::read_dir(cache).into_iter().flatten().flatten() {
+        self.cache = None;
+        let Some(cache) = cache else { return };
+        for f in std::fs::read_dir(&cache).into_iter().flatten().flatten() {
             let path = f.path();
             let name = f.file_name().to_string_lossy().strip_suffix(".json").map(str::to_owned);
             match name.and_then(|name| Some((IndexEntry::read(&path).filter(|e| up_to_date(&name, &e.fingerprints))?, name))) {
                 Some((e, name)) => _ = self.entries.insert(name, e),
                 // Stale, unreadable, or an interrupted write (`.….json.partial`).
-                None => _ = std::fs::remove_file(&path),
+                None if !read_only => _ = std::fs::remove_file(&path),
+                None => {}
             }
         }
+        self.cache = (!read_only).then_some(cache);
     }
 }
 
@@ -484,8 +487,19 @@ impl Greffier {
 
     /// Keeps the index in this folder (or in memory only): see the cache above.
     pub(crate) fn use_search_cache(&mut self, cache: Option<PathBuf>) {
+        self.open_search_cache(cache, false);
+    }
+
+    /// Takes the index from this cache folder without ever writing into it (the command line,
+    /// which leaves the app folder to Greffier, ADR 0006): the entries up to date are read, the
+    /// others rebuilt in memory only, and so are the following ones.
+    pub fn read_search_cache(&mut self, cache: &Path) {
+        self.open_search_cache(Some(cache.to_path_buf()), true);
+    }
+
+    fn open_search_cache(&mut self, cache: Option<PathBuf>, read_only: bool) {
         let expected: HashMap<&str, Fingerprints> = self.meetings.iter().map(|r| (r.folder_name.as_str(), self.fingerprints.get(&r.folder_name).cloned().unwrap_or_default())).collect();
-        self.index.open(cache, |name, e| expected.get(name) == Some(e));
+        self.index.open(cache, read_only, |name, e| expected.get(name) == Some(e));
         self.indexer();
     }
 }
