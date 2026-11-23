@@ -80,8 +80,9 @@ the app. Writing (`import`, `process`, `redo`, `stop`, `rename`, `speaker`, `cor
 `check-action`, `delete`) is sent to the running Greffier over `greffier.sock` in the app folder
 ([ADR 0006](docs/adr/0006-cli-talks-to-the-greffier-process.md)); if none runs, the command line
 starts it without a window: `open -g -j -b io.github.fredealexandre.greffier --args --background`
-for the installed app, the binary itself (`greffier --background`) in development or when
-`GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` is set. Commands, output and JSON shapes:
+for the installed app (with `GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` set, a separate instance
+that gets them: `open -n … --env GREFFIER_FOLDER=…`), the binary itself (`greffier --background`)
+in development. Commands, output and JSON shapes:
 [crates/cli/README.md](crates/cli/README.md).
 
 Started with `--background`, Greffier has no window and no Dock icon; its menu bar icon shows the

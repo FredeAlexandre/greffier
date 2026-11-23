@@ -71,10 +71,11 @@ title, speakers, process}`. Responses: `{"hello":{version, pid, meetings_folder,
 `{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`. Types in `src/protocol.rs`.
 
 The command line refuses a process on another meetings folder. If nobody answers, it launches
-`GREFFIER_SERVER_PROGRAM` (the tests' `greffier-test-server`), else the running binary when
-`GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` is set or outside an app bundle, else the installed
-app (`open -g -j -b io.github.fredealexandre.greffier --args --background`), and waits up to
-15 s. `status` never launches it.
+`GREFFIER_SERVER_PROGRAM` (the tests' `greffier-test-server`), else the running binary outside
+an app bundle, else the installed app (`open -g -j -b io.github.fredealexandre.greffier --args
+--background`; with `GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` set, `open -n -g -j -b … --env
+GREFFIER_FOLDER=… --env GREFFIER_APP_FOLDER=… --args --background`, a separate instance that keeps
+the bundle's permissions), and waits up to 15 s. `status` never launches it.
 
 Writing prints one line: `2026-11-20-1000 · renommée : Revue` (`import`: the new identifier).
 With `--json`: `{"id", "dossier", "message"}`. `--wait` follows the processing on stderr, one

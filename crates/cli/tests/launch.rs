@@ -49,7 +49,7 @@ impl Setup {
             ("GREFFIER_TEST_IDLE", idle.to_string().into()),
         ];
         let program = PathBuf::from(env!("CARGO_BIN_EXE_greffier-test-server"));
-        let Launch::Program { program, .. } = Launch::rule(Some(program), false, None) else { panic!("a program") };
+        let Launch::Program { program, .. } = Launch::rule(Some(program), vec![], None) else { panic!("a program") };
         let mut process = Process::new(&self.app.0, Launch::Program { program, env: env.into_iter().map(|(k, v)| (k.to_string(), v)).collect() });
         process.poll = Duration::from_millis(100);
         Context { meetings_folder: Some(self.folder.0.clone()), app_folder: None, live: None, process: Some(process) }

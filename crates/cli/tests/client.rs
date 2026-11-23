@@ -4,6 +4,7 @@
 
 mod common;
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -338,14 +339,35 @@ fn status_reads_the_folder_when_nobody_answers() {
 #[test]
 fn the_launch_follows_where_the_command_line_runs() {
     let program = PathBuf::from("/tmp/test-server");
-    assert_eq!(Launch::rule(Some(program.clone()), false, None), Launch::Program { program, env: vec![] });
+    assert_eq!(Launch::rule(Some(program.clone()), vec![], None), Launch::Program { program, env: vec![] });
     let bundled = PathBuf::from("/Applications/Greffier.app/Contents/MacOS/greffier");
-    assert_eq!(Launch::rule(None, false, Some(bundled.clone())), Launch::Bundle(BUNDLE_ID.into()));
-    // A replaced folder: the binary itself, which keeps the variables.
-    assert_eq!(Launch::rule(None, true, Some(bundled.clone())), Launch::Program { program: bundled, env: vec![] });
+    assert_eq!(Launch::rule(None, vec![], Some(bundled.clone())), Launch::Bundle { id: BUNDLE_ID.into(), env: vec![] });
     let built = PathBuf::from("/Users/a/greffier/target/debug/greffier");
-    assert_eq!(Launch::rule(None, false, Some(built.clone())), Launch::Program { program: built, env: vec![] });
+    assert_eq!(Launch::rule(None, vec![], Some(built.clone())), Launch::Program { program: built.clone(), env: vec![] });
     assert_eq!(BUNDLE_ID, "io.github.fredealexandre.greffier");
+    // A replaced folder outside a bundle: the binary, which inherits the variables.
+    let trial = vec![("GREFFIER_FOLDER".to_string(), OsString::from("/tmp/essai"))];
+    assert_eq!(Launch::rule(None, trial.clone(), Some(built.clone())), Launch::Program { program: built, env: vec![] });
+}
+
+#[test]
+fn a_trial_from_the_installed_app_keeps_the_bundle_and_passes_its_folders() {
+    // Spawned directly, the binary would lose the bundle's macOS permissions.
+    let bundled = PathBuf::from("/Applications/Greffier.app/Contents/MacOS/greffier");
+    let trial = vec![("GREFFIER_FOLDER".to_string(), OsString::from("/tmp/essai")), ("GREFFIER_APP_FOLDER".to_string(), OsString::from("/tmp/app"))];
+    let launch = Launch::rule(None, trial.clone(), Some(bundled));
+    assert_eq!(launch, Launch::Bundle { id: BUNDLE_ID.into(), env: trial });
+    let args: Vec<String> = launch.open_args().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert_eq!(
+        args,
+        ["-n", "-g", "-j", "-b", BUNDLE_ID, "--env", "GREFFIER_FOLDER=/tmp/essai", "--env", "GREFFIER_APP_FOLDER=/tmp/app", "--args", "--background"],
+        "a separate instance for that app folder"
+    );
+    let only_one = Launch::rule(None, vec![("GREFFIER_APP_FOLDER".to_string(), OsString::from("/tmp/app"))], Some(PathBuf::from("/Applications/Greffier.app/Contents/MacOS/greffier")));
+    let args: Vec<String> = only_one.open_args().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert_eq!(args, ["-n", "-g", "-j", "-b", BUNDLE_ID, "--env", "GREFFIER_APP_FOLDER=/tmp/app", "--args", "--background"]);
+    let plain: Vec<String> = Launch::Bundle { id: BUNDLE_ID.into(), env: vec![] }.open_args().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert_eq!(plain, ["-g", "-j", "-b", BUNDLE_ID, "--args", "--background"], "the one instance");
 }
 
 #[test]

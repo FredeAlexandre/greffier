@@ -24,33 +24,55 @@ pub const SERVER_PROGRAM_VARIABLE: &str = "GREFFIER_SERVER_PROGRAM";
 pub enum Launch {
     /// This program with `--background`, detached, with these variables added.
     Program { program: PathBuf, env: Vec<(String, OsString)> },
-    /// The installed app: `open -g -j -b <id> --args --background`.
-    Bundle(String),
+    /// The installed app: `open -g -j -b <id> --args --background`. With variables (a trial on
+    /// other folders), a separate instance (`-n`) that gets them (`--env`): the app launched by
+    /// `open` does not inherit the command line's environment.
+    Bundle { id: String, env: Vec<(String, OsString)> },
     /// Never launch.
     Nothing,
 }
 
 impl Launch {
     /// The launch for this command line: `GREFFIER_SERVER_PROGRAM` if set; the running binary
-    /// if a folder is replaced (`GREFFIER_FOLDER`, `GREFFIER_APP_FOLDER`) or if it is not in an
-    /// app bundle (development); otherwise the installed app.
+    /// if it is not in an app bundle (development); otherwise the installed app, which keeps the
+    /// bundle's macOS permissions, given the folders replaced (`GREFFIER_FOLDER`,
+    /// `GREFFIER_APP_FOLDER`) if any.
     pub fn from_env() -> Launch {
         let set = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
-        let replaced = set(greffier_core::settings::FOLDER_VARIABLE).is_some() || set(greffier_core::settings::APP_FOLDER_VARIABLE).is_some();
+        let replaced = [greffier_core::settings::FOLDER_VARIABLE, greffier_core::settings::APP_FOLDER_VARIABLE].into_iter().filter_map(|n| Some((n.to_string(), set(n)?))).collect();
         // The binary may be a symbolic link in the PATH: the bundle is where it points to.
         let executable = std::env::current_exe().ok().map(|e| e.canonicalize().unwrap_or(e));
         Launch::rule(set(SERVER_PROGRAM_VARIABLE).map(PathBuf::from), replaced, executable)
     }
 
-    /// [`Launch::from_env`]'s rule, on its inputs.
-    pub fn rule(server_program: Option<PathBuf>, folders_replaced: bool, executable: Option<PathBuf>) -> Launch {
+    /// [`Launch::from_env`]'s rule, on its inputs: `replaced`, the folder variables set.
+    pub fn rule(server_program: Option<PathBuf>, replaced: Vec<(String, OsString)>, executable: Option<PathBuf>) -> Launch {
         if let Some(program) = server_program {
             return Launch::Program { program, env: vec![] };
         }
         match executable {
-            Some(e) if folders_replaced || !in_bundle(&e) => Launch::Program { program: e, env: vec![] },
-            _ => Launch::Bundle(BUNDLE_ID.into()),
+            // It inherits the variables.
+            Some(e) if !in_bundle(&e) => Launch::Program { program: e, env: vec![] },
+            _ => Launch::Bundle { id: BUNDLE_ID.into(), env: replaced },
         }
+    }
+
+    /// The arguments of `open` for [`Launch::Bundle`] (none otherwise).
+    pub fn open_args(&self) -> Vec<OsString> {
+        let Launch::Bundle { id, env } = self else { return vec![] };
+        let mut args: Vec<OsString> = Vec::new();
+        if !env.is_empty() {
+            args.push("-n".into());
+        }
+        args.extend(["-g", "-j", "-b"].map(OsString::from));
+        args.push(id.into());
+        for (name, value) in env {
+            let mut pair = OsString::from(format!("{name}="));
+            pair.push(value);
+            args.extend([OsString::from("--env"), pair]);
+        }
+        args.extend(["--args", "--background"].map(OsString::from));
+        args
     }
 
     /// Starts the process; it outlives the command line. The program launched directly comes
@@ -69,9 +91,9 @@ impl Launch {
                 .spawn()
                 .map(Some)
                 .map_err(|e| format!("lancement de {} : {e}", program.display())),
-            Launch::Bundle(id) => {
+            Launch::Bundle { id, .. } => {
                 let status = std::process::Command::new("/usr/bin/open")
-                    .args(["-g", "-j", "-b", id, "--args", "--background"])
+                    .args(self.open_args())
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -187,7 +209,7 @@ impl Process {
             // The process launched is gone without answering: launched again, a few times.
             let gone = match &mut child {
                 Some(c) => matches!(c.try_wait(), Ok(Some(_))),
-                None => matches!(self.launch, Launch::Bundle(_)) && now - launched >= REOPEN_AFTER && !lock_held(&self.socket),
+                None => matches!(self.launch, Launch::Bundle { .. }) && now - launched >= REOPEN_AFTER && !lock_held(&self.socket),
             };
             if !gone {
                 continue;
