@@ -9,11 +9,13 @@ argument that does not start with `-` is a command (a mistyped one fails with ex
 
 ## `search`
 
-`greffier search fiscal year` finds the lines that contain all the words, `greffier search
-'"fiscal year"'` the exact phrase (the arguments are joined; case, accents and the typographic
-apostrophe are ignored). It searches the titles, the summaries' lines and the utterances of the
-meetings started between `--since` and `--until` (or on `--date`), most recent first; for each
-meeting, the title, then the summary's lines, then the utterances. `--speaker` keeps the
+`greffier search recette vendredi` finds the lines that contain all the words, `greffier search
+'"recette passe vendredi"'` the exact phrase (the arguments are joined; case, accents and the
+typographic apostrophe are ignored). A word finds the words that contain it: `bookmark` finds
+`bookmarks` but not the other way round, so an agent should type the stem. It searches the
+titles, the summaries' lines and the utterances of the meetings started between `--since` and
+`--until` (or on `--date`), most recent first; for each meeting, the title, then the summary's
+lines, then the utterances. `--speaker` keeps the
 utterances of the speakers whose displayed name contains it; `--in bilan,transcription,titre`
 (or repeated) where to search; `--context N` adds the N utterances before and after each one.
 
@@ -25,17 +27,25 @@ lines. A long line is cut to 200 characters around the first word found. The las
 what the limits left out, by meeting (the 10 most recent named), and how to narrow down.
 
 ```
-2026-11-20-0939 · Revue de release avec Jérôme : permissions et dataset dynamique, fiscal year, bookmarks
-  [1:31:33] bilan · Badge Alpha sur le filtre fiscal year. Objectif de 95 % de couverture…
-  [1:25:32] Khalid ? : …on a ajouté le filtre fiscal year…
-    [1:25:40] Jérôme ? : (context, with --context)
-… 12 autres résultats dans 3 réunions : 2026-11-20-0939 (4), 2026-11-18-0934 (6), 2026-11-17-0932 (2)
+$ greffier search recette --in transcription --context 1
+2026-11-20-1000 · Revue de release
+    [0:00:00] Alexandre : Bonjour Khalid, on publie la release lundi ?
+  [0:00:02] Khalid ? : Oui, si la recette passe vendredi.
+    [0:00:05] Alexandre : Je préviens le support demain.
+$ greffier search re --limit 4
+2026-11-20-1000 · Revue de release
+  titre
+  bilan · On publie la release lundi si la recette passe vendredi.
+  bilan · SPEAKER_00 — Alexandre
+  [0:00:00] bilan · Date de la release
+… 9 autres résultats dans 2 réunions : 2026-11-20-1000 (8), 2026-11-18-0915 (1)
 Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.
 ```
 
 A summary line shows its moment (its own timestamp, or its topic's), without repeating it in the
-text; a line of the brief or the actions has none. Nothing found: `Aucun résultat pour « … ».`,
-exit code 0. The command opens the core with adapters that refuse everything and reads the
+text; a line of the brief or the actions has none. With `--context`, the utterances found and
+those around them (indented, cut to 200 characters) follow each other in order, each once.
+Nothing found: `Aucun résultat pour « … ».`, exit code 0. The command opens the core with adapters that refuse everything and reads the
 search cache without writing it: entries missing or stale there are built in memory, and the
 meetings folder and the app folder are left byte for byte as they were.
 

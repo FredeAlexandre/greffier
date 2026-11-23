@@ -136,7 +136,7 @@ GREFFIER_FOLDER remplace le dossier de réunions, GREFFIER_APP_FOLDER le dossier
 
 Exemples :
   greffier search bookmark label --since 2026-11-16
-  greffier search '\"fiscal year\"' --speaker Jérôme --context 2
+  greffier search '\"fiscal year\"' --speaker Khalid --context 2
   greffier show 2026-11-20-0939 --transcription --from 1:25:00 --to 1:30:00
 ";
 
