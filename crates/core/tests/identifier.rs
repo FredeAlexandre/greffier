@@ -58,10 +58,13 @@ fn an_exact_identifier_or_folder_name_names_its_meeting() {
 }
 
 #[test]
-fn a_path_to_the_meetings_folder_names_its_meeting() {
+fn a_path_names_no_meeting_by_itself() {
+    // Its folder may be another meetings folder's: the caller, who can read the disk, checks
+    // where it is and passes its folder name.
     let ids = folders();
-    assert_eq!(ids.resolve("/Users/odile/Documents/Réunions/2026-11-20 09h39 - Rétro"), Ok("2026-11-20 09h39 - Rétro"));
-    assert_eq!(ids.resolve("Réunions/2026-11-20 09h39 - Rétro/"), Ok("2026-11-20 09h39 - Rétro"));
+    for query in ["/Users/odile/Documents/Réunions/2026-11-20 09h39 - Rétro", "Réunions/2026-11-20 09h39 - Rétro/", "/tmp/2026-11-20-1000"] {
+        assert!(ids.resolve(query).unwrap_err().candidates.is_empty(), "{query}");
+    }
 }
 
 #[test]

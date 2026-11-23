@@ -229,6 +229,22 @@ fn show_gives_a_header_then_an_outline_of_the_summary() {
 }
 
 #[test]
+fn a_path_names_a_meeting_only_inside_the_meetings_folder() {
+    let f = meetings();
+    let o = greffier(&f, &["show", &format!("{}/", f.0.join(RELEASE).display()), "--fiche"]);
+    assert_eq!(o.code, 0, "{}", o.err);
+    // Through another path to the same folder.
+    let o = greffier(&f, &["show", &f.0.join("Divers/..").join(RELEASE).to_string_lossy(), "--fiche"]);
+    assert_eq!(o.code, 0, "{}", o.err);
+    // The same folder name elsewhere: another meetings folder's meeting, or a copy.
+    let elsewhere = temp_folder();
+    let path = elsewhere.0.join(RELEASE);
+    let o = greffier(&f, &["show", &path.to_string_lossy()]);
+    assert_eq!(o.code, 1);
+    assert_eq!(o.err, format!("greffier : réunion introuvable : « {} » (pas dans le dossier de réunions {})\n", path.display(), f.0.canonicalize().unwrap().display()));
+}
+
+#[test]
 fn the_outline_says_when_there_is_no_decision() {
     let f = meetings();
     let file = f.0.join(RELEASE).join(format!("{RELEASE} - bilan.md"));

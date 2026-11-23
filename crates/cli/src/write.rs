@@ -75,7 +75,7 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
     if a.help() {
         return Ok(None);
     }
-    let meeting = || nth(&a, 0, "la réunion");
+    let meeting = || nth(&a, 0, "la réunion").map(sent);
     let action = match command {
         "import" => {
             if a.positionals.is_empty() {
@@ -108,7 +108,7 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
         "rename" => Action::Rename { meeting: meeting()?, title: rest(&a, 1, "le titre")? },
         "speaker" => {
             let what = nth(&a, 0, "name, merge ou split")?;
-            let meeting = nth(&a, 1, "la réunion")?;
+            let meeting = sent(nth(&a, 1, "la réunion")?);
             let speaker = nth(&a, 2, "le locuteur")?;
             match what.as_str() {
                 "name" => Action::NameSpeaker { meeting, speaker, name: rest(&a, 3, "le nom")? },
@@ -157,6 +157,15 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
     };
     let wait = if matches!(command, "import" | "process" | "redo") { wait(&a)? } else { None };
     Ok(Some(Asked { action, wait }))
+}
+
+/// A meeting as typed, for the process; a path made absolute, as the process does not share
+/// this folder (it then checks that the path leads into its meetings folder).
+fn sent(meeting: String) -> String {
+    if !meeting.contains('/') {
+        return meeting;
+    }
+    std::path::absolute(meeting.trim()).map_or(meeting, |p| p.to_string_lossy().into_owned())
 }
 
 /// A file named on the command line, absolute: the process does not share its folder.
@@ -282,5 +291,30 @@ fn follow(c: &mut Connection, done: &Done, w: Wait, poll: Duration, err: &mut dy
         }
         let left = w.timeout.map_or(poll, |t| poll.min(Duration::from_secs_f64((t - elapsed).max(0.0))));
         std::thread::sleep(left);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn action(args: &[&str]) -> Action {
+        let rest: Vec<String> = args[1..].iter().map(|a| a.to_string()).collect();
+        match parse(args[0], &rest) {
+            Ok(Some(asked)) => asked.action,
+            _ => panic!("{args:?}"),
+        }
+    }
+
+    #[test]
+    fn a_relative_path_to_a_meeting_is_sent_absolute() {
+        // The process does not run in this folder.
+        let here = std::env::current_dir().unwrap();
+        let rename = |meeting: &str| Action::Rename { meeting: meeting.into(), title: "Revue".into() };
+        assert_eq!(action(&["rename", "Réunions/2026-11-20 10h00 - Revue", "Revue"]), rename(&here.join("Réunions/2026-11-20 10h00 - Revue").to_string_lossy()));
+        assert_eq!(action(&["rename", "/Réunions/2026-11-20 10h00 - Revue", "Revue"]), rename("/Réunions/2026-11-20 10h00 - Revue"));
+        assert_eq!(action(&["rename", "2026-11-20", "Revue"]), rename("2026-11-20"));
+        let Action::NameSpeaker { meeting, .. } = action(&["speaker", "name", "./2026-11-20 10h00 - Revue", "0", "Alex"]) else { panic!() };
+        assert_eq!(Path::new(&meeting), here.join("2026-11-20 10h00 - Revue"));
     }
 }

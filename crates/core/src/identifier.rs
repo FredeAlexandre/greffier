@@ -56,8 +56,9 @@ impl Identifiers {
     }
 
     /// The folder name of the meeting `query` names, in this order: an exact identifier; an
-    /// exact folder name, or a path to the folder; a date (`2026-11-20`) or the start of an
-    /// identifier that matches a single meeting.
+    /// exact folder name; a date (`2026-11-20`) or the start of an identifier that matches a
+    /// single meeting. A path names nothing here: whether it leads into the meetings folder is
+    /// for the caller to tell, who reads the disk, and then passes its last component.
     pub fn resolve(&self, query: &str) -> Result<&str, Unresolved> {
         let q = query.trim();
         let unresolved = |candidates: Vec<(String, String)>| Unresolved { query: q.to_string(), candidates };
@@ -67,8 +68,7 @@ impl Identifiers {
         if let Some((_, n)) = self.entries.iter().find(|(id, _)| id == q) {
             return Ok(n);
         }
-        let last = q.trim_end_matches('/').rsplit('/').next().unwrap_or(q);
-        if let Some((_, n)) = self.entries.iter().find(|(_, n)| n == last) {
+        if let Some((_, n)) = self.entries.iter().find(|(_, n)| n == q) {
             return Ok(n);
         }
         let matching: Vec<&(String, String)> = self.entries.iter().filter(|(id, _)| id.starts_with(q)).collect();

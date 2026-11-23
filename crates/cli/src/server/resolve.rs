@@ -1,5 +1,6 @@
 //! What the user typed, read against the live core, with the numbering of `greffier show`:
-//! meetings as [`Identifiers::resolve`] reads them, utterances, passages and actions from 1
+//! meetings as [`Identifiers::resolve`] reads them (a path, if it leads into the meetings
+//! folder), utterances, passages and actions from 1
 //! (`#3` or `3`), an utterance also by an instant in it (`0:12:05`), speakers by index (`0`),
 //! label (`SPEAKER_00`) or displayed name.
 
@@ -11,6 +12,7 @@ use super::identifiers;
 /// candidates of an ambiguous query come with their live titles.
 pub(super) fn meeting_named(core: &Greffier, query: &str) -> Result<MeetingId, String> {
     let ids = identifiers(core);
+    let query = crate::library::in_meetings_folder(query, core.folder().root())?;
     let name = ids.resolve(query).map_err(|mut e| {
         for (id, title) in &mut e.candidates {
             let meeting = ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| core.meetings().iter().find(|m| m.folder_name == n));

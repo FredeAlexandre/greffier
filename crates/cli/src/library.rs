@@ -1,6 +1,8 @@
 //! The meetings as the command line reads them: from the meetings folder through the core,
 //! each with its identifier and, once the process is reachable, what it knows live.
 
+use std::path::Path;
+
 use greffier_core::identifier::Identifiers;
 use greffier_core::{Meeting, MeetingsFolder};
 use serde::Serialize;
@@ -59,6 +61,7 @@ impl<'a> Library<'a> {
     /// query are listed with their sheet's titles, as `list` shows them.
     pub fn find(&self, query: &str) -> Result<Entry, Failure> {
         let entry = |name: &str| self.entry(self.names.iter().position(|n| n == name).unwrap_or(0), name);
+        let query = in_meetings_folder(query, self.folder.root()).map_err(Failure::Failed)?;
         let name = self.ids.resolve(query).map_err(|mut e| {
             for (id, title) in &mut e.candidates {
                 if let Some(c) = self.ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| entry(n)) {
@@ -68,6 +71,25 @@ impl<'a> Library<'a> {
             Failure::Failed(e.to_string())
         })?;
         entry(name).ok_or_else(|| Failure::Failed(format!("réunion illisible : {name}")))
+    }
+}
+
+/// What the user typed to name a meeting, for [`Identifiers::resolve`]: as is, or for a path
+/// (with a `/`), the folder's name if the folder is in the meetings folder `root` (compared
+/// canonical, so that any path to it does); a path elsewhere names no meeting, even one with
+/// the same folder name. A relative path is read from the current folder.
+pub(crate) fn in_meetings_folder<'q>(query: &'q str, root: &Path) -> Result<&'q str, String> {
+    let q = query.trim();
+    if !q.contains('/') {
+        return Ok(q);
+    }
+    let path = Path::new(q);
+    let canonical = |p: &Path| p.canonicalize().ok();
+    let parent = path.parent().map(|p| if p.as_os_str().is_empty() { Path::new(".") } else { p });
+    let name = path.file_name().and_then(|n| n.to_str());
+    match (name, parent.and_then(canonical)) {
+        (Some(name), Some(parent)) if Some(&parent) == canonical(root).as_ref() => Ok(name),
+        _ => Err(format!("réunion introuvable : « {q} » (pas dans le dossier de réunions {})", canonical(root).unwrap_or_else(|| root.to_path_buf()).display())),
     }
 }
 

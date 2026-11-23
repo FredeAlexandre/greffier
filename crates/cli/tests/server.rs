@@ -179,6 +179,17 @@ fn the_status_reads_the_folder_as_it_is_now() {
 }
 
 #[test]
+fn a_path_names_a_meeting_only_inside_the_meetings_folder() {
+    let mut h = host();
+    let inside = h.folder().join(RELEASE);
+    assert_eq!(h.ok(Action::Rename { meeting: inside.to_string_lossy().into(), title: s("Revue") }).meeting.as_deref(), Some("2026-11-20-1000"));
+    let elsewhere = Temp::new();
+    let path = elsewhere.0.join("2026-11-20 10h00 - Revue");
+    let message = h.refused(Action::Rename { meeting: path.to_string_lossy().into(), title: s("Autre") });
+    assert_eq!(message, format!("réunion introuvable : « {} » (pas dans le dossier de réunions {})", path.display(), h.folder().canonicalize().unwrap().display()));
+}
+
+#[test]
 fn rename_renames_the_folder_and_gives_the_identifier() {
     let mut h = host();
     let done = h.ok(Action::Rename { meeting: s("2026-11-20"), title: s("Revue de la release 1.4") });
