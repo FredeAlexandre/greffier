@@ -18,6 +18,10 @@ _Avoid_: library, vault, database
 A meeting's entry file: its properties (date, duration, status…), its brief, its main actions and the links to the other files.
 _Avoid_: meeting note, page
 
+**Identifier** (UI: *Identifiant*):
+A meeting's short, stable name for the command line and agents, taken from its folder's date and time (`2026-11-20-0939`), with `-2`, `-3`… when several meetings start in the same minute.
+_Avoid_: id, slug, key
+
 **Title** (UI: *Titre*):
 A meeting's one-line summary ("Revue de release"), proposed by the summary and editable.
 _Avoid_: subject, name
