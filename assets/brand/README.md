@@ -1,9 +1,9 @@
 # Greffier brand assets
 
-Greffier's logo is a cat's head. In French slang *greffier* also means "cat", and in La Fontaine's
-fable *Le Chat, la Belette et le Petit Lapin* the judge is a cat, Grippeminaud, who listens with his
-eyes half closed. The head is shown as a marble sculpture rendered in round halftone dots (cream on
-black) for the app icon and the logo, and as a flat mark for small sizes and the menu bar.
+Greffier's logo is a cat peeking over the meeting table, eyes closed: it listens. In French slang
+*greffier* also means "cat", and in La Fontaine's fable *Le Chat, la Belette et le Petit Lapin* the
+judge is a cat, Grippeminaud, who listens with his eyes half closed. The cat is drawn flat and
+round, from a few geometric primitives, so that it stays friendly and readable down to 16 px.
 
 ## Files
 
@@ -12,30 +12,42 @@ black) for the app icon and the logo, and as a flat mark for small sizes and the
 | `app-icon/Greffier.icns` | macOS app icon, every size | Copy to `Greffier.app/Contents/Resources/` and set `CFBundleIconFile` to `Greffier` in `Info.plist` |
 | `app-icon/Greffier.iconset/` | The PNGs the `.icns` is built from (16 to 1024 px) | Asset catalogs, or rebuilding the `.icns` |
 | `app-icon/greffier-app-icon-1024.png` | The icon at 1024 px, macOS grid (824 px body, transparent margin, shadow) | Website, README, release page |
-| `logo/greffier-dots-on-black-1024.png` | The dotted head, full square on black | Social preview, website header |
-| `logo/greffier-dots-transparent-1024.png` | The same dots on a transparent background | On dark backgrounds only (the dots are cream) |
-| `logo/greffier-mark-{white,black,cream}-1024.png` | The flat mark (eyes closed) on transparent | Favicon, small sizes, documents |
+| `logo/greffier-tile-1024.png` | The cream mark on the blue tile, full square | Social preview, website header |
+| `logo/greffier-mark-{blue,ink,cream,white,black}.svg` | The mark alone, one colour, transparent | Documents, website, any size |
+| `logo/greffier-mark-{blue,ink,cream,white,black}-1024.png` | The same at 1024 px | Where SVG is not accepted |
 | `menubar/MenubarIdleTemplate.png`, `@2x` | Menu bar icon, eyes closed (18 pt) | Menu bar, app ready |
 | `menubar/MenubarRecordingTemplate.png`, `@2x` | Menu bar icon, eyes open (18 pt) | Menu bar, while recording |
-| `sources/` | The three source images | Input of `tools/render.swift` |
-| `tools/render.swift` | Renders everything above from `sources/` | `swift assets/brand/tools/render.swift` |
+| `sources/greffier-mark*.svg` | The masters: the mark in black, eyes closed or open, regular or small-size cut | Input of `tools/render.swift` |
+| `tools/marks.py` | Builds the masters from their geometry | `python3 assets/brand/tools/marks.py` |
+| `tools/render.swift` | Renders everything else from the masters | `swift assets/brand/tools/render.swift` |
+
+## The mark
+
+- **Construction**: a 256 × 256 canvas. The head is one polygon with rounded corners (two ears, a
+  dome cut flat at the bottom), the table a bar with round ends (radius 18), the eyes are holes.
+  The whole mark sits a little above the geometric centre (optical centre).
+- **Two states**: eyes closed (`greffier-mark.svg`), the cat listens; eyes open
+  (`greffier-mark-recording.svg`), it is recording. The app icon and the logo use the closed eyes.
+- **Small-size cut** (`greffier-mark-small*.svg`): at 32 px and below, the gap between the head and
+  the table is wider (22 instead of 14) and the closed eyes are thicker (17 instead of 13), so that
+  the table does not stick to the head and the eyes still show.
 
 Sizes and rules applied by the renderer:
 
-- **App icon**: each size of the iconset is rendered at its own size, never downscaled from 1024,
-  so the dots stay sharp. At 64 px and below the dots no longer read, so these sizes use the flat
-  mark in cream on the same black squircle.
+- **App icon**: the cream mark on a blue squircle with a light vertical gradient; the mark is about
+  58 % of the tile's width (64 % with the small-size cut). Each size of the iconset is rendered at
+  its own size, never downscaled from 1024; 32 px and below use the small-size cut.
 - **Menu bar**: template images, black with alpha; macOS tints them for light and dark menu bars.
-  The mark's lines are thickened before reducing so that the eyes still cover about a pixel at
-  18 and 36 px. The two states differ by the eyes: closed when idle, open while recording, the cat
-  is listening.
+  The small-size cut fills the 18 pt square. Idle shows the closed eyes; while recording, the open
+  eyes, tinted red by the app.
 
-## Colors
+## Colours
 
 | Name | Hex | Use |
 |---|---|---|
-| Ink | `#0A0A0A` | Background of the icon and of the dotted logo |
-| Cream | `#EFE6D6` | The dots, the mark on dark backgrounds |
+| Blue | `#3D4FD8` | The tile (gradient `#4A5CE4` → `#3242C6`), the mark on light backgrounds |
+| Cream | `#F4EFE6` | The mark on the tile and on dark backgrounds |
+| Ink | `#14161F` | The mark in one dark colour, text next to it |
 
 ## Where the app uses them
 
@@ -46,23 +58,13 @@ Sizes and rules applied by the renderer:
 
 After regenerating, run `cargo xtask install-app` again to see the new files.
 
-## Sources and regeneration
-
-The three source images were generated with Google Gemini (image model "Nano Banana"):
-
-- `head-sculpture.jpg`: "A modernist sculpture of a cat's head only, front view, carved in smooth
-  matte white marble, simplified geometric volumes in the spirit of François Pompon. Clearly feline
-  anatomy, not human […] eyes peacefully closed […] Pure black background, single soft key light
-  from the upper left […]"
-- `head-mark-eyes-closed.jpg`: the sculpture given as reference, "turn this marble cat head
-  sculpture into a minimalist flat logo mark […] pure white solid shape on a pure black background".
-- `head-mark-eyes-open.jpg`: the closed-eyes mark given as reference, same shape with open almond
-  eyes and slit pupils.
-
-To regenerate every file after changing a source or a parameter:
+## Regeneration
 
 ```sh
+python3 assets/brand/tools/marks.py     # only after changing the geometry
 swift assets/brand/tools/render.swift
 ```
 
-It needs only macOS (Core Graphics, ImageIO and `iconutil`).
+`marks.py` needs only Python 3. `render.swift` needs macOS 14 or later (AppKit reads the SVGs) and
+`iconutil`. The icon is a flat `.icns`: macOS Tahoe's Liquid Glass look (an Icon Composer `.icon`
+file compiled by `actool`) would need a full Xcode install.
