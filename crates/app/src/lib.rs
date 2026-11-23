@@ -6,7 +6,8 @@
 //! `cargo run` opens the window. `cargo run -- --snap out.png --scene meeting` renders a scene
 //! headless (`--list-scenes` for the list): headless, the app starts from the prototype's fake
 //! data, never from the meetings folder. `GREFFIER_FOLDER=… cargo run` opens another meetings
-//! folder for a single launch.
+//! folder for a single launch (`GREFFIER_APP_FOLDER=…` another app folder). `cargo run -- list`
+//! and the other commands never reach this library: `main.rs` hands them to `greffier-cli`.
 
 #![forbid(unsafe_code)]
 

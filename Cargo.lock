@@ -1137,6 +1137,7 @@ version = "0.0.1"
 dependencies = [
  "chrono",
  "greffier-capture",
+ "greffier-cli",
  "greffier-core",
  "greffier-engines",
  "greffier-menubar",

@@ -25,6 +25,7 @@ and downloadable packages.
 
 ```sh
 cargo run            # the window (first build: ~2 min)
+cargo run -- help    # the command line for agents (list, show, status), without the window
 cargo test           # the core on its fake adapters, the UI driven headless (crates/app/tests), the rest
 cargo xtask smoke    # the real adapters on this Mac: capture (records 5 s, plays a tone), whisper, pyannote
 cargo xtask smoke --with-claude   # and the review and summary by `claude` (costs Claude tokens)
@@ -119,9 +120,11 @@ lives in `crates/`, except `xtask/`.
     read from the Markdown summary; `attribution.rs`: words attributed to speakers, and utterances
     (the vault's rules); `time.rs`: meeting dates and times.
   - `folder/`: the meetings folder (naming, sheet, transcriptions, import, renaming, fingerprints,
-    MP4 duration); `watch.rs`, `search.rs`, `deletion.rs`, `title.rs`: reread the folder, search,
+    MP4 duration); `identifier.rs`: a meeting's identifier (`2026-11-20-0939`) and what may name
+    it; `watch.rs`, `search.rs`, `deletion.rs`, `title.rs`: reread the folder, search,
     move to the trash, rename from the title.
-  - `settings.rs`: the remembered settings (`settings.json` in the app folder); `resources.rs`: the
+  - `settings.rs`: where the app and meetings folders are (`GREFFIER_APP_FOLDER`,
+    `GREFFIER_FOLDER`), the remembered settings (`settings.json` in the app folder); `resources.rs`: the
     resource catalog (URLs, sizes, sha256) and its adapter; `lexicon.rs` and
     `resources/lexicon.md`: the shipped lexicon.
   - `demo.rs`: the prototype's demo data and fake adapters.
@@ -133,8 +136,12 @@ lives in `crates/`, except `xtask/`.
   pyannote (`diarize.py`) and the relisten.
 - `crates/capture/` (`greffier-capture`): ScreenCaptureKit and AVAssetWriter, the keep-awake assertion,
   the Mac trash, MP4 muxing of imported media. `crates/menubar/` (`greffier-menubar`): the menu bar icon.
+- `crates/cli/` (`greffier-cli`): the command line for agents (ADR 0006), reading side: `list`,
+  `show`, `status`, `--json` (shapes in its `README.md`). It depends on the core alone, reads the
+  meetings folder and never writes.
 - `crates/app/` (`greffier`, the binary): the UI around the core.
-  - `src/lib.rs`: playback, shortcuts, shell, scenes; `src/main.rs` only runs it.
+  - `src/lib.rs`: playback, shortcuts, shell, scenes; `src/main.rs` hands a command
+    (`greffier list`…) to `greffier-cli`, and otherwise runs the UI.
   - `src/meeting.rs`: meeting page, video, tabs. `src/timeline.rs`: the timeline.
     `src/overlays.rs`: ⌘K search, deletion confirmation.
   - `src/pages.rs`: overview, recording, settings, first launch. `src/sidebar.rs`: sidebar and

@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 greffier-core = { path = "../core" }
+greffier-cli = { path = "../cli" }
 greffier-tools = { path = "../tools" }
 greffier-engines = { path = "../engines" }
 greffier-capture = { path = "../capture" }
