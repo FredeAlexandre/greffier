@@ -1,3 +1,3 @@
 [alias]
-# The development tasks (install the app, vendor whisper.cpp, publish pyannote): see xtask/.
+# The development tasks (install the app, vendor whisper.cpp, publish pyannote, smoke tests): see xtask/.
 xtask = "run --quiet --package xtask --"

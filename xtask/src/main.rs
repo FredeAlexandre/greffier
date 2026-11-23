@@ -3,12 +3,14 @@
 //!     cargo xtask install-app [--binary PATH] [--no-launch]
 //!     cargo xtask vendor-whisper
 //!     cargo xtask publish-pyannote <pyannote-community-1 folder>
+//!     cargo xtask smoke [--with-claude] [--only capture|engines|claude]
 //!
 //! (`cargo xtask` is an alias defined in `.cargo/config.toml`.) The pinned versions and sha256s are
 //! read from the crates that use them, never copied here.
 
 mod install_app;
 mod publish_pyannote;
+mod smoke;
 mod vendor_whisper;
 
 use std::ffi::OsStr;
@@ -21,7 +23,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const USAGE: &str = "usage:
     cargo xtask install-app [--binary PATH] [--no-launch]   build, sign and install Greffier.app
     cargo xtask vendor-whisper                              copy the pinned whisper.cpp sources into crates/engines/whisper.cpp/
-    cargo xtask publish-pyannote <folder>                   publish the pyannote-community-1 release";
+    cargo xtask publish-pyannote <folder>                   publish the pyannote-community-1 release
+    cargo xtask smoke [--with-claude] [--only SUITE]        run the ignored tests against the real Mac (capture, engines; claude costs tokens)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,6 +36,7 @@ fn main() -> ExitCode {
         "install-app" => install_app::main(rest),
         "vendor-whisper" => vendor_whisper::main(rest),
         "publish-pyannote" => publish_pyannote::main(rest),
+        "smoke" => smoke::main(rest),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;

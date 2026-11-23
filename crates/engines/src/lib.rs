@@ -6,9 +6,10 @@
 //! - [`PyannoteDiarizer`]: the same mix track, split into speaker turns by pyannote community-1
 //!   in the app's private Python ([`pyannote`]), while whisper transcribes.
 //!
-//! These engines are not tested by the automated suite (the core is, with fake adapters); they
-//! are checked by hand with
-//! `cargo run -p greffier-engines --example transcribe -- <media>` (and `--example diarize`).
+//! `cargo test` does not run these engines (the core is tested with fake adapters); the smoke
+//! tests (`tests/real_engines.rs`, `cargo xtask smoke`) run them on an excerpt of a real meeting,
+//! and `cargo run -p greffier-engines --example transcribe -- <media>` (and `--example diarize`)
+//! shows their output.
 
 pub mod audio;
 pub mod pyannote;

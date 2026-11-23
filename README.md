@@ -25,8 +25,15 @@ and downloadable packages.
 
 ```sh
 cargo run            # the window (first build: ~2 min)
-cargo test           # the core on its fake adapters, and the testable parts of the other crates
+cargo test           # the core on its fake adapters, the UI driven headless (crates/app/tests), the rest
+cargo xtask smoke    # the real adapters on this Mac: capture (records 5 s, plays a tone), whisper, pyannote
+cargo xtask smoke --with-claude   # and the review and summary by `claude` (costs Claude tokens)
 ```
+
+The smoke tests are `#[ignore]`d by `cargo test` (and CI). They need the screen and microphone
+permissions for the app that runs them (Terminal, the IDE), ffmpeg, the installed resources and a
+meeting's audio (`GREFFIER_SMOKE_AUDIO`, default `~/Bench-Transcription/audio/A.wav`); a missing
+prerequisite is skipped and listed in the summary. What stays manual: [docs/agents/manual-checks.md](docs/agents/manual-checks.md).
 
 ## Install the app
 

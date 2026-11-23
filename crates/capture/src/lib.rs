@@ -4,8 +4,9 @@
 //! Trash ([`MacTrash`]), where deleted meetings go; MP4 muxing of imported media
 //! ([`MacMp4Muxer`]); the notification permission ([`notifications`]).
 //! The capture implements
-//! [`greffier_core::adapters::Capture`]. It is not tested by the automated suite (spec: the real
-//! adapters are covered by use), except the mixing, which is computation.
+//! [`greffier_core::adapters::Capture`]. `cargo test` only covers the mixing, which is
+//! computation; the rest is covered by the smoke tests (`tests/real_capture.rs`, run on purpose
+//! on the Mac with `cargo xtask smoke`).
 
 pub mod mixing;
 
