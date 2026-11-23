@@ -91,8 +91,9 @@ fn hit_row(k: &Kit, i: usize, h: Hit) -> El {
             }
         })
         .child(col().grow(1.0).min_w(0.0).gap(3.0).child(meta).child(snippet))
+        // The moment is centred on the meta line it belongs to, not on the snippet below it.
         .child(match at {
-            Some(t) => text(ui::ts(t)).font(tnum(k.ty.small)).color(k.c.text_faint),
+            Some(t) => row().h(ui::line_height(k.ty.text_xsmall_medium)).center_y().child(text(ui::ts(t)).font(tnum(k.ty.small)).color(k.c.text_faint)),
             None => el(),
         })
 }

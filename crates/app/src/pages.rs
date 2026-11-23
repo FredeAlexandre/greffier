@@ -32,8 +32,8 @@ fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
 pub fn with_toast(s: &App, k: &Kit, main: El) -> El {
     let Some(t) = &s.toast else { return col().w_full().h_full().min_h(0.0).child(main) };
     let id = t.meeting;
-    // A failure reads as one: the danger colors and a flag, not a green tick.
-    let (colors, icon) = if t.error { (&k.c.danger, &ui::FLAG) } else { (&k.c.success, &ui::CHECK) };
+    // A failure reads as one: the danger colors and an alert, not a green tick.
+    let (colors, icon) = if t.error { (&k.c.danger, &ui::ALERT) } else { (&k.c.success, &ui::CHECK) };
     let banner = row()
         .key("toast")
         .w_full()
@@ -462,8 +462,8 @@ fn resource_row(k: &Kit, i: usize, r: &Resource) -> El {
     let badge = match &r.state {
         ResourceState::Ready => glyph(&ui::CHECK, 15.0, k.c.success.icon),
         ResourceState::Downloading { .. } | ResourceState::Verifying | ResourceState::Installing => Spinner::new().size(14.0).build(k),
-        ResourceState::Failed(_) => glyph(&ui::FLAG, 15.0, k.c.danger.icon),
-        _ => glyph(&ui::FLAG, 15.0, k.c.warning.icon),
+        ResourceState::Failed(_) => glyph(&ui::ALERT, 15.0, k.c.danger.icon),
+        _ => glyph(&ui::ALERT, 15.0, k.c.warning.icon),
     };
     let state_color = match &r.state {
         ResourceState::Ready => k.c.success.fg,
