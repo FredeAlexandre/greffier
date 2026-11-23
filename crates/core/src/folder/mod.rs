@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use crate::meeting::{Stage, MeetingId, Meeting, Status};
 use sheet::Sheet;
 use transcription::StructuredTranscription;
-pub use import::{MEDIA_EXTENSIONS, Import};
+pub use import::{FileKind, Import, ImportError, MEDIA_EXTENSIONS};
 use crate::time::DateTime;
 
 /// The role of a file in a meeting's folder.

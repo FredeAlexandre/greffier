@@ -1,0 +1,431 @@
+//! `greffier search <query>`: what was said, found in the titles, summaries and transcriptions
+//! of all the meetings, for an agent that must answer "what did we say about X, when, who" in
+//! as few lines as possible.
+//!
+//! It runs the core's agents' search ([`Greffier::find`]) on a core opened read-only: adapters
+//! that refuse everything ([`ReadOnly`]), no command sent, and the app's search cache read
+//! without ever being written ([`Greffier::read_search_cache`]); entries missing or stale there
+//! are built in memory.
+//!
+//! The text groups the lines by meeting, most recent first, the summary's before the
+//! transcription's; the JSON gives the same lines flat, with their highlights.
+
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+
+use greffier_core::adapters::{
+    Adapters, Agent, BoxedTask, Capture, CaptureRequest, CaptureState, Clock, DiarizationRequest, Diarizer, Mp4Muxer, Resource, Resources, ReviewRequest, ReviewResult, SummaryRequest, SummaryResult,
+    Task, TaskProgress, Transcriber, TranscriptionRequest, Trash,
+};
+use greffier_core::search::{Found, Location, NearbyUtterance, SearchQuery};
+use greffier_core::{DateTime, Greffier, MeetingId, SpeakerTurn, Word, playback_timestamp};
+use serde::Serialize;
+
+use crate::reading::Reading;
+use crate::text::{self, Day};
+use crate::{Context, Failure, HELP, args};
+
+/// At most this many results in all, by default.
+const LIMIT: usize = 30;
+
+/// At most this many summary lines and as many utterances per meeting when the results come
+/// from many meetings (the core's default), so that one meeting does not hide the others. When
+/// fewer lines are found, the cap rises as far as the limit allows ([`share`]).
+const PER_MEETING: usize = 5;
+
+/// The other meetings named on the last line, at most.
+const LISTED: usize = 10;
+
+pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
+    let a = args::parse(args, &["--json"], &["--since", "--until", "--date", "--speaker", "--in", "--context", "--limit"])?;
+    if a.help() {
+        return Ok(HELP.into());
+    }
+    let text = a.positionals.join(" ");
+    if text.replace('"', "").trim().is_empty() {
+        return Err(Failure::Usage("missing the query: words, or an \"exact phrase\"".into()));
+    }
+    let days = |option: &str| -> Result<Option<(Day, Day)>, Failure> {
+        a.value(option).map(|d| text::days(d).ok_or_else(|| Failure::Usage(format!("invalid date: \"{d}\" (YYYY-MM-DD or YYYY-MM)")))).transpose()
+    };
+    let (date, since, until) = (days("--date")?, days("--since")?, days("--until")?);
+    let first = since.map(|d| d.0).into_iter().chain(date.map(|d| d.0)).max();
+    let last = until.map(|d| d.1).into_iter().chain(date.map(|d| d.1)).min();
+    let mut locations = Vec::new();
+    for place in a.values("--in").iter().flat_map(|v| v.split(',')).map(str::trim).filter(|p| !p.is_empty()) {
+        let Some(l) = location_named(place) else { return Err(Failure::Usage(format!("--in: \"{place}\" (summary, transcription or title)"))) };
+        if !locations.contains(&l) {
+            locations.push(l);
+        }
+    }
+    let speaker = a.value("--speaker").map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    if speaker.is_some() && !locations.is_empty() && !locations.contains(&Location::Transcription) {
+        return Err(Failure::Usage("--speaker only searches the transcription".into()));
+    }
+    let number = |option: &str, min: usize| -> Result<Option<usize>, Failure> {
+        a.value(option).map(|n| n.parse::<usize>().ok().filter(|n| *n >= min).ok_or_else(|| Failure::Usage(format!("{option} needs a number: \"{n}\"")))).transpose()
+    };
+    let limit = number("--limit", 1)?.unwrap_or(LIMIT);
+    let context = number("--context", 0)?.unwrap_or(0);
+
+    let reading = Reading::open(cx)?;
+    let mut g = Greffier::open(reading.folder.root(), read_only());
+    if let Some(app) = &cx.app_folder {
+        g.read_search_cache(&greffier_core::settings::search_cache(app));
+    }
+    let day = |d: Day| DateTime::new(d.0, d.1, d.2, 0, 0);
+    let mut query = SearchQuery { text: text.clone(), since: first.map(day), until: last.map(day), speaker, locations, results: limit, context, ..SearchQuery::default() };
+    // Every line found, to share the limit and count what it leaves out, meeting by meeting.
+    let everything = g.find(&SearchQuery { summary_lines: usize::MAX, utterances: usize::MAX, results: usize::MAX, context: 0, width: usize::MAX, ..query.clone() });
+    let mut found: Vec<(MeetingId, Count)> = Vec::new();
+    for f in &everything.results {
+        if found.last().is_none_or(|(m, _)| *m != f.meeting) {
+            found.push((f.meeting, Count::default()));
+        }
+        if let Some((_, count)) = found.last_mut() {
+            count.add(f.location);
+        }
+    }
+    query.summary_lines = share(found.iter().map(|(_, c)| c), limit);
+    query.utterances = query.summary_lines;
+    let report = g.find(&query);
+    let width = query.width;
+    let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &reading, f)).collect();
+
+    if a.flag("--json") {
+        return Ok(crate::json(&SearchJson { results: results.iter().map(Line::json).collect(), total: report.total, meetings: report.meetings }));
+    }
+    if results.is_empty() {
+        // Each word may be there, on different lines.
+        if greffier_core::search::terms(&text).len() > 1 {
+            return Ok(format!("No results for \"{text}\": all the words must be on the same line (a summary line or an utterance); search fewer words, or one.\n"));
+        }
+        return Ok(format!("No results for \"{text}\".\n"));
+    }
+    let mut s = String::new();
+    let mut shown: HashMap<MeetingId, usize> = HashMap::new();
+    for meeting in results.chunk_by(|a, b| a.found.meeting == b.found.meeting) {
+        s += &format!("{} · {}\n", meeting[0].identifier, meeting[0].title);
+        shown.insert(meeting[0].found.meeting, meeting.len());
+        // The utterances found and those around them, in order, each once: found wins.
+        let mut conversation: BTreeMap<usize, String> = BTreeMap::new();
+        for r in meeting {
+            let f = &r.found;
+            let at = f.instant.map(|t| format!("[{}] ", playback_timestamp(t))).unwrap_or_default();
+            match (f.location, f.utterance) {
+                (Location::Title, _) => s += "  title\n",
+                (Location::Transcription, Some(i)) => {
+                    conversation.insert(i, format!("  {at}{}: {}\n", f.speaker.as_deref().unwrap_or("?"), r.excerpt));
+                }
+                _ => s += &format!("  {at}summary · {}\n", r.excerpt),
+            }
+            for u in f.before.iter().chain(&f.after) {
+                conversation.entry(u.index).or_insert_with(|| format!("    {}\n", utterance(u.start, u.speaker.as_deref(), &clip(&u.text, width))));
+            }
+        }
+        s += &conversation.into_values().collect::<String>();
+    }
+    // What the limits left out, meeting by meeting, most recent first.
+    let left: Vec<(MeetingId, usize)> = found.iter().map(|(m, c)| (*m, c.total() - shown.get(m).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
+    if !left.is_empty() {
+        let hidden: usize = left.iter().map(|(_, n)| n).sum();
+        let mut listed: Vec<String> = left.iter().take(LISTED).map(|(m, n)| format!("{} ({n})", identifier(&g, &reading, *m))).collect();
+        if left.len() > LISTED {
+            listed.push("…".into());
+        }
+        s += &format!(
+            "… {hidden} more {} in {} {}: {}\nNarrow down (--date, --since, --until, --speaker, --in) or raise --limit.\n",
+            if hidden == 1 { "result" } else { "results" },
+            left.len(),
+            if left.len() == 1 { "meeting" } else { "meetings" },
+            listed.join(", ")
+        );
+    }
+    Ok(s)
+}
+
+/// Where a line is found, by the command line's name for it (`--in`, the JSON's `location`).
+const LOCATIONS: [(&str, Location); 3] = [("title", Location::Title), ("summary", Location::Summary), ("transcription", Location::Transcription)];
+
+fn location_named(name: &str) -> Option<Location> {
+    LOCATIONS.iter().find(|(n, _)| *n == name).map(|(_, l)| *l)
+}
+
+fn location_name(location: Location) -> &'static str {
+    LOCATIONS.iter().find(|(_, l)| *l == location).map_or("?", |(n, _)| n)
+}
+
+/// The identifier of a meeting of the core opened to search, "?" if it has none.
+fn identifier(g: &Greffier, reading: &Reading, meeting: MeetingId) -> String {
+    g.meeting(meeting).and_then(|m| reading.identifier(&m.folder_name)).unwrap_or("?").to_string()
+}
+
+/// A meeting's lines found, by place.
+#[derive(Clone, Copy, Default)]
+struct Count {
+    title: usize,
+    summary: usize,
+    transcription: usize,
+}
+
+impl Count {
+    fn add(&mut self, l: Location) {
+        match l {
+            Location::Title => self.title += 1,
+            Location::Summary => self.summary += 1,
+            Location::Transcription => self.transcription += 1,
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.title + self.summary + self.transcription
+    }
+
+    /// The lines shown with at most `cap` summary lines and `cap` utterances.
+    fn within(&self, cap: usize) -> usize {
+        self.title + self.summary.min(cap) + self.transcription.min(cap)
+    }
+}
+
+/// The summary lines and utterances shown per meeting: the most whose lines all fit in the
+/// limit, at least [`PER_MEETING`]. Everything found is shown when it fits; otherwise the
+/// limit is shared between the meetings found rather than spent on the most recent.
+fn share<'a>(counts: impl Iterator<Item = &'a Count> + Clone, limit: usize) -> usize {
+    let most = counts.clone().map(|c| c.summary.max(c.transcription)).max().unwrap_or(0).min(limit);
+    (PER_MEETING..=most).rev().find(|&cap| counts.clone().map(|c| c.within(cap)).sum::<usize>() <= limit).unwrap_or(PER_MEETING)
+}
+
+/// `text` cut to `width` characters, between two words, with "…".
+fn clip(text: &str, width: usize) -> String {
+    let Some((end, _)) = text.char_indices().nth(width) else { return text.to_string() };
+    let end = text[..end].rfind(' ').filter(|&i| i > 0).unwrap_or(end);
+    format!("{}…", text[..end].trim_end_matches([' ', ',', ';', ':']))
+}
+
+/// `[0:47:30] Jérôme ?: text`
+fn utterance(start: f64, speaker: Option<&str>, text: &str) -> String {
+    format!("[{}] {}: {text}", playback_timestamp(start), speaker.unwrap_or("?"))
+}
+
+/// A line found, with its meeting's identifier and title, and its excerpt without the
+/// summary's own "(h:mm:ss)", already given by its instant.
+struct Line {
+    identifier: String,
+    title: String,
+    excerpt: String,
+    highlights: Vec<(usize, usize)>,
+    found: Found,
+}
+
+impl Line {
+    fn new(g: &Greffier, reading: &Reading, found: Found) -> Line {
+        let identifier = identifier(g, reading, found.meeting);
+        let title = g.meeting(found.meeting).map(|m| m.title.clone()).unwrap_or_default();
+        let (excerpt, highlights) = match (found.location, found.instant) {
+            (Location::Summary, Some(t)) => without_stamp(&found.excerpt, &found.highlights, t),
+            _ => (found.excerpt.clone(), found.highlights.clone()),
+        };
+        Line { identifier, title, excerpt, highlights, found }
+    }
+
+    fn json(&self) -> ResultJson {
+        let f = &self.found;
+        let nearby = |u: &NearbyUtterance| NearbyJson { utterance: u.index + 1, start: u.start, timestamp: playback_timestamp(u.start), speaker: u.speaker.clone(), text: u.text.clone() };
+        ResultJson {
+            identifier: self.identifier.clone(),
+            title: self.title.clone(),
+            location: location_name(f.location),
+            instant: f.instant,
+            timestamp: f.instant.map(playback_timestamp),
+            speaker: f.speaker.clone(),
+            utterance: f.utterance.map(|i| i + 1),
+            excerpt: self.excerpt.clone(),
+            highlights: self.highlights.clone(),
+            before: f.before.iter().map(nearby).collect(),
+            after: f.after.iter().map(nearby).collect(),
+        }
+    }
+}
+
+/// The summary line without the "(h:mm:ss)" of `instant` ("(0:44:12) We sell…" becomes "We
+/// sell…", "Bookmarks (1:58:31)" becomes "Bookmarks"), unless a highlight touches it; the
+/// highlights follow.
+fn without_stamp(excerpt: &str, highlights: &[(usize, usize)], instant: f64) -> (String, Vec<(usize, usize)>) {
+    let stamp = format!("({})", playback_timestamp(instant));
+    let unchanged = || (excerpt.to_string(), highlights.to_vec());
+    let Some(i) = excerpt.find(&stamp) else { return unchanged() };
+    let end = i + stamp.len();
+    let (a, b) = if excerpt[end..].starts_with(' ') && (i == 0 || excerpt[..i].ends_with('…')) {
+        (i, end + 1)
+    } else if excerpt[..i].ends_with(' ') {
+        (i - 1, end)
+    } else {
+        (i, end)
+    };
+    if highlights.iter().any(|&(x, y)| x < b && y > a) {
+        return unchanged();
+    }
+    let shift = |x: usize| if x >= b { x - (b - a) } else { x };
+    (format!("{}{}", &excerpt[..a], &excerpt[b..]), highlights.iter().map(|&(x, y)| (shift(x), shift(y))).collect())
+}
+
+#[derive(Serialize)]
+struct SearchJson {
+    results: Vec<ResultJson>,
+    /// The lines found without the limits, and the number of meetings they come from.
+    total: usize,
+    meetings: usize,
+}
+
+#[derive(Serialize)]
+struct ResultJson {
+    identifier: String,
+    /// Its meeting's title.
+    title: String,
+    /// `title`, `summary` or `transcription`.
+    location: &'static str,
+    /// The utterance's start, or the moment of a summary line (its own, or its topic's); in
+    /// seconds. `null` for the title and a summary line without a moment.
+    instant: Option<f64>,
+    timestamp: Option<String>,
+    speaker: Option<String>,
+    /// The utterance's number, from 1 (as in `show --transcription --numbers`).
+    utterance: Option<usize>,
+    excerpt: String,
+    /// The words found in `excerpt`, as byte ranges.
+    highlights: Vec<(usize, usize)>,
+    before: Vec<NearbyJson>,
+    after: Vec<NearbyJson>,
+}
+
+#[derive(Serialize)]
+struct NearbyJson {
+    utterance: usize,
+    start: f64,
+    timestamp: String,
+    speaker: Option<String>,
+    text: String,
+}
+
+// --- A core that cannot write ------------------------------------------------------------
+
+/// Every adapter, refusing everything: the command line opens the core to read the meetings and
+/// search them, never sends it a command nor advances it, and if it ever did, nothing would be
+/// recorded, processed, trashed or written.
+struct ReadOnly;
+
+const READ_ONLY: &str = "the command line reads the meetings without writing anything";
+
+/// A task that fails at once.
+struct Refused;
+
+impl<T> Task<T> for Refused {
+    fn poll(&mut self, _: f64) -> TaskProgress<T> {
+        TaskProgress::Failed(READ_ONLY.into())
+    }
+}
+
+fn read_only() -> Adapters {
+    Adapters {
+        capture: Box::new(ReadOnly),
+        transcriber: Box::new(ReadOnly),
+        diarizer: Box::new(ReadOnly),
+        agent: Box::new(ReadOnly),
+        resources: Box::new(ReadOnly),
+        clock: Box::new(ReadOnly),
+        trash: Box::new(ReadOnly),
+        mp4_muxing: Box::new(ReadOnly),
+    }
+}
+
+impl Capture for ReadOnly {
+    fn start(&mut self, _: CaptureRequest) -> Result<(), String> {
+        Err(READ_ONLY.into())
+    }
+    fn poll(&mut self, _: f64) -> CaptureState {
+        CaptureState::default()
+    }
+    fn stop(&mut self) -> Result<f64, String> {
+        Err(READ_ONLY.into())
+    }
+}
+
+impl Transcriber for ReadOnly {
+    fn transcribe(&mut self, _: TranscriptionRequest) -> BoxedTask<Vec<Word>> {
+        Box::new(Refused)
+    }
+}
+
+impl Diarizer for ReadOnly {
+    fn diarize(&mut self, _: DiarizationRequest) -> BoxedTask<Vec<SpeakerTurn>> {
+        Box::new(Refused)
+    }
+}
+
+impl Agent for ReadOnly {
+    fn review(&mut self, _: ReviewRequest) -> BoxedTask<ReviewResult> {
+        Box::new(Refused)
+    }
+    fn summarize(&mut self, _: SummaryRequest) -> BoxedTask<SummaryResult> {
+        Box::new(Refused)
+    }
+}
+
+impl Resources for ReadOnly {
+    fn state(&mut self) -> Vec<Resource> {
+        Vec::new()
+    }
+    fn install(&mut self) -> BoxedTask<()> {
+        Box::new(Refused)
+    }
+    fn check(&mut self) -> BoxedTask<()> {
+        Box::new(Refused)
+    }
+}
+
+impl Clock for ReadOnly {
+    fn now(&self) -> DateTime {
+        self.to_local_time(std::time::SystemTime::now())
+    }
+}
+
+impl Trash for ReadOnly {
+    fn trash(&self, _: &Path) -> Result<(), String> {
+        Err(READ_ONLY.into())
+    }
+}
+
+impl Mp4Muxer for ReadOnly {
+    fn to_mp4(&self, _: &Path, _: &Path) -> Result<(), String> {
+        Err(READ_ONLY.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_location_is_read_and_written_under_one_name() {
+        for (name, location) in LOCATIONS {
+            assert_eq!((location_named(name), location_name(location)), (Some(location), name));
+        }
+        assert_eq!(location_named("bilan"), None, "the French name is gone");
+    }
+
+    #[test]
+    fn a_long_utterance_around_is_clipped_between_two_words() {
+        assert_eq!(clip("Oui.", 10), "Oui.");
+        assert_eq!(clip("Le serveur des bookmarks tombe le lundi.", 20), "Le serveur des…");
+        assert_eq!(clip("Anticonstitutionnellement", 10), "Anticonsti…");
+        assert_eq!(clip("Évidemment, ça dépend", 12), "Évidemment…");
+    }
+
+    #[test]
+    fn a_summary_line_loses_the_timestamp_its_moment_already_gives() {
+        assert_eq!(without_stamp("(0:44:12) On vend 10 000 marques.", &[(18, 20)], 2652.0), ("On vend 10 000 marques.".to_string(), vec![(8, 10)]));
+        assert_eq!(without_stamp("Bookmarks (1:58:31)", &[(0, 9)], 7111.0), ("Bookmarks".to_string(), vec![(0, 9)]));
+        assert_eq!(without_stamp("…le test (0:00:05) suit", &[], 5.0).0, "…le test suit");
+        assert_eq!(without_stamp("Vu à (0:00:05).", &[], 6.0).0, "Vu à (0:00:05).", "another moment stays");
+    }
+}

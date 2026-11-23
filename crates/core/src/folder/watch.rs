@@ -10,6 +10,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::time::SystemTime;
 
 use super::{MeetingsFolder, Role};
+use crate::{Operation, Reason};
 
 /// What changes when a file is rewritten: modification date, size, and inode (an atomic write
 /// replaces the file).
@@ -51,14 +52,14 @@ impl MeetingsFolder {
     /// Ticks or unticks the summary's `index`-th checkbox in its file, rewriting only the
     /// character between the brackets: the rest of the file (line endings, formatting) does not
     /// move. Returns the modified summary, or `None` if the meeting has no summary file.
-    pub fn tick_in_summary(&self, name: &str, index: usize, done: bool) -> Result<Option<String>, String> {
+    pub fn tick_in_summary(&self, name: &str, index: usize, done: bool) -> Result<Option<String>, Reason> {
         let path = self.file(name, Role::Summary);
         if !path.is_file() {
             return Ok(None);
         }
-        let error = |e: std::io::Error| format!("{} : {e}", path.display());
+        let error = |e: std::io::Error| Reason::Failed { what: Operation::CheckAction(path.clone()), detail: e.to_string() };
         let mut md = std::fs::read_to_string(&path).map_err(error)?;
-        let Some(position) = crate::summary::checkbox_position(&md, index) else { return Err("action inconnue".into()) };
+        let Some(position) = crate::summary::checkbox_position(&md, index) else { return Err(Reason::UnknownAction) };
         if crate::summary::tick(&mut md, index, done) {
             let mut f = std::fs::OpenOptions::new().write(true).open(&path).map_err(error)?;
             f.seek(SeekFrom::Start(position as u64)).map_err(error)?;

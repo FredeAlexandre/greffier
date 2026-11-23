@@ -31,6 +31,93 @@ pub struct Import {
     pub title: String,
 }
 
+/// Why files cannot be imported. `Display` gives the UI's French, [`ImportError::english`] the
+/// command line's English; `detail` is the OS's message, as it gave it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportError {
+    /// Not a medium AVFoundation reads.
+    NotMedia(PathBuf),
+    NotFound(PathBuf),
+    /// Reading, copying or creating this file or folder failed.
+    Io { path: PathBuf, detail: String },
+    /// Greffier's structured transcription (`.json`) cannot be read.
+    UnreadableTranscription { path: PathBuf, detail: String },
+    /// A transcription in a format Greffier does not read.
+    TranscriptionFormat(PathBuf),
+    /// The transcription has no utterance.
+    NoUtterance(PathBuf),
+    /// A file that is neither a medium, a transcription nor a summary (its name).
+    UnknownKind(String),
+    /// Several files of one kind.
+    Several(FileKind),
+    /// No medium among the files.
+    NoMedia,
+}
+
+/// The kinds of files an import takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileKind {
+    Media,
+    Transcription,
+    Summary,
+}
+
+impl ImportError {
+    /// The error in English, for the command line.
+    pub fn english(&self) -> String {
+        match self {
+            ImportError::NotMedia(p) => format!("{}: not a medium Greffier can read.", p.display()),
+            ImportError::NotFound(p) => format!("{}: file not found.", p.display()),
+            ImportError::Io { path, detail } => format!("{}: {detail}", path.display()),
+            ImportError::UnreadableTranscription { path, detail } => format!("{}: unreadable structured transcription: {detail}", path.display()),
+            ImportError::TranscriptionFormat(p) => format!("{}: a transcription must be a Greffier file (.json), WebVTT (.vtt) or SRT (.srt).", p.display()),
+            ImportError::NoUtterance(p) => format!("{}: no utterance read.", p.display()),
+            ImportError::UnknownKind(name) => format!("\"{name}\": Greffier imports a medium (video or audio), a transcription (.vtt, .srt, .json) and a summary (.md)."),
+            ImportError::Several(kind) => format!(
+                "Only one {} file per meeting.",
+                match kind {
+                    FileKind::Media => "media",
+                    FileKind::Transcription => "transcription",
+                    FileKind::Summary => "summary",
+                }
+            ),
+            ImportError::NoMedia => "A medium (video or audio) is needed to import a meeting.".into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ImportError {
+    /// The UI's French.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportError::NotMedia(p) => write!(f, "{} : ce n'est pas un média que Greffier sait lire.", p.display()),
+            ImportError::NotFound(p) => write!(f, "{} : fichier introuvable.", p.display()),
+            ImportError::Io { path, detail } => write!(f, "{} : {detail}", path.display()),
+            ImportError::UnreadableTranscription { path, detail } => write!(f, "{} : transcription structurée illisible : {detail}", path.display()),
+            ImportError::TranscriptionFormat(p) => write!(f, "{} : la transcription doit être un fichier de Greffier (.json), WebVTT (.vtt) ou SRT (.srt).", p.display()),
+            ImportError::NoUtterance(p) => write!(f, "{} : aucune réplique lue.", p.display()),
+            ImportError::UnknownKind(name) => write!(f, "« {name} » : Greffier importe un média (vidéo ou audio), une transcription (.vtt, .srt, .json) et un bilan (.md)."),
+            ImportError::Several(kind) => write!(
+                f,
+                "Un seul fichier de {} par réunion.",
+                match kind {
+                    FileKind::Media => "média",
+                    FileKind::Transcription => "transcription",
+                    FileKind::Summary => "bilan",
+                }
+            ),
+            ImportError::NoMedia => f.write_str("Il faut un média (vidéo ou audio) pour importer une réunion."),
+        }
+    }
+}
+
+impl std::error::Error for ImportError {}
+
+/// [`ImportError::Io`] for this path.
+fn io(path: &Path) -> impl Fn(std::io::Error) -> ImportError + '_ {
+    move |e| ImportError::Io { path: path.to_path_buf(), detail: e.to_string() }
+}
+
 /// A file's extension, in lowercase ("mp4").
 pub(crate) fn extension(path: &Path) -> String {
     path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase()
@@ -49,13 +136,13 @@ impl MeetingsFolder {
     /// Copies the import's files into a new meeting folder and returns the meeting, not yet
     /// written: the sheet and transcriptions come next with [`MeetingsFolder::write`].
     /// On error, nothing is left in the meetings folder.
-    pub fn import(&self, import: &Import, id: MeetingId, mp4_muxing: &dyn Mp4Muxer) -> Result<Meeting, String> {
-        let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{} : {e}", p.display()));
+    pub fn import(&self, import: &Import, id: MeetingId, mp4_muxing: &dyn Mp4Muxer) -> Result<Meeting, ImportError> {
+        let read = |p: &Path| std::fs::read_to_string(p).map_err(io(p));
         if !MEDIA_EXTENSIONS.contains(&extension(&import.recording).as_str()) {
-            return Err(format!("{} : ce n'est pas un média que Greffier sait lire.", import.recording.display()));
+            return Err(ImportError::NotMedia(import.recording.clone()));
         }
         if !import.recording.is_file() {
-            return Err(format!("{} : fichier introuvable.", import.recording.display()));
+            return Err(ImportError::NotFound(import.recording.clone()));
         }
         let title = match import.title.trim() {
             "" => "Réunion",
@@ -63,8 +150,8 @@ impl MeetingsFolder {
         };
         let name = self.available_name(import.start, title);
         let folder = self.folder(&name);
-        std::fs::create_dir_all(&folder).map_err(|e| format!("{} : {e}", folder.display()))?;
-        let copy_to = |from: &Path, to: PathBuf| std::fs::copy(from, &to).map(|_| ()).map_err(|e| format!("{} : {e}", from.display()));
+        std::fs::create_dir_all(&folder).map_err(io(&folder))?;
+        let copy_to = |from: &Path, to: PathBuf| std::fs::copy(from, &to).map(|_| ()).map_err(io(from));
         let result = (|| {
             let mut r = Meeting::new(id, name.clone(), import.start, 0.0);
             r.title = title.to_string();
@@ -107,8 +194,8 @@ impl MeetingsFolder {
 impl MeetingsFolder {
     /// Copies the media as `… - enregistrement.mp4`: as is for an `.mp4`, muxed to MP4 for the
     /// MP4 family; otherwise (or if muxing to MP4 fails), copied with its extension.
-    fn copy_recording(&self, media: &Path, name: &str, mp4_muxing: &dyn Mp4Muxer) -> Result<(), String> {
-        let copy_to = |to: PathBuf| std::fs::copy(media, &to).map(|_| ()).map_err(|e| format!("{} : {e}", media.display()));
+    fn copy_recording(&self, media: &Path, name: &str, mp4_muxing: &dyn Mp4Muxer) -> Result<(), ImportError> {
+        let copy_to = |to: PathBuf| std::fs::copy(media, &to).map(|_| ()).map_err(io(media));
         let ext = extension(media);
         let mp4 = self.file(name, Role::Recording);
         if ext == "mp4" {
@@ -140,20 +227,20 @@ struct Line {
 /// Reads the imported transcription into the meeting: Greffier's structured file, WebVTT or SRT.
 /// It is treated as not reviewed. Named speakers ("Alexandre") become SPEAKER_00, SPEAKER_01…
 /// in the order they speak, with their name; without speakers, everything goes to SPEAKER_00.
-fn apply_transcription(path: &Path, r: &mut Meeting) -> Result<(), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{} : {e}", path.display()))?;
+fn apply_transcription(path: &Path, r: &mut Meeting) -> Result<(), ImportError> {
+    let text = std::fs::read_to_string(path).map_err(io(path))?;
     let (transcription, names) = match extension(path).as_str() {
         "json" => {
-            let mut t = StructuredTranscription::read(&text).map_err(|e| format!("{} : {e}", path.display()))?;
+            let mut t = StructuredTranscription::read(&text).map_err(|e| ImportError::UnreadableTranscription { path: path.to_path_buf(), detail: e.to_string() })?;
             t.review = None;
             t.raw.clear();
             (t, vec![])
         }
         "vtt" | "srt" => from_lines(read_subtitles(&text)),
-        _ => return Err(format!("{} : la transcription doit être un fichier de Greffier (.json), WebVTT (.vtt) ou SRT (.srt).", path.display())),
+        _ => return Err(ImportError::TranscriptionFormat(path.to_path_buf())),
     };
     if transcription.utterances.is_empty() {
-        return Err(format!("{} : aucune réplique lue.", path.display()));
+        return Err(ImportError::NoUtterance(path.to_path_buf()));
     }
     transcription.apply(r);
     for l in &mut r.speakers {
@@ -317,7 +404,7 @@ fn name_and_colon(s: &str) -> Option<(String, String)> {
 /// the summary (at most one of each, sorted by extension), the date (the creation date stored
 /// in the media, otherwise the file's modification date) and the title (the summary's,
 /// otherwise the media's name).
-pub(crate) fn propose(paths: &[PathBuf], to_local_time: impl Fn(SystemTime) -> DateTime) -> Result<Import, String> {
+pub(crate) fn propose(paths: &[PathBuf], to_local_time: impl Fn(SystemTime) -> DateTime) -> Result<Import, ImportError> {
     let (mut media, mut transcriptions, mut summaries) = (vec![], vec![], vec![]);
     for c in paths {
         let e = extension(c);
@@ -325,18 +412,18 @@ pub(crate) fn propose(paths: &[PathBuf], to_local_time: impl Fn(SystemTime) -> D
             e if MEDIA_EXTENSIONS.contains(&e) => media.push(c.clone()),
             "json" | "vtt" | "srt" => transcriptions.push(c.clone()),
             "md" | "markdown" => summaries.push(c.clone()),
-            _ => return Err(format!("« {} » : Greffier importe un média (vidéo ou audio), une transcription (.vtt, .srt, .json) et un bilan (.md).", file_name(c))),
+            _ => return Err(ImportError::UnknownKind(file_name(c))),
         }
     }
-    let single = |v: Vec<PathBuf>, what: &str| match v.len() {
+    let single = |v: Vec<PathBuf>, kind: FileKind| match v.len() {
         0 | 1 => Ok(v.into_iter().next()),
-        _ => Err(format!("Un seul fichier de {what} par réunion.")),
+        _ => Err(ImportError::Several(kind)),
     };
-    let recording = single(media, "média")?.ok_or("Il faut un média (vidéo ou audio) pour importer une réunion.")?;
-    let transcription = single(transcriptions, "transcription")?;
-    let summary = single(summaries, "bilan")?;
+    let recording = single(media, FileKind::Media)?.ok_or(ImportError::NoMedia)?;
+    let transcription = single(transcriptions, FileKind::Transcription)?;
+    let summary = single(summaries, FileKind::Summary)?;
     let instant = mp4::creation_date(&recording).or_else(|| std::fs::metadata(&recording).and_then(|m| m.modified()).ok());
-    let start = instant.map(to_local_time).ok_or_else(|| format!("{} : fichier introuvable.", recording.display()))?;
+    let start = instant.map(to_local_time).ok_or_else(|| ImportError::NotFound(recording.clone()))?;
     let title = summary.as_ref().and_then(|b| std::fs::read_to_string(b).ok()).and_then(|md| summary_title(&md));
     let title = title.unwrap_or_else(|| title_from_file_name(&recording.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()));
     Ok(Import { recording, transcription, summary, start, title })

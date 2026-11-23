@@ -168,8 +168,8 @@ fn pending() -> String {
 }
 
 impl StructuredTranscription {
-    pub fn read(json: &str) -> Result<StructuredTranscription, String> {
-        serde_json::from_str(json).map_err(|e| format!("transcription structurée illisible : {e}"))
+    pub fn read(json: &str) -> Result<StructuredTranscription, serde_json::Error> {
+        serde_json::from_str(json)
     }
 
     pub fn json(&self) -> String {

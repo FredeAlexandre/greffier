@@ -58,7 +58,7 @@ impl App {
     fn correct(&mut self, c: Command) -> bool {
         let Err(rejection) = self.try_command(c) else { return true };
         let message = match rejection {
-            Rejection::Impossible(m) => m,
+            Rejection::Impossible(m) => m.to_string(),
             r => r.to_string(),
         };
         match &mut self.correction {

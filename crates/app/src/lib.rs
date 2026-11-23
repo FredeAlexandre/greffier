@@ -6,10 +6,20 @@
 //! `cargo run` opens the window. `cargo run -- --snap out.png --scene meeting` renders a scene
 //! headless (`--list-scenes` for the list): headless, the app starts from the prototype's fake
 //! data, never from the meetings folder. `GREFFIER_FOLDER=… cargo run` opens another meetings
-//! folder for a single launch.
+//! folder for a single launch (`GREFFIER_APP_FOLDER=…` another app folder). `cargo run -- list`
+//! and the other commands never reach this library: `main.rs` hands them to `greffier-cli`.
+//!
+//! The live app is also the Greffier process the command line talks to (ADR 0006,
+//! `command_line.rs`): it holds the app folder's lock (a second launch asks it to show its window
+//! and exits) and answers on `greffier.sock` there, each request on the UI thread as the user's
+//! own action. `greffier --background`, as the command line launches it, starts without a window
+//! nor Dock icon (the menu bar icon shows the progress); opening it shows the window of the same
+//! process, and until then it quits on its own after 5 minutes idle (`GREFFIER_IDLE_QUIT`
+//! seconds). Headless runs, scenes and the tests driving [`spec`] never take the lock nor listen.
 
 #![forbid(unsafe_code)]
 
+mod command_line;
 mod import;
 mod speakers;
 mod meeting;
@@ -32,6 +42,7 @@ use rune::{AppHandle, AppSpec, Chrome, Cx, El, FileDialogOptions, Key, KeyEvent,
 use rune_kit::shell::{self, PaneMotion, PaneState, SidebarToggle, SplitView};
 use rune_kit::{ControlSize, Kit, ShortcutRecorderState};
 
+use greffier_cli::server::{IDLE_QUIT, IdlePolicy, Listener};
 use greffier_menubar::{Choice, MenubarIcon};
 use greffier_capture::sleep::KeepAwake;
 use greffier_core::adapters::{PermissionState, Permissions, ResourceState};
@@ -42,6 +53,7 @@ use record_shortcut::RecordShortcut;
 pub use record_shortcut::{Registrar, Registration};
 pub use sidebar::{Period, period};
 pub use check::Target;
+pub use command_line::{IDLE_QUIT_VARIABLE, Launch, idle_quit_delay, run};
 
 pub const SPEEDS: [f64; 3] = [1.0, 1.5, 2.0];
 
@@ -169,6 +181,13 @@ pub struct App {
     /// The notification permission, for the permissions card: macOS's when live, none otherwise
     /// (the tests bring their own).
     pub notifications: Option<Box<dyn NotificationPermission>>,
+    /// Started by the command line without a window (`--background`): no Dock icon until the
+    /// window shows ([`App::show_window`]).
+    pub background: bool,
+    /// When an app started in the background quits on its own.
+    pub idle: IdlePolicy,
+    /// The socket the command line talks to (live only).
+    listener: Option<Listener>,
 }
 
 /// The macOS notification permission, which « Bilan prêt » needs.
@@ -248,9 +267,7 @@ impl App {
                     self.register_marker_shortcut(false);
                     self.open(meeting);
                     self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(meeting), until: self.clock + 8.0, error: false });
-                    if let Some(h) = &self.handle {
-                        h.open();
-                    }
+                    self.show_window();
                 }
                 Event::DeletionProposed(id) => self.short_recordings.push(id),
                 Event::MeetingImported(id) => self.imported(id),
@@ -446,8 +463,8 @@ impl App {
         self.menu_bar = MenubarIcon::new(move |choice| match choice {
             Choice::Start => h.update(|s: &mut App, _| if !s.recorded() { s.toggle_recording() }),
             Choice::Stop => h.update(|s: &mut App, _| if s.recorded() { s.toggle_recording() }),
-            Choice::Open => h.open(),
-            Choice::Quit => h.quit(),
+            Choice::Open => h.update(|s: &mut App, _| s.show_window()),
+            Choice::Quit => h.update(|s: &mut App, tx| s.quit(tx)),
         });
         self.show_menu_bar();
     }
@@ -491,9 +508,9 @@ impl App {
             self.record_error = self.try_command(Command::StartRecording).err().map(|r| r.to_string());
             if self.recorded() {
                 self.register_marker_shortcut(true);
-            } else if let Some(h) = &self.handle {
+            } else {
                 // Started from the menu bar or the shortcut with the window hidden: show why.
-                h.open();
+                self.show_window();
             }
         }
         if let Some((_, p)) = &self.video {
@@ -641,6 +658,15 @@ impl App {
         }
         if self.confirm_delete == Some(id) {
             self.confirm_delete = None;
+        }
+        if self.rename.as_ref().is_some_and(|r| r.meeting == id) {
+            self.rename = None;
+        }
+        if self.redo_transcription.as_ref().is_some_and(|r| r.meeting == id) {
+            self.redo_transcription = None;
+        }
+        if self.process_imported == Some(id) {
+            self.process_imported = None;
         }
         self.short_recordings.retain(|r| *r != id);
     }
@@ -844,6 +870,9 @@ impl App {
             permissions_shown: None,
             live,
             notifications: live.then(|| Box::new(MacNotifications) as Box<dyn NotificationPermission>),
+            background: false,
+            idle: IdlePolicy::new(false, IDLE_QUIT, 0.0),
+            listener: None,
         }
     }
 }
@@ -977,6 +1006,8 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
             active = true;
         }
     }
+
+    s.quit_when_idle(clock, active, tx);
 
     if active {
         s.last = Some(clock);
@@ -1350,32 +1381,60 @@ pub fn spec() -> AppSpec<App> {
 }
 
 /// The app with its window's chrome, its « Fichier » menu and its global shortcuts; in the window,
-/// also its menu bar icon and the click on « Bilan prêt ».
-pub fn app() -> rune::App<App> {
+/// also its menu bar icon, the click on « Bilan prêt » and, if `launch` serves, the command
+/// line's socket. Started in the background, it has no window nor Dock icon until it is opened
+/// (the menu bar's « Ouvrir », the Finder or the Dock, a second launch), and quits on its own
+/// once idle.
+pub fn app(launch: Launch) -> rune::App<App> {
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
     let spec = spec();
     let import = rune::MenuItem::new("Importer…", |s: &mut App, tx: &mut rune::Tx| s.pick_import(tx)).id("import").menu("Fichier").key_equivalent("cmd+i".parse().expect("shortcut"));
+    // `--background` is ours: Rune gets the other arguments.
+    let rune_args = std::env::args().skip(1).filter(|a| a != "--background");
+    let idle_quit = idle_quit_delay();
     // Closing the window keeps the app (and the menu bar icon) running: ⌘Q quits it.
-    let app = rune::App::new(spec).chrome(chrome).menu_item(import).keep_running();
+    let mut app = rune::App::new(spec)
+        .init(move || if launch.background { init().in_background(idle_quit) } else { init() })
+        .args(rune_args)
+        .chrome(chrome)
+        .menu_item(import)
+        .keep_running()
+        .on_reopen(command_line::on_reopen)
+        .on_quit(|s: &mut App, _| s.listener = None);
+    if launch.background {
+        // No Dock icon nor activation until the window shows (`App::window_shown`); the Edit
+        // and Window menus, which a regular app gets by itself, then come with the app menu.
+        app = app.windowless().accessory().standard_menus();
+    }
     let handle = app.handle();
     let shared = handle.clone();
     let shared_for_clicks = handle.clone();
-    handle.update(move |s, _| {
+    handle.update(move |s, tx| {
         s.shortcuts = Some(Box::new(shared.clone()));
         s.handle = Some(shared);
         s.register_record_shortcut();
         if s.live {
             s.install_menu_bar();
             // A click on « Bilan prêt » opens the meeting, even if the window was closed.
-            // `h.open()` shows the window, restores it only if minimized and activates the app.
-            // Not `rune_notify::bring_to_front()`: it deminiaturizes a window that is not
-            // minimized, and AppKit then throws an exception that aborts the app (macOS 27).
+            // `show_window` (`h.open()`) shows the window, restores it only if minimized and
+            // activates the app. Not `rune_notify::bring_to_front()`: it deminiaturizes a window
+            // that is not minimized, and AppKit then throws an exception that aborts the app
+            // (macOS 27).
             let h = shared_for_clicks.clone();
             rune_notify::on_click(move |click| {
                 let Some(name) = click.get("folder").map(str::to_owned) else { return };
-                h.open();
-                h.update(move |s: &mut App, _| s.open_folder_named(&name));
+                h.update(move |s: &mut App, _| {
+                    s.show_window();
+                    s.open_folder_named(&name);
+                });
             });
+        }
+        if launch.serve {
+            s.listen(tx);
+        }
+        // Without a window nothing else wakes `poll`, which counts the idle time.
+        if launch.background {
+            tx.wake_after(Duration::from_millis(100));
         }
     });
     app

@@ -133,7 +133,21 @@ fn core_reads_the_lexicon_and_its_people() {
 }
 
 #[test]
-fn app_folder_is_in_the_users_library() {
-    assert_eq!(settings::app_folder(), settings::home().join("Library/Application Support/Greffier"));
+fn app_folder_is_in_the_users_library_unless_replaced() {
+    let home = PathBuf::from("/Users/odile");
+    assert_eq!(settings::app_folder_for(None, &home), home.join("Library/Application Support/Greffier"));
+    assert_eq!(settings::app_folder_for(Some(PathBuf::from("/tmp/essai")), &home), PathBuf::from("/tmp/essai"), "GREFFIER_APP_FOLDER replaces it");
     assert_eq!(settings::suggested_folder(), settings::home().join("Documents/Réunions"));
+}
+
+#[test]
+fn the_meetings_folder_is_the_replaced_one_otherwise_the_remembered_one() {
+    let app = AppFolder::new("meetings-folder");
+    assert_eq!(settings::meetings_folder_for(None, &app.0), None, "none chosen yet");
+    assert_eq!(settings::meetings_folder_for(Some(PathBuf::from("/tmp/copie")), &app.0), Some(PathBuf::from("/tmp/copie")));
+    assert!(!app.0.exists(), "reading writes nothing");
+
+    PersistedSettings { meetings_folder: Some(PathBuf::from("/Users/odile/Réunions")), ..PersistedSettings::default() }.remember(&app.0).expect("written");
+    assert_eq!(settings::meetings_folder_for(None, &app.0), Some(PathBuf::from("/Users/odile/Réunions")));
+    assert_eq!(settings::meetings_folder_for(Some(PathBuf::from("/tmp/copie")), &app.0), Some(PathBuf::from("/tmp/copie")), "GREFFIER_FOLDER wins over the remembered folder");
 }

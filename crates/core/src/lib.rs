@@ -18,6 +18,7 @@ pub mod adapters;
 pub mod attribution;
 pub mod summary;
 pub mod folder;
+pub mod identifier;
 pub mod fake;
 pub mod demo;
 pub mod lexicon;
@@ -25,18 +26,19 @@ pub mod search;
 pub mod settings;
 pub mod resources;
 mod meeting;
+mod rejection;
 mod deletion;
 mod watch;
 mod time;
 mod title;
 
 use std::collections::{HashMap, VecDeque};
-use std::fmt;
 use std::path::PathBuf;
 
 use adapters::*;
 pub use folder::{MeetingsFolder, Role};
 pub use meeting::*;
+pub use rejection::{Operation, Reason, Rejection};
 pub use time::*;
 
 /// The settings that change the core's behavior.
@@ -159,26 +161,8 @@ pub enum Event {
 /// Below this duration (in seconds), a recording is offered for deletion.
 pub const MIN_DURATION: f64 = 60.0;
 
-/// Why a command was not executed. The state has not changed.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Rejection {
-    UnknownMeeting(MeetingId),
-    Impossible(String),
-}
-
-impl fmt::Display for Rejection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Rejection::UnknownMeeting(id) => write!(f, "réunion inconnue ({id})"),
-            Rejection::Impossible(m) => f.write_str(m),
-        }
-    }
-}
-
-impl std::error::Error for Rejection {}
-
-fn impossible<T>(message: impl Into<String>) -> Result<T, Rejection> {
-    Err(Rejection::Impossible(message.into()))
+fn impossible<T>(reason: Reason) -> Result<T, Rejection> {
+    Err(Rejection::Impossible(reason))
 }
 
 /// What must stay awake, and why (see [`Greffier::keep_mac_awake`]).
@@ -299,7 +283,7 @@ pub struct Greffier {
     /// The fingerprint of each meeting folder at the core's last pass (see
     /// [`Greffier::rescan_folder`]).
     fingerprints: HashMap<String, folder::watch::Fingerprints>,
-    /// The ⌘K search index (see [`Greffier::search`]).
+    /// The search index (see [`Greffier::search`], ⌘K, and [`Greffier::find`], the agents').
     index: search::Index,
 }
 
@@ -448,7 +432,7 @@ impl Greffier {
     /// and the summary, the date and the title, to edit before sending [`Command::Import`].
     /// Writes nothing.
     pub fn propose_import(&self, files: &[PathBuf]) -> Result<folder::Import, Rejection> {
-        folder::import::propose(files, |t| self.adapters.clock.to_local_time(t)).map_err(Rejection::Impossible)
+        folder::import::propose(files, |t| self.adapters.clock.to_local_time(t)).map_err(|e| Reason::Import(e).into())
     }
 
     /// True while time matters: recording, processing, queue, installation or resource
@@ -490,12 +474,12 @@ impl Greffier {
             Command::StartRecording => self.start_recording()?,
             Command::StopRecording => self.stop_recording(&mut ev)?,
             Command::AddMarker => {
-                let Some(e) = &mut self.recording else { return impossible("aucun enregistrement en cours") };
+                let Some(e) = &mut self.recording else { return impossible(Reason::NoRecording) };
                 e.markers.push(e.duration);
                 self.write_recording_sheet();
             }
             Command::RecordingSpeakerCount(n) => {
-                let Some(e) = &mut self.recording else { return impossible("aucun enregistrement en cours") };
+                let Some(e) = &mut self.recording else { return impossible(Reason::NoRecording) };
                 e.speaker_count = n;
                 self.write_recording_sheet();
             }
@@ -508,10 +492,10 @@ impl Greffier {
                         None => Stage::Transcription,
                         Some(e) => match e.next() {
                             Some(s) => s,
-                            None => return impossible("la réunion est déjà traitée"),
+                            None => return impossible(Reason::AlreadyProcessed),
                         },
                     },
-                    s => return impossible(format!("la réunion ne peut pas être traitée ({s:?})")),
+                    s => return impossible(Reason::CannotProcess(s.clone())),
                 };
                 self.enqueue(id, stage);
             }
@@ -524,7 +508,7 @@ impl Greffier {
             Command::Redo { meeting, stage } => {
                 let r = self.meeting_mut(meeting)?;
                 if !r.can_redo(stage) {
-                    return impossible(if r.status.in_queue() { "la réunion est déjà dans la file" } else { "les étapes précédentes ne sont pas faites" });
+                    return impossible(if r.status.in_queue() { Reason::AlreadyInQueue } else { Reason::EarlierStagesNotDone });
                 }
                 r.completed_stage = stage.previous();
                 self.enqueue(meeting, stage);
@@ -532,7 +516,7 @@ impl Greffier {
             Command::StopProcessing(id) => {
                 let r = self.meeting_mut(id)?;
                 if !r.status.in_queue() {
-                    return impossible("la réunion n'est pas en traitement");
+                    return impossible(Reason::NotProcessing);
                 }
                 r.status = Status::ToProcess;
                 self.remove_from_queue(id);
@@ -541,7 +525,7 @@ impl Greffier {
             Command::NameSpeaker { meeting, speaker, name } => {
                 let name = name.trim();
                 if name.is_empty() {
-                    return impossible("le nom est vide");
+                    return impossible(Reason::EmptyName);
                 }
                 let r = self.meeting_mut(meeting)?;
                 speaker_mut(r, speaker)?;
@@ -557,7 +541,7 @@ impl Greffier {
                 speaker_mut(r, into)?;
                 let (i, j) = (r.displayed_speaker(speaker), r.displayed_speaker(into));
                 if !r.merge(i, j) {
-                    return impossible("ces deux locuteurs sont déjà la même voix");
+                    return impossible(Reason::SameVoice);
                 }
                 r.speakers[speaker].suggested_merge = None;
                 r.speakers[i].suggested_merge = None;
@@ -566,7 +550,7 @@ impl Greffier {
                 let r = self.meeting_mut(meeting)?;
                 speaker_mut(r, speaker)?;
                 if !r.split(speaker) {
-                    return impossible("ce locuteur n'est pas fusionné");
+                    return impossible(Reason::NotMerged);
                 }
             }
             Command::Resolve { meeting, passage, resolution } => {
@@ -582,11 +566,11 @@ impl Greffier {
             Command::CheckAction { meeting, action, done } => {
                 let r = self.meeting(meeting).ok_or(Rejection::UnknownMeeting(meeting))?;
                 if action >= summary::checkbox_count(&r.summary) {
-                    return impossible("action inconnue");
+                    return impossible(Reason::UnknownAction);
                 }
                 // The summary file is the agent's: only the checkbox is changed there, and it is authoritative.
                 let name = r.folder_name.clone();
-                let file = self.folder.tick_in_summary(&name, action, done).map_err(Rejection::Impossible)?;
+                let file = self.folder.tick_in_summary(&name, action, done)?;
                 let r = self.meeting_mut(meeting)?;
                 match file {
                     Some(md) => r.set_summary(md),
@@ -598,11 +582,11 @@ impl Greffier {
             Command::ChangeTitle { meeting, title } => {
                 let title = title.trim();
                 if title.is_empty() {
-                    return impossible("le titre est vide");
+                    return impossible(Reason::EmptyTitle);
                 }
                 let r = self.meeting_mut(meeting)?;
                 if matches!(r.status, Status::Running { .. }) {
-                    return impossible("le titre pourra changer à la fin de l'étape en cours");
+                    return impossible(Reason::TitleWhileRunning);
                 }
                 r.title = title.to_string();
                 self.rename_from_title(meeting, &mut ev);
@@ -633,7 +617,7 @@ impl Greffier {
             }
             Command::Import(import) => {
                 let id = self.next_id;
-                let r = self.folder.import(&import, id, self.adapters.mp4_muxing.as_ref()).map_err(Rejection::Impossible)?;
+                let r = self.folder.import(&import, id, self.adapters.mp4_muxing.as_ref()).map_err(Reason::Import)?;
                 // Files copied by Greffier are not changes made outside the app.
                 self.note_end(&r.folder_name.clone(), &Role::ALL);
                 self.next_id += 1;
@@ -672,11 +656,11 @@ impl Greffier {
 
     fn start_recording(&mut self) -> Result<(), Rejection> {
         if self.recording.is_some() {
-            return impossible("un enregistrement est déjà en cours");
+            return impossible(Reason::AlreadyRecording);
         }
         let sources = self.settings.sources;
         if sources.none_enabled() {
-            return impossible("Aucune source à enregistrer : active l'écran, le son du Mac ou le micro dans les réglages.");
+            return impossible(Reason::NoSource);
         }
         let permissions = self.adapters.capture.permissions();
         for a in sources.permissions() {
@@ -684,18 +668,18 @@ impl Greffier {
                 PermissionState::Granted => {}
                 PermissionState::ToRequest => {
                     self.adapters.capture.request_permission(a);
-                    return impossible(format!("Greffier demande l'autorisation pour « {} » : accepte la demande de macOS, puis relance l'enregistrement.", a.name().to_lowercase()));
+                    return impossible(Reason::PermissionRequested(a));
                 }
                 PermissionState::Denied => {
-                    return impossible(format!("Greffier n'a pas l'autorisation pour « {} » : Réglages Système › Confidentialité et sécurité › {}, active Greffier.", a.name(), a.section()));
+                    return impossible(Reason::PermissionDenied(a));
                 }
             }
         }
         let start = self.adapters.clock.now();
         let name = self.folder.available_name(start, "Réunion");
-        self.folder.create(&name).map_err(|e| Rejection::Impossible(format!("dossier de la réunion : {e}")))?;
+        self.folder.create(&name).map_err(|detail| Reason::Failed { what: Operation::CreateMeetingFolder, detail })?;
         let request = CaptureRequest { file: self.folder.file(&name, Role::Recording), sources };
-        self.adapters.capture.start(request).map_err(Rejection::Impossible)?;
+        self.adapters.capture.start(request).map_err(|detail| Reason::Failed { what: Operation::StartCapture, detail })?;
         self.recording = Some(Recording { start, duration: 0.0, levels: Levels::default(), markers: vec![], speaker_count: None, folder_name: name, sources });
         self.write_recording_sheet();
         Ok(())
@@ -712,7 +696,7 @@ impl Greffier {
     }
 
     fn stop_recording(&mut self, ev: &mut Vec<Event>) -> Result<(), Rejection> {
-        let Some(e) = self.recording.take() else { return impossible("aucun enregistrement en cours") };
+        let Some(e) = self.recording.take() else { return impossible(Reason::NoRecording) };
         let duration = match self.adapters.capture.stop() {
             Ok(duration) => duration,
             Err(message) => {
@@ -1070,7 +1054,7 @@ fn recorded_meeting(id: MeetingId, e: &Recording, duration: f64) -> Meeting {
 }
 
 fn speaker_mut(r: &mut Meeting, i: usize) -> Result<&mut Speaker, Rejection> {
-    r.speakers.get_mut(i).ok_or(Rejection::Impossible("locuteur inconnu".into()))
+    r.speakers.get_mut(i).ok_or(Rejection::Impossible(Reason::UnknownSpeaker))
 }
 
 /// The transcription cannot be corrected while a stage is about to redo it: the transcription
@@ -1078,7 +1062,7 @@ fn speaker_mut(r: &mut Meeting, i: usize) -> Result<&mut Speaker, Rejection> {
 fn transcription_editable(r: &Meeting) -> Result<(), Rejection> {
     match r.status {
         Status::Running { stage, .. } | Status::Pending(stage) if stage <= Stage::Review => {
-            impossible("la transcription est en cours de traitement : attends la fin de la relecture")
+            impossible(Reason::TranscriptionBeingProcessed)
         }
         _ => Ok(()),
     }
@@ -1088,9 +1072,9 @@ fn transcription_editable(r: &Meeting) -> Result<(), Rejection> {
 fn correct_utterance(r: &mut Meeting, utterance: usize, text: String) -> Result<(), Rejection> {
     let text = text.trim();
     if text.is_empty() {
-        return impossible("une réplique ne peut pas être vide");
+        return impossible(Reason::EmptyUtterance);
     }
-    let Some(x) = r.utterances.get(utterance) else { return impossible("réplique inconnue") };
+    let Some(x) = r.utterances.get(utterance) else { return impossible(Reason::UnknownUtterance) };
     let Some((start, end, after)) = word_difference(&x.text, text) else { return Ok(()) };
     // The utterance's passages to check are resolved in their tab.
     for p in x.passages.iter().filter_map(|&i| r.passages.get(i)) {
@@ -1099,7 +1083,7 @@ fn correct_utterance(r: &mut Meeting, utterance: usize, text: String) -> Result<
             && start < a + shown.len()
             && a < end
         {
-            return impossible("ce passage est à vérifier : il se tranche dans l'onglet À vérifier");
+            return impossible(Reason::InPassageToCheck);
         }
     }
     let before = x.text[start..end].to_string();
@@ -1141,20 +1125,20 @@ fn word_difference(before: &str, after: &str) -> Option<(usize, usize, String)> 
 /// Resolves a passage to check: the utterance's text goes from what the passage shows in it
 /// (the excerpt, the hypothesis or the correction) to what the resolution puts there.
 fn resolve(r: &mut Meeting, passage: usize, resolution: Resolution) -> Result<(), Rejection> {
-    let Some(p) = r.passages.get(passage) else { return impossible("passage inconnu") };
+    let Some(p) = r.passages.get(passage) else { return impossible(Reason::UnknownPassage) };
     let status = match resolution {
-        Resolution::AcceptHypothesis if p.hypothesis.is_none() => return impossible("ce passage n'a pas d'hypothèse"),
+        Resolution::AcceptHypothesis if p.hypothesis.is_none() => return impossible(Reason::NoHypothesis),
         Resolution::AcceptHypothesis => PassageStatus::HypothesisAccepted,
         Resolution::KeepOriginal => PassageStatus::OriginalKept,
-        Resolution::Correct(text) if text.trim().is_empty() => return impossible("la correction est vide"),
+        Resolution::Correct(text) if text.trim().is_empty() => return impossible(Reason::EmptyCorrection),
         Resolution::Correct(text) => PassageStatus::CorrectedManually(text.trim().to_string()),
         Resolution::Reopen => PassageStatus::Pending,
     };
     let (current, new) = (p.text(&p.status).to_string(), p.text(&status).to_string());
     let utterance = p.utterance;
-    let Some(x) = r.utterances.get_mut(utterance) else { return impossible("réplique inconnue") };
+    let Some(x) = r.utterances.get_mut(utterance) else { return impossible(Reason::UnknownUtterance) };
     if current != new && !replace(&mut x.text, &current, &new) {
-        return impossible(format!("« {current} » n'est plus dans la réplique : elle a été corrigée à la main"));
+        return impossible(Reason::CorrectedByHand(current));
     }
     r.passages[passage].status = status;
     Ok(())

@@ -1,32 +1,24 @@
 //! What the UI knows of the remembered settings: the meetings folder (which
 //! `GREFFIER_FOLDER=/path` replaces for a single launch, without touching the settings: trials
-//! on a copy, sample meetings), the real adapters and the Mac's clock. The settings file and the
-//! lexicon are read and written by the core ([`greffier_core::settings`],
-//! [`greffier_core::Greffier::lexicon`]).
+//! on a copy, sample meetings; `GREFFIER_APP_FOLDER` likewise replaces the app folder), the real
+//! adapters and the Mac's clock. Both folders, the settings file and the lexicon are found, read
+//! and written by the core ([`greffier_core::settings`], [`greffier_core::Greffier::lexicon`]).
 
 use std::path::{Path, PathBuf};
 
 use greffier_core::settings::{self, PersistedSettings};
 
-pub use greffier_core::settings::{app_folder, suggested_folder};
+pub use greffier_core::settings::{app_folder, meetings_folder, suggested_folder};
 
 /// The settings remembered in the app folder.
 pub fn remembered() -> PersistedSettings {
     PersistedSettings::read(&app_folder())
 }
 
-/// The chosen meetings folder, if one was chosen.
-pub fn meetings_folder() -> Option<PathBuf> {
-    match std::env::var_os("GREFFIER_FOLDER") {
-        Some(d) => Some(PathBuf::from(d)),
-        None => remembered().meetings_folder,
-    }
-}
-
 /// Remembers the meetings folder (and creates it if it does not exist); with `GREFFIER_FOLDER`,
 /// only creates it.
 pub fn choose_meetings_folder(folder: &Path) -> Result<(), String> {
-    if std::env::var_os("GREFFIER_FOLDER").is_some() {
+    if settings::replaced_meetings_folder().is_some() {
         return settings::create_meetings_folder(folder);
     }
     settings::choose_meetings_folder(&app_folder(), folder)

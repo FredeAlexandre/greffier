@@ -1,6 +1,6 @@
 //! Greffier's development tasks, in Rust like the rest of the repository:
 //!
-//!     cargo xtask install-app [--binary PATH] [--no-launch]
+//!     cargo xtask install-app [--binary PATH] [--no-launch] [--no-link]
 //!     cargo xtask vendor-whisper
 //!     cargo xtask publish-pyannote <pyannote-community-1 folder>
 //!     cargo xtask smoke [--with-claude] [--only capture|engines|claude]
@@ -21,7 +21,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const USAGE: &str = "usage:
-    cargo xtask install-app [--binary PATH] [--no-launch]   build, sign and install Greffier.app
+    cargo xtask install-app [--binary PATH] [--no-launch] [--no-link]
+                                                            build, sign and install Greffier.app, link ~/.local/bin/greffier to it
     cargo xtask vendor-whisper                              copy the pinned whisper.cpp sources into crates/engines/whisper.cpp/
     cargo xtask publish-pyannote <folder>                   publish the pyannote-community-1 release
     cargo xtask smoke [--with-claude] [--only SUITE]        run the ignored tests against the real Mac (capture, engines; claude costs tokens)";

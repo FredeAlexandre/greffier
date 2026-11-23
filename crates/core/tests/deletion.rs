@@ -48,7 +48,7 @@ fn a_refusing_trash_keeps_the_meeting() {
     let rejection = bench.greffier.execute(Command::Delete(id)).unwrap_err();
 
     let Rejection::Impossible(message) = rejection else { panic!("{rejection:?}") };
-    assert!(message.contains("Le volume est en lecture seule."), "{message}");
+    assert!(message.to_string().contains("Le volume est en lecture seule."), "{message}");
     assert!(bench.greffier.meeting(id).is_some());
     assert!(bench.folder.join(RELEASE).join(format!("{RELEASE} - bilan.md")).is_file());
     assert_eq!(bench.greffier.search("prévient").len(), 1);

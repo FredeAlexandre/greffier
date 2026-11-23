@@ -1,5 +1,5 @@
-//! `cargo xtask install-app`: builds Greffier.app, signs it as "Greffier Dev" and installs it in
-//! /Applications.
+//! `cargo xtask install-app`: builds Greffier.app, signs it as "Greffier Dev", installs it in
+//! /Applications and links the `greffier` command to it (`~/.local/bin/greffier`).
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -22,12 +22,14 @@ const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Fram
 pub fn main(args: &[String]) -> Result<()> {
     let mut binary = None;
     let mut no_launch = false;
+    let mut no_link = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--binary" => binary = Some(PathBuf::from(args.next().ok_or(Failure("--binary needs a path.".into()))?)),
             "--no-launch" => no_launch = true,
-            other => return Err(Failure(format!("unknown option \"{other}\" (--binary PATH, --no-launch)."))),
+            "--no-link" => no_link = true,
+            other => return Err(Failure(format!("unknown option \"{other}\" (--binary PATH, --no-launch, --no-link)."))),
         }
     }
 
@@ -53,6 +55,9 @@ pub fn main(args: &[String]) -> Result<()> {
     write_entitlements(&entitlements)?;
     sign(&app, &entitlements, &identity)?;
     install(&app)?;
+    if !no_link {
+        link()?;
+    }
     if !no_launch {
         launch()?;
     }
@@ -324,6 +329,67 @@ fn install(app: &Path) -> Result<()> {
     Ok(())
 }
 
+// --- The `greffier` command ---------------------------------------------------------------------
+
+/// What became of the link to the installed executable.
+#[derive(Debug, PartialEq)]
+enum Linked {
+    Created,
+    Unchanged,
+    /// It pointed there.
+    Replaced(PathBuf),
+    /// Something that is not a symbolic link is there: left as it is.
+    FileInTheWay,
+}
+
+/// Makes `link` a symbolic link to `target`, creating its folder; replaces a symbolic link, never
+/// anything else.
+fn link_command(link: &Path, target: &Path) -> Result<Linked> {
+    if let Some(folder) = link.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    let linked = match std::fs::symlink_metadata(link) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Linked::Created,
+        Err(e) => return Err(e.into()),
+        Ok(m) if !m.file_type().is_symlink() => return Ok(Linked::FileInTheWay),
+        Ok(_) => {
+            let old = std::fs::read_link(link)?;
+            if old == target {
+                return Ok(Linked::Unchanged);
+            }
+            std::fs::remove_file(link)?;
+            Linked::Replaced(old)
+        }
+    };
+    std::os::unix::fs::symlink(target, link)?;
+    Ok(linked)
+}
+
+/// Whether `folder` is one of `path`'s (a `PATH` value).
+fn in_path(folder: &Path, path: &std::ffi::OsStr) -> bool {
+    std::env::split_paths(path).any(|p| !p.as_os_str().is_empty() && p.components().eq(folder.components()))
+}
+
+/// `~/.local/bin/greffier` → the installed app's executable: the command line in the PATH. It
+/// launches the installed app when it must reach it (`open -b`), which keeps the macOS
+/// permissions on the bundle.
+fn link() -> Result<()> {
+    let folder = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/bin");
+    let link = folder.join(EXE);
+    let target = live().join("Contents/MacOS").join(EXE);
+    step(&format!("Linking {} to the installed app", link.display()));
+    match link_command(&link, &target)? {
+        Linked::Created => println!("    {} → {}", link.display(), target.display()),
+        Linked::Unchanged => println!("    Already there."),
+        Linked::Replaced(old) => println!("    {} → {} (was → {})", link.display(), target.display(), old.display()),
+        Linked::FileInTheWay => println!("    Warning: {} is a file, not a link: left as it is. Remove it and run again for `greffier` to be the installed app's.", link.display()),
+    }
+    if !in_path(&folder, &std::env::var_os("PATH").unwrap_or_default()) {
+        println!("    {} is not in your PATH: add `export PATH=\"$HOME/.local/bin:$PATH\"` to ~/.zshrc, then open a new terminal.", folder.display());
+    }
+    Ok(())
+}
+
 /// Opens the app like the Finder does and waits for Rune to report its first window ready.
 fn launch() -> Result<()> {
     step("Launching the installed app");
@@ -501,6 +567,48 @@ Policy: Code Signing
     fn missing_identity() {
         let listing = FIND_IDENTITY.replace("\"Greffier Dev\" (CSSMERR_TP_NOT_TRUSTED)", "\"Other\"");
         assert_eq!(signing_identity(&listing).unwrap(), None);
+    }
+
+    // --- The `greffier` command ---
+
+    #[test]
+    fn links_the_command_to_the_installed_executable_creating_its_folder() {
+        let tmp = TempDir::new("xtask-test-").unwrap();
+        let link = tmp.path().join(".local/bin/greffier");
+        let target = tmp.path().join("Greffier.app/Contents/MacOS/greffier");
+        assert_eq!(link_command(&link, &target).unwrap(), Linked::Created);
+        assert_eq!(std::fs::read_link(&link).unwrap(), target);
+        assert_eq!(link_command(&link, &target).unwrap(), Linked::Unchanged, "run again, nothing to do");
+    }
+
+    #[test]
+    fn replaces_a_link_to_something_else() {
+        let tmp = TempDir::new("xtask-test-").unwrap();
+        let link = tmp.path().join("greffier");
+        let old = tmp.path().join("target/release/greffier");
+        std::os::unix::fs::symlink(&old, &link).unwrap();
+        let target = tmp.path().join("Greffier.app/Contents/MacOS/greffier");
+        assert_eq!(link_command(&link, &target).unwrap(), Linked::Replaced(old));
+        assert_eq!(std::fs::read_link(&link).unwrap(), target);
+    }
+
+    #[test]
+    fn never_overwrites_a_file_in_the_way() {
+        let tmp = TempDir::new("xtask-test-").unwrap();
+        let link = tmp.path().join("greffier");
+        executable(&link, b"#!/bin/sh\necho mine\n");
+        let target = tmp.path().join("Greffier.app/Contents/MacOS/greffier");
+        assert_eq!(link_command(&link, &target).unwrap(), Linked::FileInTheWay);
+        assert_eq!(std::fs::read(&link).unwrap(), b"#!/bin/sh\necho mine\n");
+    }
+
+    #[test]
+    fn finds_a_folder_in_the_path() {
+        let bin = Path::new("/Users/odile/.local/bin");
+        assert!(in_path(bin, "/usr/bin:/Users/odile/.local/bin:/bin".as_ref()));
+        assert!(in_path(bin, "/Users/odile/.local/bin/".as_ref()), "a trailing slash");
+        assert!(!in_path(bin, "/usr/bin:/bin".as_ref()));
+        assert!(!in_path(bin, "".as_ref()));
     }
 
     #[test]

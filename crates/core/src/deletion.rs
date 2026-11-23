@@ -1,7 +1,7 @@
 //! Deleting a meeting: its whole folder goes to the Mac's trash (adapter
 //! [`Trash`](crate::adapters::Trash)), so the deletion can be undone.
 
-use crate::{Greffier, MeetingId, Rejection};
+use crate::{Greffier, MeetingId, Reason, Rejection};
 
 impl Greffier {
     /// Stops the meeting's processing (the adapter writes into its folder), moves its folder to
@@ -19,7 +19,7 @@ impl Greffier {
         }
         let folder = self.folder.folder(&name);
         if folder.exists() {
-            self.adapters.trash.trash(&folder).map_err(|e| Rejection::Impossible(format!("« {name} » n'a pas pu aller à la corbeille : {e}")))?;
+            self.adapters.trash.trash(&folder).map_err(|detail| Reason::Trash { folder_name: name.clone(), detail })?;
         }
         self.meetings.retain(|r| r.id != id);
         self.fingerprints.remove(&name);

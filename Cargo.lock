@@ -1137,6 +1137,7 @@ version = "0.0.1"
 dependencies = [
  "chrono",
  "greffier-capture",
+ "greffier-cli",
  "greffier-core",
  "greffier-engines",
  "greffier-menubar",
@@ -1164,6 +1165,15 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-screen-capture-kit",
+ "serde_json",
+]
+
+[[package]]
+name = "greffier-cli"
+version = "0.0.1"
+dependencies = [
+ "greffier-core",
+ "serde",
  "serde_json",
 ]
 

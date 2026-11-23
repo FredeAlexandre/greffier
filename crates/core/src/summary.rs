@@ -160,6 +160,12 @@ pub fn checkbox_position(md: &str, index: usize) -> Option<usize> {
     None
 }
 
+/// All the `- [ ]` checkboxes of the Markdown, in the order [`tick`] counts them: (ticked, text
+/// without bold).
+pub fn checkboxes(md: &str) -> Vec<(bool, String)> {
+    md.lines().filter(|l| is_checkbox(l)).map(|l| l.trim_start()).map(|l| (l.as_bytes()[3] != b' ', clean(&l[5..]))).collect()
+}
+
 /// The number of `- [ ]` checkboxes in the Markdown.
 pub fn checkbox_count(md: &str) -> usize {
     md.lines().filter(|l| is_checkbox(l)).count()
