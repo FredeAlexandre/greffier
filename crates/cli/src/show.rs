@@ -104,7 +104,9 @@ fn default(library: &Library, e: &Entry, json: bool) -> Result<String, Failure> 
     if let greffier_core::Status::Failed { message, .. } = &m.status {
         s += &format!("Erreur : {message}\n");
     }
-    let names: Vec<String> = m.active_speakers().map(|i| m.speakers[i].display_name()).collect();
+    let shown: Vec<(String, &str)> = m.active_speakers().map(|i| (m.speakers[i].display_name(), m.speakers[i].label.as_str())).collect();
+    // A name two voices share comes with their labels.
+    let names: Vec<String> = shown.iter().map(|(n, l)| if shown.iter().filter(|(o, _)| o == n).count() > 1 { format!("{n} ({l})") } else { n.clone() }).collect();
     if !names.is_empty() {
         s += &format!("Locuteurs : {}\n", names.join(", "));
     }

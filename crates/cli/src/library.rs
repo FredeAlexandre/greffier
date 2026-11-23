@@ -50,11 +50,19 @@ impl<'a> Library<'a> {
         self.names.iter().enumerate().filter_map(|(i, n)| self.entry(i, n)).collect()
     }
 
-    /// The meeting `query` names (see [`Identifiers::resolve`]).
+    /// The meeting `query` names (see [`Identifiers::resolve`]). The candidates of an ambiguous
+    /// query are listed with their sheet's titles, as `list` shows them.
     pub fn find(&self, query: &str) -> Result<Entry, Failure> {
-        let name = self.ids.resolve(query).map_err(|e| Failure::Failed(e.to_string()))?;
-        let index = self.names.iter().position(|n| n == name).unwrap_or(0);
-        self.entry(index, name).ok_or_else(|| Failure::Failed(format!("réunion illisible : {name}")))
+        let entry = |name: &str| self.entry(self.names.iter().position(|n| n == name).unwrap_or(0), name);
+        let name = self.ids.resolve(query).map_err(|mut e| {
+            for (id, title) in &mut e.candidates {
+                if let Some(c) = self.ids.iter().find(|(i, _)| i == id).and_then(|(_, n)| entry(n)) {
+                    *title = c.meeting.title;
+                }
+            }
+            Failure::Failed(e.to_string())
+        })?;
+        entry(name).ok_or_else(|| Failure::Failed(format!("réunion illisible : {name}")))
     }
 }
 

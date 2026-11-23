@@ -245,6 +245,34 @@ fn an_unknown_or_ambiguous_meeting_fails_with_the_candidates() {
     assert!(o.out.is_empty());
 }
 
+/// Two meetings on 2026-11-23 whose titles have a colon (a dash in the folder name), one of
+/// them with two speakers proposed under the same name.
+fn colons() -> Folder {
+    use greffier_core::{Speaker, Utterance};
+    let f = temp_folder();
+    let start = DateTime::new(2026, 11, 23, 9, 32);
+    let mut m = Meeting::new(0, folder_name(start, "Revue : permissions"), start, 60.0);
+    m.title = "Revue : permissions".into();
+    m.completed_stage = Some(Stage::Transcription);
+    m.speakers = (0..3).map(|i| Speaker::new(Speaker::numbered_label(i), 0.0)).collect();
+    m.speakers[0].proposal = Some("Jérôme".into());
+    m.speakers[1].proposal = Some("Jérôme".into());
+    m.speakers[2].name = Some("Alexandre".into());
+    m.utterances = (0..3).map(|i| Utterance { speaker: i, start: i as f64 * 10.0, end: i as f64 * 10.0 + 5.0, text: "Oui.".into(), passages: vec![] }).collect();
+    MeetingsFolder::new(&f.0).write(&m).expect("written");
+    write(&f.0, DateTime::new(2026, 11, 23, 14, 0), "Démo : bookmarks", 600.0, Status::ToProcess, None);
+    f
+}
+
+#[test]
+fn meetings_are_shown_with_their_titles_and_speakers_told_apart() {
+    let f = colons();
+    let o = greffier(&f, &["show", "2026-11-23"]);
+    assert_eq!(o.err, "greffier : plusieurs réunions pour « 2026-11-23 » :\n2026-11-23-1400 · Démo : bookmarks\n2026-11-23-0932 · Revue : permissions\n", "the sheet's titles, as in list");
+    let o = greffier(&f, &["show", "2026-11-23-0932"]);
+    assert!(o.out.contains("\nLocuteurs : Jérôme ? (SPEAKER_00), Jérôme ? (SPEAKER_01), Alexandre\n"), "{}", o.out);
+}
+
 #[test]
 fn show_bilan_and_fiche_give_the_files() {
     let f = meetings();
