@@ -319,7 +319,7 @@ fn cut(s: &str, mut start: usize, mut end: usize, a: usize, b: usize) -> (String
 }
 
 /// The query's words and "quoted phrases", folded.
-fn terms(query: &str) -> Vec<String> {
+pub fn terms(query: &str) -> Vec<String> {
     let mut terms = Vec::new();
     for (i, part) in query.split('"').enumerate() {
         if i % 2 == 1 {

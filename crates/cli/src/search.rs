@@ -101,6 +101,12 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         return Ok(crate::json(&SearchJson { resultats: results.iter().map(Line::json).collect(), total: report.total, reunions: report.meetings }));
     }
     if results.is_empty() {
+        // Each word may be there, on different lines.
+        if greffier_core::search::terms(&text).len() > 1 {
+            return Ok(format!(
+                "Aucun résultat pour « {text} » : tous les mots doivent être sur la même ligne (une ligne du bilan ou une réplique) ; cherchez moins de mots, ou un seul.\n"
+            ));
+        }
         return Ok(format!("Aucun résultat pour « {text} ».\n"));
     }
     let mut s = String::new();

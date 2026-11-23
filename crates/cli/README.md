@@ -51,7 +51,9 @@ Affinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.
 A summary line shows its moment (its own timestamp, or its topic's), without repeating it in the
 text; a line of the brief or the actions has none. With `--context`, the utterances found and
 those around them (indented, cut to 200 characters) follow each other in order, each once.
-Nothing found: `Aucun résultat pour « … ».`, exit code 0. The command opens the core with adapters that refuse everything and reads the
+Nothing found: `Aucun résultat pour « … ».`, exit code 0; for several words, the line adds that
+they must all be on the same line (a summary line or an utterance) and to search fewer words, or
+one. The command opens the core with adapters that refuse everything and reads the
 search cache without writing it: entries missing or stale there are built in memory, and the
 meetings folder and the app folder are left byte for byte as they were.
 

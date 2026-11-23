@@ -129,7 +129,12 @@ fn words_need_not_follow_each_other_but_phrases_must() {
 fn nothing_found_is_not_a_failure() {
     let f = meetings();
     let o = search(&f, &["licorne", "rose"]);
-    assert_eq!((o.code, o.out.as_str(), o.err.as_str()), (0, "Aucun résultat pour « licorne rose ».\n", ""));
+    let hint = "Aucun résultat pour « licorne rose » : tous les mots doivent être sur la même ligne (une ligne du bilan ou une réplique) ; cherchez moins de mots, ou un seul.\n";
+    assert_eq!((o.code, o.out.as_str(), o.err.as_str()), (0, hint, ""));
+    // Each word is found, but never on the same line.
+    assert!(search(&f, &["recette", "support"]).out.starts_with("Aucun résultat pour « recette support » : tous les mots"));
+    assert_eq!(search(&f, &["licorne"]).out, "Aucun résultat pour « licorne ».\n", "one word: nothing to add");
+    assert_eq!(search(&f, &["\"licorne rose\""]).out, "Aucun résultat pour « \"licorne rose\" ».\n", "one phrase neither");
     let v = search(&f, &["licorne", "--json"]).json();
     assert_eq!(v, json!({ "resultats": [], "total": 0, "reunions": 0 }));
 }
