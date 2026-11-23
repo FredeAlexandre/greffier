@@ -1,11 +1,12 @@
 //! ⌘K search: a word from a title, a summary or a transcription, across all meetings, and the
-//! moment at which to open the meeting (the utterance, or the topic of a summary line).
+//! moment at which to open the meeting (the utterance, or the topic of a summary line). Then the
+//! agents' search (`greffier search`) on the same index, and its read-only use of the cache.
 
 mod bench;
 
 use bench::Bench;
-use greffier_core::{Command, MeetingId, Role};
-use greffier_core::search::{Found, Location, SearchQuery, SearchReport, SearchResult};
+use greffier_core::{Command, DateTime, MeetingId, Role};
+use greffier_core::search::{Found, Location, NearbyUtterance, SearchQuery, SearchReport, SearchResult};
 
 const RELEASE: &str = "2026-11-20 10h00 - Revue de release";
 
@@ -329,4 +330,129 @@ fn recent_meetings_come_first_and_in_each_the_summary_before_the_transcription()
     assert_eq!(release_spots[0], (Location::Title, None, None));
     assert!(release_spots.contains(&(Location::Summary, Some(0.0), None)));
     assert_eq!(release_spots.last(), Some(&(Location::Transcription, Some(5.0), Some(2))));
+}
+
+#[test]
+fn dates_keep_the_meetings_started_between_two_days_included() {
+    let (bench, _) = with_workshop();
+    let release = bench.named_meeting(RELEASE).id;
+    // The hours do not count: the release review started at 10h00 on the 20th.
+    let between = SearchQuery { since: Some(DateTime::new(2026, 11, 19, 23, 59)), until: Some(DateTime::new(2026, 11, 20, 0, 0)), ..query("le") };
+
+    let report = bench.greffier.find(&between);
+
+    assert!(!report.results.is_empty());
+    assert!(report.results.iter().all(|r| r.meeting == release));
+    assert_eq!(report.meetings, 1);
+}
+
+#[test]
+fn a_speaker_keeps_only_their_utterances() {
+    let (bench, _) = with_workshop();
+
+    // SPEAKER_02 was merged into Alexandre; the summary line naming Alexandre is not his.
+    let alexandre = bench.greffier.find(&SearchQuery { speaker: Some("alexandre".into()), ..query("support") });
+    let khalid = bench.greffier.find(&SearchQuery { speaker: Some("KHALID".into()), ..query("recette") });
+
+    assert_eq!(spots(&alexandre), [(Location::Transcription, Some(5.0), Some(2))]);
+    assert_eq!(alexandre.results[0].speaker.as_deref(), Some("Alexandre"));
+    assert_eq!(spots(&khalid), [(Location::Transcription, Some(2.0), Some(1))]);
+    assert_eq!(khalid.results[0].speaker.as_deref(), Some("Khalid ?"));
+}
+
+#[test]
+fn locations_keep_only_the_lines_found_there() {
+    let (bench, _) = with_workshop();
+
+    let summary = bench.greffier.find(&SearchQuery { locations: vec![Location::Summary], ..query("vendredi") });
+    let title_and_transcription = bench.greffier.find(&SearchQuery { locations: vec![Location::Title, Location::Transcription], ..query("release") });
+
+    assert_eq!(spots(&summary), [(Location::Summary, None, None), (Location::Summary, Some(2.0), None), (Location::Summary, None, None)]);
+    assert_eq!(spots(&title_and_transcription), [(Location::Title, None, None), (Location::Transcription, Some(0.0), Some(0))]);
+}
+
+#[test]
+fn limits_per_meeting_keep_the_first_lines_and_the_report_counts_them_all() {
+    let (bench, id) = with_workshop();
+
+    let report = bench.greffier.find(&SearchQuery { summary_lines: 2, utterances: 1, ..query("bookmarks") });
+
+    assert_eq!(spots(&report), [(Location::Summary, None, None), (Location::Summary, Some(4.0), None), (Location::Transcription, Some(4.0), Some(1))]);
+    assert!(report.results.iter().all(|r| r.meeting == id));
+    assert_eq!((report.total, report.meetings), (6, 1));
+}
+
+#[test]
+fn the_total_limit_cuts_the_results_and_the_report_counts_them_all() {
+    let (bench, _) = with_workshop();
+    let unlimited = bench.greffier.find(&SearchQuery { summary_lines: usize::MAX, utterances: usize::MAX, results: usize::MAX, ..query("le") });
+
+    let report = bench.greffier.find(&SearchQuery { summary_lines: usize::MAX, utterances: usize::MAX, results: 3, ..query("le") });
+
+    assert_eq!(report.results, unlimited.results[..3]);
+    assert_eq!((report.total, report.meetings), (unlimited.results.len(), 3));
+    assert_eq!((unlimited.total, unlimited.meetings), (unlimited.results.len(), 3));
+}
+
+#[test]
+fn every_word_found_is_highlighted_once() {
+    let (bench, _) = with_workshop();
+
+    let twice = bench.greffier.find(&SearchQuery { locations: vec![Location::Transcription], ..query("nuit bookmarks") });
+    // "marks" is inside "bookmarks": one highlight.
+    let overlapping = bench.greffier.find(&query("tombe bookmarks marks"));
+
+    assert_eq!(twice.results[0].excerpt, "On synchronise les bookmarks chaque nuit, et les bookmarks partagés aussi.");
+    assert_eq!(highlighted(&twice.results[0]), ["bookmarks", "nuit", "bookmarks"]);
+    assert_eq!(highlighted(&overlapping.results[0]), ["bookmarks", "tombe"]);
+}
+
+#[test]
+fn context_gives_the_utterances_around_the_one_found() {
+    let (bench, _) = with_workshop();
+    let around = |text: &str, context: usize| {
+        let report = bench.greffier.find(&SearchQuery { context, ..query(text) });
+        report.results.into_iter().find(|r| r.location == Location::Transcription).expect("an utterance")
+    };
+    let indexes = |nearby: &[NearbyUtterance]| nearby.iter().map(|u| u.index).collect::<Vec<_>>();
+
+    let r = around("tombe", 1);
+    assert_eq!((indexes(&r.before), indexes(&r.after)), (vec![1], vec![3]));
+    assert_eq!(
+        r.before[0],
+        NearbyUtterance { index: 1, start: 4.0, speaker: Some("SPEAKER_01".into()), text: "Les bookmarks du navigateur sont synchronisés avec le serveur.".into() }
+    );
+    // Cut at the start and at the end of the transcription.
+    let r = around("regarde", 2);
+    assert_eq!((indexes(&r.before), indexes(&r.after)), (vec![], vec![1, 2]));
+    let r = around("nuit", 2);
+    assert_eq!((indexes(&r.before), indexes(&r.after)), (vec![2, 3], vec![]));
+    // Without context, nothing around.
+    let r = around("tombe", 0);
+    assert!(r.before.is_empty() && r.after.is_empty());
+}
+
+#[test]
+fn a_wide_excerpt_is_cut_around_the_first_word_found_and_a_short_line_is_whole() {
+    let mut bench = Bench::on_fixtures();
+    let long = "Alexandre rappelle que la recette de vendredi conditionne tout le calendrier de la publication, et que le support doit être prévenu avant lundi, puis il présente le kangourou mascotte de la nouvelle version, que toute l'équipe trouve réussi même si le support préfère attendre les retours des clients avant de valider la mascotte, et Khalid propose de la montrer aux clients pendant la démo de jeudi pour avoir leur avis.";
+    let short = "Khalid trouve que la recette de vendredi et la publication de lundi laissent trop peu de temps pour corriger les retours du support et du kangourou.";
+    add_meeting(&mut bench, WORKSHOP, &[("SPEAKER_00", 0.0, long), ("SPEAKER_01", 30.0, short)], None);
+
+    let report = bench.greffier.find(&query("kangourou mascotte"));
+    let quick = bench.greffier.search("kangourou");
+
+    // About 200 characters, a third of them before the first word; the second "mascotte" is
+    // beyond the excerpt.
+    let r = &report.results[0];
+    assert_eq!(
+        r.excerpt,
+        "…le support doit être prévenu avant lundi, puis il présente le kangourou mascotte de la nouvelle version, que toute l'équipe trouve réussi même si le support préfère attendre les retours des…"
+    );
+    assert!(r.excerpt.chars().count() > quick[0].excerpt.chars().count());
+    assert_eq!(highlighted(r), ["kangourou", "mascotte"]);
+    let r = &bench.greffier.find(&query("kangourou")).results[1];
+    assert_eq!(r.excerpt, short);
+    assert_eq!(highlighted(r), ["kangourou"]);
+    assert!(quick[1].excerpt.starts_with('…'));
 }
