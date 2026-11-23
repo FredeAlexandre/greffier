@@ -112,7 +112,12 @@ impl Reason {
                 format!("Greffier does not have the \"{}\" permission: System Settings › Privacy & Security › {}, turn on Greffier.", english_name(*p), english_section(*p))
             }
             Reason::AlreadyProcessed => "the meeting is already processed".into(),
-            Reason::CannotProcess(s) => format!("the meeting cannot be processed ({s:?})"),
+            Reason::CannotProcess(s) => match s {
+                Status::Recording => "the meeting is being recorded".into(),
+                Status::Pending(_) | Status::Running { .. } => "the meeting is already in the queue".into(),
+                Status::Done => "the meeting is already processed".into(),
+                _ => "the meeting cannot be processed".into(),
+            },
             Reason::AlreadyInQueue => "the meeting is already in the queue".into(),
             Reason::EarlierStagesNotDone => "the earlier stages are not done".into(),
             Reason::NotProcessing => "the meeting is not being processed".into(),
