@@ -4,7 +4,11 @@
 //! Nothing is written into the meetings folder itself. Unknown keys in the file are kept (a
 //! setting from a newer version survives a round trip through this one).
 //!
-//! It is also the only place that knows where the home folder and the app's folder are.
+//! It is also the only place that knows where the home folder, the app's folder and the
+//! meetings folder are, so that the app and the command line agree on them. Two variables
+//! replace them for a single launch, without touching the settings (trials on a copy, tests):
+//! `GREFFIER_APP_FOLDER` the app folder (and so the settings and caches in it),
+//! `GREFFIER_FOLDER` the meetings folder.
 
 use std::path::{Path, PathBuf};
 
@@ -18,10 +22,42 @@ pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// The app's folder: `~/Library/Application Support/Greffier` (models, private Python,
-/// lexicon, search cache, settings).
+/// Replaces the app folder for a single launch.
+pub const APP_FOLDER_VARIABLE: &str = "GREFFIER_APP_FOLDER";
+
+/// Replaces the meetings folder for a single launch.
+pub const FOLDER_VARIABLE: &str = "GREFFIER_FOLDER";
+
+/// A variable naming a folder; empty counts as unset.
+fn folder_variable(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// The app's folder (models, private Python, lexicon, search cache, settings):
+/// `GREFFIER_APP_FOLDER`, otherwise `~/Library/Application Support/Greffier`.
 pub fn app_folder() -> PathBuf {
-    home().join("Library/Application Support/Greffier")
+    app_folder_for(folder_variable(APP_FOLDER_VARIABLE), &home())
+}
+
+/// The app's folder: `replacement` if given, otherwise `<home>/Library/Application Support/Greffier`.
+pub fn app_folder_for(replacement: Option<PathBuf>, home: &Path) -> PathBuf {
+    replacement.unwrap_or_else(|| home.join("Library/Application Support/Greffier"))
+}
+
+/// The meetings folder `GREFFIER_FOLDER` gives for this launch, if any.
+pub fn replaced_meetings_folder() -> Option<PathBuf> {
+    folder_variable(FOLDER_VARIABLE)
+}
+
+/// The meetings folder: `GREFFIER_FOLDER`, otherwise the one remembered in the app folder;
+/// `None` until one is chosen. Writes nothing.
+pub fn meetings_folder() -> Option<PathBuf> {
+    meetings_folder_for(replaced_meetings_folder(), &app_folder())
+}
+
+/// The meetings folder: `replacement` if given, otherwise the one remembered in `app_folder`.
+pub fn meetings_folder_for(replacement: Option<PathBuf>, app_folder: &Path) -> Option<PathBuf> {
+    replacement.or_else(|| PersistedSettings::read(app_folder).meetings_folder)
 }
 
 /// The meetings folder suggested on first launch.
