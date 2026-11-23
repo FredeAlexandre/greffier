@@ -83,7 +83,7 @@ fn an_ambiguous_name_lists_the_candidates() {
     assert_eq!(candidates, ["2026-11-20-1000", "2026-11-20-0939-3", "2026-11-20-0939-2", "2026-11-20-0939"]);
     assert_eq!(
         e.to_string(),
-        "plusieurs réunions pour « 2026-11-20 » :\n2026-11-20-1000 · Revue de release\n2026-11-20-0939-3 · Rétro\n2026-11-20-0939-2 · Point d'équipe\n2026-11-20-0939 · Point d'équipe"
+        "several meetings match \"2026-11-20\":\n2026-11-20-1000 · Revue de release\n2026-11-20-0939-3 · Rétro\n2026-11-20-0939-2 · Point d'équipe\n2026-11-20-0939 · Point d'équipe"
     );
     assert_eq!(ids.resolve("2026-11").unwrap_err().candidates.len(), 5);
 }
@@ -95,5 +95,5 @@ fn an_unknown_name_is_not_found() {
         let e = ids.resolve(query).unwrap_err();
         assert!(e.candidates.is_empty(), "{query}");
     }
-    assert_eq!(ids.resolve("2026-12-01").unwrap_err().to_string(), "réunion introuvable : « 2026-12-01 »");
+    assert_eq!(ids.resolve("2026-12-01").unwrap_err().to_string(), "meeting not found: \"2026-12-01\"");
 }

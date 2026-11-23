@@ -55,19 +55,19 @@ impl Drop for Listener {
 /// process listens there). The socket is only open to the user (0600).
 pub fn listen(socket: &Path, deliver: impl Fn(Request, Reply) + Send + Sync + 'static) -> Result<Listener, String> {
     if socket.as_os_str().len() > MAX_SOCKET_PATH {
-        return Err(format!("chemin du socket trop long ({} octets, {MAX_SOCKET_PATH} au plus) : {}", socket.as_os_str().len(), socket.display()));
+        return Err(format!("socket path too long ({} bytes, {MAX_SOCKET_PATH} at most): {}", socket.as_os_str().len(), socket.display()));
     }
     if let Some(parent) = socket.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{} : {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
     if std::fs::symlink_metadata(socket).is_ok() {
         if UnixStream::connect(socket).is_ok() {
-            return Err(format!("un autre processus Greffier répond déjà sur {}", socket.display()));
+            return Err(format!("another Greffier process already answers on {}", socket.display()));
         }
-        std::fs::remove_file(socket).map_err(|e| format!("{} : {e}", socket.display()))?;
+        std::fs::remove_file(socket).map_err(|e| format!("{}: {e}", socket.display()))?;
     }
-    let listener = UnixListener::bind(socket).map_err(|e| format!("{} : {e}", socket.display()))?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).map_err(|e| format!("{} : {e}", socket.display()))?;
+    let listener = UnixListener::bind(socket).map_err(|e| format!("{}: {e}", socket.display()))?;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).map_err(|e| format!("{}: {e}", socket.display()))?;
     let stopped = Arc::new(AtomicBool::new(false));
     let deliver = Arc::new(deliver);
     let stop = stopped.clone();
@@ -99,14 +99,14 @@ fn serve(stream: UnixStream, deliver: &(impl Fn(Request, Reply) + ?Sized)) {
             Ok(_) => {}
         }
         if !line.ends_with('\n') && line.len() as u64 >= MAX_LINE {
-            let _ = writer.write_all(encode(&Response::error("requête trop longue")).as_bytes());
+            let _ = writer.write_all(encode(&Response::error("request too long")).as_bytes());
             return;
         }
         if line.trim().is_empty() {
             continue;
         }
         let response = match serde_json::from_str::<Request>(&line) {
-            Err(e) => Response::error(format!("requête illisible : {e}")),
+            Err(e) => Response::error(format!("unreadable request: {e}")),
             Ok(request) => {
                 let (tx, rx) = mpsc::channel();
                 deliver(
@@ -143,7 +143,7 @@ pub enum LockError {
 impl std::fmt::Display for LockError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LockError::Held => f.write_str("Greffier tourne déjà pour ce dossier de l'app"),
+            LockError::Held => f.write_str("Greffier is already running for this app folder"),
             LockError::Failed(m) => f.write_str(m),
         }
     }
@@ -153,9 +153,9 @@ impl std::fmt::Display for LockError {
 /// pid written in it; [`LockError::Held`] if another instance holds it. Released when the
 /// [`InstanceLock`] is dropped, or the process ends.
 pub fn lock_instance(app_folder: &Path) -> Result<InstanceLock, LockError> {
-    std::fs::create_dir_all(app_folder).map_err(|e| LockError::Failed(format!("{} : {e}", app_folder.display())))?;
+    std::fs::create_dir_all(app_folder).map_err(|e| LockError::Failed(format!("{}: {e}", app_folder.display())))?;
     let path = lock_path(app_folder);
-    let failed = |e: std::io::Error| LockError::Failed(format!("{} : {e}", path.display()));
+    let failed = |e: std::io::Error| LockError::Failed(format!("{}: {e}", path.display()));
     let mut file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path).map_err(failed)?;
     match file.try_lock() {
         Ok(()) => {}

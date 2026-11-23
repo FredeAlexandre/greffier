@@ -13,8 +13,9 @@
 //! depends on the core alone (no Rune, no whisper.cpp), so its logic is tested without linking
 //! the UI, and the app only dispatches to it.
 //!
-//! The output is for agents: compact, one line per item, no colour, no padding. Errors go to
-//! stderr, prefixed `greffier : `. Exit codes: 0 success, 1 the command failed (unknown or
+//! The output is for agents, in English with the glossary's terms (meeting content is printed as
+//! is): compact, one line per item, no colour, no padding. Errors go to stderr, prefixed
+//! `greffier: `. Exit codes: 0 success, 1 the command failed (unknown or
 //! ambiguous meeting, missing file, refused by Greffier…), 2 usage error (unknown option,
 //! missing argument), 3 Greffier out of reach (does not answer, or works on another meetings
 //! folder), 4 `--timeout` elapsed while still processing. `--json` gives the same data in JSON;
@@ -99,11 +100,11 @@ pub fn run_with(cx: &Context, args: &[String], out: &mut impl Write, err: &mut i
             return 0;
         }
         Err(Failure::Failed(m)) => (1, m),
-        Err(Failure::Usage(m)) => (2, format!("{m} (voir greffier help)")),
+        Err(Failure::Usage(m)) => (2, format!("{m} (see greffier help)")),
         Err(Failure::Unreachable(m)) => (3, m),
         Err(Failure::StillRunning(m)) => (4, m),
     };
-    let _ = writeln!(err, "greffier : {text}");
+    let _ = writeln!(err, "greffier: {text}");
     code
 }
 
@@ -128,54 +129,54 @@ fn dispatch(cx: &Context, args: &[String], out: &mut dyn Write, err: &mut dyn Wr
         "search" => search::run(cx, rest),
         "help" | "--help" | "-h" => Ok(HELP.into()),
         c if write::COMMANDS.contains(&c) => write::run(cx, c, rest, out, err),
-        other => Err(Failure::Usage(format!("commande inconnue : {other}"))),
+        other => Err(Failure::Usage(format!("unknown command: {other}"))),
     }
 }
 
 pub(crate) const HELP: &str = "\
-greffier : les réunions du dossier de réunions, en ligne de commande. Sans commande, ouvre Greffier.
+greffier: the meetings of the meetings folder, on the command line. Without a command, opens Greffier.
 
-greffier search <requête> [--since J] [--until J] [--date J|M] [--speaker NOM] [--in OÙ] [--context N] [--limit N]
-  Ce qui a été dit : les lignes qui ont tous les mots et \"expressions exactes\" (casse et accents
-  ignorés ; un mot trouve ceux qui le contiennent : bookmark trouve bookmarks, tapez le radical),
-  par réunion, de la plus récente : bilan puis répliques, [h:mm:ss] Nom : extrait.
-  --in bilan,transcription,titre. --context N : N répliques autour. --limit : 30 en tout.
-greffier list [--date J|M] [--since J] [--until J] [--limit N]
-  Les réunions, de la plus récente à la plus ancienne : identifiant · durée · statut · titre.
-greffier show <réunion> [--bilan | --transcription | --fiche | --locuteurs | --actions | --passages]
-  Sans vue : en-tête, en bref, sujets, décisions. --bilan : le bilan complet. --fiche : la fiche.
-  --transcription [--from T] [--to T] [--numeros] : les répliques, [h:mm:ss] Nom : texte.
-  --locuteurs : index · label · nom · temps de parole. --actions : les cases du bilan, numérotées.
-  --passages [--from T] [--to T] : les passages à vérifier, numérotés.
-greffier status [<réunion>]
-  Sans réunion : les réunions pas terminées. Avec : statut, étape faite, erreur.
+greffier search <query> [--since D] [--until D] [--date D|M] [--speaker NAME] [--in WHERE] [--context N] [--limit N]
+  What was said: the lines that have all the words and \"exact phrases\" (case and accents
+  ignored; a word finds the words that contain it: bookmark finds bookmarks, type the stem),
+  by meeting, most recent first: summary then utterances, [h:mm:ss] Name: excerpt.
+  --in summary,transcription,title. --context N: N utterances around. --limit: 30 in all.
+greffier list [--date D|M] [--since D] [--until D] [--limit N]
+  The meetings, most recent first: identifier · duration · status · title.
+greffier show <meeting> [--summary | --transcription | --sheet | --speakers | --actions | --passages]
+  Without a view: header, brief, topics, decisions. --summary: the whole summary. --sheet: the sheet.
+  --transcription [--from T] [--to T] [--numbers]: the utterances, [h:mm:ss] Name: text.
+  --speakers: index · label · name · speaking time. --actions: the summary's checkboxes, numbered.
+  --passages [--from T] [--to T]: the passages to check, numbered.
+greffier status [<meeting>]
+  Without a meeting: the meetings not done. With one: status, completed stage, error.
 greffier help
 
-Ces commandes passent par Greffier, lancé sans fenêtre s'il ne tourne pas :
-greffier import <fichiers…> [--title T] [--speakers N] [--no-process] [--wait [--timeout S]]
-  Importe un média (avec sa transcription, son bilan) et le met dans la file ; affiche l'identifiant.
-greffier process <réunion> [--speakers N] [--wait [--timeout S]]
-greffier redo <réunion> transcription|relecture|bilan [--wait [--timeout S]]
-greffier stop <réunion>
-greffier rename <réunion> <titre…>
-greffier speaker name <réunion> <locuteur> <nom…> | merge <réunion> <locuteur> <dans> | split <réunion> <locuteur>
-greffier correct <réunion> <réplique> <texte…>
-greffier resolve <réunion> <passage> accepter|garder|rouvrir|corriger <texte…>
-greffier check-action <réunion> <n> [--undo]
-greffier delete <réunion> --yes
-  --wait attend que la réunion sorte de la file (terminée ou en échec), --timeout S au plus S secondes.
-  Après --, tout est texte : greffier correct 2026-11-20-0939 3 -- -5 degrés.
+These commands go through Greffier, started without a window if it is not running:
+greffier import <files…> [--title T] [--speakers N] [--no-process] [--wait [--timeout S]]
+  Imports a media file (with its transcription, its summary) and queues it; prints the identifier.
+greffier process <meeting> [--speakers N] [--wait [--timeout S]]
+greffier redo <meeting> transcription|review|summary [--wait [--timeout S]]
+greffier stop <meeting>
+greffier rename <meeting> <title…>
+greffier speaker name <meeting> <speaker> <name…> | merge <meeting> <speaker> <into> | split <meeting> <speaker>
+greffier correct <meeting> <utterance> <text…>
+greffier resolve <meeting> <passage> accept|keep|reopen|correct <text…>
+greffier check-action <meeting> <n> [--undo]
+greffier delete <meeting> --yes
+  --wait waits for the meeting to leave the queue (done or failed), --timeout S for S seconds at most.
+  After --, everything is text: greffier correct 2026-11-20-0939 3 -- -5 degrees.
 
-<réunion> : identifiant (2026-11-20-0939), nom ou chemin du dossier (dans le dossier de réunions), date (2026-11-20)
-  ou début d'identifiant.
-<locuteur> : index (0), label (SPEAKER_00) ou nom affiché. <réplique> : numéro (#3) ou instant (h:mm:ss).
-<passage>, <n> : numéro, comme dans show (#1).
-J : AAAA-MM-JJ. M : AAAA-MM. T : h:mm:ss, m:ss ou secondes.
---json sur chaque commande. Sortie : 0 succès, 1 échec, 2 erreur d'usage, 3 Greffier injoignable,
-4 --timeout écoulé avant la fin du traitement.
-GREFFIER_FOLDER remplace le dossier de réunions, GREFFIER_APP_FOLDER le dossier de l'app.
+<meeting>: identifier (2026-11-20-0939), folder name or path (inside the meetings folder),
+  date (2026-11-20) or start of an identifier.
+<speaker>: index (0), label (SPEAKER_00) or displayed name. <utterance>: number (#3) or instant (h:mm:ss).
+<passage>, <n>: number, as show gives it (#1).
+D: YYYY-MM-DD. M: YYYY-MM. T: h:mm:ss, m:ss or seconds.
+--json on every command. Exit: 0 success, 1 failure, 2 usage error, 3 Greffier out of reach,
+4 --timeout elapsed before the processing ended.
+GREFFIER_FOLDER replaces the meetings folder, GREFFIER_APP_FOLDER the app folder.
 
-Exemples :
+Examples:
   greffier search bookmark label --since 2026-11-16
   greffier search '\"fiscal year\"' --speaker Khalid --context 2
   greffier show 2026-11-20-0939 --transcription --from 1:25:00 --to 1:30:00
@@ -183,7 +184,7 @@ Exemples :
 
 /// `value` in JSON, on one line.
 pub(crate) fn json(value: &impl serde::Serialize) -> String {
-    let mut s = serde_json::to_string(value).unwrap_or_else(|e| format!("{{\"erreur\":\"{e}\"}}"));
+    let mut s = serde_json::to_string(value).unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"));
     s.push('\n');
     s
 }

@@ -58,17 +58,17 @@ fn search_list_and_show_run_in_the_binary() {
     let (app, folder) = (Temp::new(), meetings());
     let o = greffier(&app, Some(&folder), &["list"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
-    assert!(text(&o.stdout).starts_with("2026-11-20-1000 · 0:00:12 · terminée, 1 à vérifier · Revue de release\n"), "{}", text(&o.stdout));
+    assert!(text(&o.stdout).starts_with("2026-11-20-1000 · 0:00:12 · done, 1 to check · Revue de release\n"), "{}", text(&o.stdout));
 
     let o = greffier(&app, Some(&folder), &["show", "2026-11-20-1000", "--json"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).expect("JSON");
-    assert_eq!(v["identifiant"], "2026-11-20-1000");
-    assert_eq!(v["titre"], "Revue de release");
+    assert_eq!(v["identifier"], "2026-11-20-1000");
+    assert_eq!(v["title"], "Revue de release");
 
     let o = greffier(&app, Some(&folder), &["search", "recette", "--in", "transcription"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
-    assert_eq!(text(&o.stdout), "2026-11-20-1000 · Revue de release\n  [0:00:02] Khalid ? : Oui, si la recette passe vendredi.\n");
+    assert_eq!(text(&o.stdout), "2026-11-20-1000 · Revue de release\n  [0:00:02] Khalid ?: Oui, si la recette passe vendredi.\n");
     assert!(std::fs::read_dir(&app.0).expect("app folder").next().is_none(), "nothing written in the app folder");
 }
 
@@ -77,13 +77,13 @@ fn the_meetings_folder_is_the_one_remembered_in_the_app_folder() {
     let (app, folder) = (Temp::new(), meetings());
     let o = greffier(&app, None, &["list"]);
     assert_eq!(o.status.code(), Some(1));
-    assert_eq!(text(&o.stderr), "greffier : aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.\n");
+    assert_eq!(text(&o.stderr), "greffier: no meetings folder: open Greffier once to choose one, or set GREFFIER_FOLDER.\n");
 
     let settings = serde_json::json!({ "meetings_folder": folder.0 });
     std::fs::write(app.0.join("settings.json"), settings.to_string()).expect("settings");
     let o = greffier(&app, None, &["status", "2026-11-20-1000"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
-    assert!(text(&o.stdout).starts_with("2026-11-20-1000 · Revue de release\nStatut : terminée"), "{}", text(&o.stdout));
+    assert!(text(&o.stdout).starts_with("2026-11-20-1000 · Revue de release\nStatus: done"), "{}", text(&o.stdout));
 }
 
 #[test]
@@ -92,14 +92,14 @@ fn help_and_usage_errors_come_from_the_command_line() {
     for help in ["help", "--help", "-h"] {
         let o = greffier(&app, None, &[help]);
         assert_eq!(o.status.code(), Some(0));
-        assert!(text(&o.stdout).contains("greffier show <réunion>"), "{help}");
+        assert!(text(&o.stdout).contains("greffier show <meeting>"), "{help}");
     }
     let o = greffier(&app, None, &["list", "--frobnicate"]);
     assert_eq!(o.status.code(), Some(2));
-    assert!(text(&o.stderr).starts_with("greffier : option inconnue : --frobnicate"));
+    assert!(text(&o.stderr).starts_with("greffier: unknown option: --frobnicate (see greffier help)"));
     // A mistyped command is not taken for the window's arguments.
     let o = greffier(&app, None, &["lsit"]);
     assert_eq!(o.status.code(), Some(2));
-    assert!(text(&o.stderr).starts_with("greffier : commande inconnue : lsit"), "{}", text(&o.stderr));
+    assert!(text(&o.stderr).starts_with("greffier: unknown command: lsit (see greffier help)"), "{}", text(&o.stderr));
     assert!(o.stdout.is_empty());
 }

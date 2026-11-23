@@ -90,7 +90,7 @@ impl Launch {
                 .process_group(0)
                 .spawn()
                 .map(Some)
-                .map_err(|e| format!("lancement de {} : {e}", program.display())),
+                .map_err(|e| format!("could not launch {}: {e}", program.display())),
             Launch::Bundle { id, .. } => {
                 let status = std::process::Command::new("/usr/bin/open")
                     .args(self.open_args())
@@ -98,8 +98,8 @@ impl Launch {
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status()
-                    .map_err(|e| format!("open : {e}"))?;
-                if status.success() { Ok(None) } else { Err(format!("open -b {id} a échoué ({status}) : Greffier est-il installé ? (cargo xtask install-app)")) }
+                    .map_err(|e| format!("open: {e}"))?;
+                if status.success() { Ok(None) } else { Err(format!("open -b {id} failed ({status}): is Greffier installed? (cargo xtask install-app)")) }
             }
         }
     }
@@ -187,7 +187,7 @@ impl Process {
         let length = self.socket.as_os_str().len();
         if length > MAX_SOCKET_PATH {
             return Err(Failure::Unreachable(format!(
-                "le chemin du socket de Greffier est trop long ({length} octets, {MAX_SOCKET_PATH} au plus) : {}. Choisissez un dossier de l'app plus court (GREFFIER_APP_FOLDER).",
+                "Greffier's socket path is too long ({length} bytes, {MAX_SOCKET_PATH} at most): {}. Choose a shorter app folder (GREFFIER_APP_FOLDER).",
                 self.socket.display()
             )));
         }
@@ -253,10 +253,10 @@ fn lock_held(socket: &Path) -> bool {
     !pid.is_empty() && std::process::Command::new("/bin/kill").args(["-0", pid]).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
-/// « Greffier ne répond pas », and the likely cause: an older Greffier, open without a socket
+/// "Greffier does not answer", and the likely cause: an older Greffier, open without a socket
 /// the command line can talk to.
 fn not_answering(socket: &Path) -> String {
-    format!("Greffier ne répond pas sur {}. Si un Greffier plus ancien est ouvert, quittez-le ou mettez-le à jour (cargo xtask install-app), puis relancez la commande.", socket.display())
+    format!("Greffier does not answer on {}. If an older Greffier is open, quit or update it (cargo xtask install-app), then run the command again.", socket.display())
 }
 
 /// A connection to the process: requests, one at a time.
@@ -276,19 +276,19 @@ impl Connection {
     fn greet(mut self, meetings_folder: &Path) -> Result<Connection, Failure> {
         let hello = match self.ask(&Request::Hello)? {
             Response::Hello(h) => h,
-            other => return Err(Failure::Unreachable(format!("réponse inattendue de Greffier : {other:?}"))),
+            other => return Err(Failure::Unreachable(format!("unexpected answer from Greffier: {other:?}"))),
         };
         if hello.version != VERSION {
             return Err(Failure::Unreachable(format!(
-                "Greffier (pid {}) parle une autre version du protocole ({}, la commande attend {VERSION}) : mettez-le à jour (cargo xtask install-app) ou quittez-le.",
+                "Greffier (pid {}) speaks another version of the protocol ({}, the command expects {VERSION}): update it (cargo xtask install-app) or quit it.",
                 hello.pid, hello.version
             )));
         }
         let ours = meetings_folder.canonicalize().unwrap_or_else(|_| meetings_folder.to_path_buf());
         match hello.meetings_folder {
             Some(theirs) if theirs == ours => Ok(self),
-            Some(theirs) => Err(Failure::Unreachable(format!("Greffier tourne sur un autre dossier de réunions : {} (la commande attend {})", theirs.display(), ours.display()))),
-            None => Err(Failure::Unreachable("Greffier n'a pas encore de dossier de réunions : ouvrez-le pour le choisir.".into())),
+            Some(theirs) => Err(Failure::Unreachable(format!("Greffier runs on another meetings folder: {} (the command expects {})", theirs.display(), ours.display()))),
+            None => Err(Failure::Unreachable("Greffier has no meetings folder yet: open it to choose one.".into())),
         }
     }
 
@@ -298,24 +298,24 @@ impl Connection {
             // Alive, but still at work: an action may still complete.
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => Failure::Unreachable(match request {
                 Request::Execute(_) => format!(
-                    "Greffier n'a pas répondu en {} : il travaille peut-être encore, et l'action peut aboutir. Vérifiez avec greffier list ou greffier status avant de la relancer.",
+                    "Greffier did not answer within {}: it may still be at work, and the action may still complete. Check with greffier list or greffier status before running it again.",
                     span(timeout)
                 ),
-                _ => format!("Greffier n'a pas répondu en {} : il est peut-être occupé ; réessayez dans un moment.", span(timeout)),
+                _ => format!("Greffier did not answer within {}: it may be busy; try again in a moment.", span(timeout)),
             }),
-            _ => Failure::Unreachable(format!("Greffier ne répond plus : {e}")),
+            _ => Failure::Unreachable(format!("Greffier no longer answers: {e}")),
         };
         self.reader.get_ref().set_read_timeout(Some(timeout)).map_err(lost)?;
         self.writer.write_all(encode(request).as_bytes()).map_err(lost)?;
         let mut line = String::new();
         if self.reader.read_line(&mut line).map_err(lost)? == 0 {
-            return Err(Failure::Unreachable("Greffier ne répond plus : connexion fermée".into()));
+            return Err(Failure::Unreachable("Greffier no longer answers: connection closed".into()));
         }
-        serde_json::from_str(&line).map_err(|e| Failure::Unreachable(format!("réponse illisible de Greffier : {e}")))
+        serde_json::from_str(&line).map_err(|e| Failure::Unreachable(format!("unreadable answer from Greffier: {e}")))
     }
 }
 
-/// « 0.2 s », « 30 s », « 10 min ».
+/// "0.2 s", "30 s", "10 min".
 fn span(d: Duration) -> String {
     let seconds = d.as_secs_f64();
     if seconds >= 60.0 && d.as_secs() % 60 == 0 { format!("{} min", d.as_secs() / 60) } else { format!("{seconds} s") }

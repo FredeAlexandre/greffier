@@ -105,7 +105,7 @@ fn help_lists_the_commands_that_work() {
         for command in ["greffier search", "greffier list", "greffier show", "greffier status", "--json"] {
             assert!(o.out.contains(command), "{command}");
         }
-        assert!(!o.out.contains("à venir"), "only what works");
+        assert!(!o.out.contains("coming"), "only what works");
     }
 }
 
@@ -113,33 +113,36 @@ fn help_lists_the_commands_that_work() {
 fn usage_errors_exit_with_2() {
     let f = meetings();
     for (args, message) in [
-        (&["list", "--frobnicate"][..], "option inconnue : --frobnicate"),
-        (&["list", "en-trop"], "argument en trop : « en-trop »"),
-        (&["list", "--limit"], "--limit attend une valeur"),
-        (&["list", "--limit", "zéro"], "--limit attend un nombre"),
-        (&["list", "--date", "20/11/2026"], "date invalide : « 20/11/2026 »"),
-        (&["show"], "il manque la réunion"),
-        (&["show", "2026-11-20", "--bilan", "--fiche"], "une seule vue à la fois"),
-        (&["show", "2026-11-20", "--from", "0:10"], "--from et --to vont avec --transcription ou --passages"),
-        (&["show", "2026-11-20", "--transcription", "--from", "dix"], "instant invalide : « dix »"),
-        (&["status", "a", "b"], "argument en trop : « b »"),
-        (&["lsit"], "commande inconnue : lsit"),
+        (&["list", "--frobnicate"][..], "unknown option: --frobnicate"),
+        (&["list", "extra"], "extra argument: \"extra\""),
+        (&["list", "--limit"], "--limit needs a value"),
+        (&["list", "--limit", "zero"], "--limit needs a number"),
+        (&["list", "--date", "20/11/2026"], "invalid date: \"20/11/2026\" (YYYY-MM-DD or YYYY-MM)"),
+        (&["show"], "missing the meeting"),
+        (&["show", "2026-11-20", "--summary", "--sheet"], "one view at a time: --summary or --sheet"),
+        (&["show", "2026-11-20", "--bilan"], "unknown option: --bilan"),
+        (&["show", "2026-11-20", "--from", "0:10"], "--from and --to go with --transcription or --passages"),
+        (&["show", "2026-11-20", "--speakers", "--numbers"], "--numbers goes with --transcription"),
+        (&["show", "2026-11-20", "--transcription", "--from", "ten"], "invalid instant: \"ten\""),
+        (&["status", "a", "b"], "extra argument: \"b\""),
     ] {
         let o = greffier(&f, args);
         assert_eq!(o.code, 2, "{args:?}");
         assert!(o.out.is_empty(), "{args:?}");
-        assert!(o.err.starts_with("greffier : ") && o.err.contains(message), "{args:?}: {}", o.err);
+        assert!(o.err.starts_with("greffier: ") && o.err.contains(message) && o.err.ends_with(" (see greffier help)\n"), "{args:?}: {}", o.err);
     }
+    let o = greffier(&f, &["lsit"]);
+    assert_eq!((o.code, o.err.as_str()), (2, "greffier: unknown command: lsit (see greffier help)\n"));
 }
 
 #[test]
 fn without_a_meetings_folder_it_says_how_to_choose_one() {
     let o = run_in(&Context { meetings_folder: None, app_folder: None, live: None, process: None }, &["list"]);
     assert_eq!(o.code, 1);
-    assert_eq!(o.err, "greffier : aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.\n");
+    assert_eq!(o.err, "greffier: no meetings folder: open Greffier once to choose one, or set GREFFIER_FOLDER.\n");
     let o = run_in(&Context { meetings_folder: Some(PathBuf::from("/nulle/part")), app_folder: None, live: None, process: None }, &["list"]);
     assert_eq!(o.code, 1);
-    assert_eq!(o.err, "greffier : dossier de réunions introuvable : /nulle/part\n");
+    assert_eq!(o.err, "greffier: meetings folder not found: /nulle/part\n");
 }
 
 // --- list ---
@@ -152,12 +155,12 @@ fn list_gives_one_line_per_meeting_most_recent_first() {
     assert!(o.err.is_empty());
     assert_eq!(
         o.out,
-        "2026-11-22-0800 · 0:10:00 · enregistrement interrompu · Démo\n\
-         2026-11-21-0939-2 · 0:30:00 · en attente · Rétro\n\
-         2026-11-21-0939 · 0:45:00 · échec : Relecture IA · Point d'équipe\n\
-         2026-11-20-1000 · 0:00:12 · terminée, 1 à vérifier · Revue de release\n\
-         2026-11-19-1530 · 0:00:12 · à traiter · Réunion\n\
-         2026-11-18-0915 · 0:00:12 · à traiter · Réunion\n"
+        "2026-11-22-0800 · 0:10:00 · recording interrupted · Démo\n\
+         2026-11-21-0939-2 · 0:30:00 · queued · Rétro\n\
+         2026-11-21-0939 · 0:45:00 · failed: Review · Point d'équipe\n\
+         2026-11-20-1000 · 0:00:12 · done, 1 to check · Revue de release\n\
+         2026-11-19-1530 · 0:00:12 · to process · Réunion\n\
+         2026-11-18-0915 · 0:00:12 · to process · Réunion\n"
     );
 }
 
@@ -174,30 +177,36 @@ fn list_filters_by_date_and_limits() {
     assert_eq!(ids(&["list", "--since", "2026-11-20", "--until", "2026-11-21"]), ["2026-11-21-0939-2", "2026-11-21-0939", "2026-11-20-1000"]);
     assert_eq!(ids(&["list", "--limit=2"]).len(), 2);
     assert_eq!(ids(&["list", "--since", "2026-11-22", "--limit", "5"]), ["2026-11-22-0800"]);
-    assert_eq!(greffier(&f, &["list", "--date", "2025-01-01"]).out, "Aucune réunion.\n");
+    assert_eq!(greffier(&f, &["list", "--date", "2025-01-01"]).out, "No meetings.\n");
 }
 
 #[test]
-fn list_in_json_mirrors_the_sheet() {
+fn list_in_json_uses_the_glossary_s_english_terms() {
     let f = meetings();
     let v = greffier(&f, &["list", "--json"]).json();
     let all = v.as_array().expect("an array");
     assert_eq!(all.len(), 6);
     let failed = &all[2];
-    assert_eq!(failed["identifiant"], "2026-11-21-0939");
-    assert_eq!(failed["titre"], "Point d'équipe");
+    let keys: Vec<&str> = failed.as_object().unwrap().keys().map(String::as_str).collect();
+    let mut expected = ["identifier", "folder", "title", "date", "start", "duration", "duration_text", "status", "stage", "completed_stage", "error", "to_check"];
+    expected.sort_unstable();
+    assert_eq!(keys, expected);
+    assert_eq!(failed["identifier"], "2026-11-21-0939");
+    assert_eq!(failed["title"], "Point d'équipe");
     assert_eq!(failed["date"], "2026-11-21");
-    assert_eq!(failed["debut"], "09:39");
-    assert_eq!(failed["duree"], 2700);
-    assert_eq!(failed["duree_texte"], "0:45:00");
-    assert_eq!(failed["statut"], "echec");
-    assert_eq!(failed["etape"], "relecture");
-    assert_eq!(failed["etape_faite"], "transcription");
-    assert_eq!(failed["erreur"], "La CLI claude a échoué.");
-    assert_eq!(failed["a_verifier"], 0);
-    assert_eq!(failed["dossier"], f.0.join("2026-11-21 09h39 - Point d'équipe").to_string_lossy().as_ref());
+    assert_eq!(failed["start"], "09:39");
+    assert_eq!(failed["duration"], 2700);
+    assert_eq!(failed["duration_text"], "0:45:00");
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(failed["stage"], "review");
+    assert_eq!(failed["completed_stage"], "transcription");
+    assert_eq!(failed["error"], "La CLI claude a échoué.", "the failure's message, as the sheet keeps it");
+    assert_eq!(failed["to_check"], 0);
+    assert_eq!(failed["folder"], f.0.join("2026-11-21 09h39 - Point d'équipe").to_string_lossy().as_ref());
+    let statuses: Vec<&str> = all.iter().map(|m| m["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, ["recording_interrupted", "queued", "failed", "done", "to_process", "to_process"]);
     let done = &all[3];
-    assert_eq!((done["statut"].as_str(), done["etape"].is_null(), done["erreur"].is_null(), done["a_verifier"].as_u64()), (Some("terminee"), true, true, Some(1)));
+    assert_eq!((done["stage"].is_null(), done["error"].is_null(), done["to_check"].as_u64(), done["completed_stage"].as_str()), (true, true, Some(1), Some("summary")));
     assert_eq!(greffier(&f, &["list", "--date", "2025-01-01", "--json"]).out, "[]\n");
 }
 
@@ -213,14 +222,14 @@ fn show_gives_a_header_then_an_outline_of_the_summary() {
             o.out,
             format!(
                 "2026-11-20-1000 · Revue de release\n\
-                 2026-11-20 10h00 · 0:00:12 · terminée, 1 à vérifier\n\
-                 Locuteurs : Alexandre, Khalid ?\n\
-                 Dossier : {}\n\
-                 En bref : On publie la release lundi si la recette passe vendredi.\n\
-                 Sujets :\n  [0:00:00] Date de la release\n  [0:00:05] Support\n\
-                 Décisions :\n  [0:00:02] Release lundi si la recette passe vendredi.\n\
-                 Actions : 2\n\
-                 Suite : --bilan (bilan complet), --actions, --transcription --from h:mm:ss --to h:mm:ss (un passage)\n",
+                 2026-11-20 10:00 · 0:00:12 · done, 1 to check\n\
+                 Speakers: Alexandre, Khalid ?\n\
+                 Folder: {}\n\
+                 Brief: On publie la release lundi si la recette passe vendredi.\n\
+                 Topics:\n  [0:00:00] Date de la release\n  [0:00:05] Support\n\
+                 Decisions:\n  [0:00:02] Release lundi si la recette passe vendredi.\n\
+                 Actions: 2\n\
+                 Next: --summary for the full summary, --transcription --from h:mm:ss --to h:mm:ss for what was said.\n",
                 f.0.join(RELEASE).display()
             ),
             "{name}"
@@ -231,17 +240,17 @@ fn show_gives_a_header_then_an_outline_of_the_summary() {
 #[test]
 fn a_path_names_a_meeting_only_inside_the_meetings_folder() {
     let f = meetings();
-    let o = greffier(&f, &["show", &format!("{}/", f.0.join(RELEASE).display()), "--fiche"]);
+    let o = greffier(&f, &["show", &format!("{}/", f.0.join(RELEASE).display()), "--sheet"]);
     assert_eq!(o.code, 0, "{}", o.err);
     // Through another path to the same folder.
-    let o = greffier(&f, &["show", &f.0.join("Divers/..").join(RELEASE).to_string_lossy(), "--fiche"]);
+    let o = greffier(&f, &["show", &f.0.join("Divers/..").join(RELEASE).to_string_lossy(), "--sheet"]);
     assert_eq!(o.code, 0, "{}", o.err);
     // The same folder name elsewhere: another meetings folder's meeting, or a copy.
     let elsewhere = temp_folder();
     let path = elsewhere.0.join(RELEASE);
     let o = greffier(&f, &["show", &path.to_string_lossy()]);
     assert_eq!(o.code, 1);
-    assert_eq!(o.err, format!("greffier : réunion introuvable : « {} » (pas dans le dossier de réunions {})\n", path.display(), f.0.canonicalize().unwrap().display()));
+    assert_eq!(o.err, format!("greffier: meeting not found: \"{}\" (not in the meetings folder {})\n", path.display(), f.0.canonicalize().unwrap().display()));
 }
 
 #[test]
@@ -251,7 +260,7 @@ fn the_outline_says_when_there_is_no_decision() {
     let summary = std::fs::read_to_string(&file).unwrap().replace("- (0:00:02) Release lundi si la recette passe vendredi.", "- Aucune décision.");
     std::fs::write(&file, summary).unwrap();
     let o = greffier(&f, &["show", "2026-11-20-1000"]);
-    assert!(o.out.contains("\nDécisions : aucune\nActions : 2\n"), "{}", o.out);
+    assert!(o.out.contains("\nDecisions: none\nActions: 2\n"), "{}", o.out);
 }
 
 #[test]
@@ -263,7 +272,7 @@ fn the_outline_counts_the_actions_as_check_action_numbers_them() {
     std::fs::write(&file, summary).unwrap();
     let numbered = greffier(&f, &["show", "2026-11-20-1000", "--actions"]).out;
     assert_eq!(numbered.lines().count(), 3, "{numbered}");
-    assert!(greffier(&f, &["show", "2026-11-20-1000"]).out.contains("\nActions : 3\n"));
+    assert!(greffier(&f, &["show", "2026-11-20-1000"]).out.contains("\nActions: 3\n"));
     assert_eq!(greffier(&f, &["show", "2026-11-20-1000", "--json"]).json()["actions"], 3);
 }
 
@@ -275,24 +284,24 @@ fn show_without_a_summary_says_where_the_meeting_stands() {
     assert_eq!(
         o.out,
         format!(
-            "2026-11-21-0939 · Point d'équipe\n2026-11-21 09h39 · 0:45:00 · échec : Relecture IA\nErreur : La CLI claude a échoué.\nDossier : {}\nPas encore de bilan (étape faite : Transcription).\n",
+            "2026-11-21-0939 · Point d'équipe\n2026-11-21 09:39 · 0:45:00 · failed: Review\nError: La CLI claude a échoué.\nFolder: {}\nNo summary yet (completed stage: Transcription).\n",
             f.0.join("2026-11-21 09h39 - Point d'équipe").display()
         )
     );
     let o = greffier(&f, &["show", "2026-11-19"]);
-    assert!(o.out.ends_with("Pas encore de bilan (aucune étape faite).\n"), "{}", o.out);
+    assert!(o.out.ends_with("No summary yet (no stage completed).\n"), "{}", o.out);
     let o = greffier(&f, &["show", "2026-11-18"]);
-    assert!(o.out.ends_with("Pas encore de bilan (étape faite : Transcription).\nSuite : --transcription [--from h:mm:ss --to h:mm:ss]\n"), "{}", o.out);
+    assert!(o.out.ends_with("No summary yet (completed stage: Transcription).\nNext: --transcription [--from h:mm:ss --to h:mm:ss] for what was said.\n"), "{}", o.out);
 }
 
 #[test]
 fn an_unknown_or_ambiguous_meeting_fails_with_the_candidates() {
     let f = meetings();
     let o = greffier(&f, &["show", "2026-12-01"]);
-    assert_eq!((o.code, o.err.as_str()), (1, "greffier : réunion introuvable : « 2026-12-01 »\n"));
+    assert_eq!((o.code, o.err.as_str()), (1, "greffier: meeting not found: \"2026-12-01\"\n"));
     let o = greffier(&f, &["show", "2026-11-21"]);
     assert_eq!(o.code, 1);
-    assert_eq!(o.err, "greffier : plusieurs réunions pour « 2026-11-21 » :\n2026-11-21-0939-2 · Rétro\n2026-11-21-0939 · Point d'équipe\n");
+    assert_eq!(o.err, "greffier: several meetings match \"2026-11-21\":\n2026-11-21-0939-2 · Rétro\n2026-11-21-0939 · Point d'équipe\n");
     assert!(o.out.is_empty());
 }
 
@@ -319,22 +328,22 @@ fn colons() -> Folder {
 fn meetings_are_shown_with_their_titles_and_speakers_told_apart() {
     let f = colons();
     let o = greffier(&f, &["show", "2026-11-23"]);
-    assert_eq!(o.err, "greffier : plusieurs réunions pour « 2026-11-23 » :\n2026-11-23-1400 · Démo : bookmarks\n2026-11-23-0932 · Revue : permissions\n", "the sheet's titles, as in list");
+    assert_eq!(o.err, "greffier: several meetings match \"2026-11-23\":\n2026-11-23-1400 · Démo : bookmarks\n2026-11-23-0932 · Revue : permissions\n", "the sheet's titles, as in list");
     let o = greffier(&f, &["show", "2026-11-23-0932"]);
-    assert!(o.out.contains("\nLocuteurs : Jérôme ? (SPEAKER_00), Jérôme ? (SPEAKER_01), Alexandre\n"), "{}", o.out);
+    assert!(o.out.contains("\nSpeakers: Jérôme ? (SPEAKER_00), Jérôme ? (SPEAKER_01), Alexandre\n"), "{}", o.out);
 }
 
 #[test]
-fn show_bilan_and_fiche_give_the_files() {
+fn show_summary_and_sheet_give_the_files() {
     let f = meetings();
-    let o = greffier(&f, &["show", "2026-11-20-1000", "--bilan"]);
+    let o = greffier(&f, &["show", "2026-11-20-1000", "--summary"]);
     assert_eq!(o.out, std::fs::read_to_string(f.0.join(RELEASE).join(format!("{RELEASE} - bilan.md"))).unwrap());
-    let o = greffier(&f, &["show", "--fiche", "2026-11-20-1000"]);
+    let o = greffier(&f, &["show", "--sheet", "2026-11-20-1000"]);
     assert_eq!(o.out, std::fs::read_to_string(f.0.join(RELEASE).join(format!("{RELEASE} - réunion.md"))).unwrap());
-    let o = greffier(&f, &["show", "2026-11-21-0939", "--bilan"]);
-    assert_eq!((o.code, o.err.as_str()), (1, "greffier : pas encore de bilan pour 2026-11-21-0939 (étape faite : Transcription)\n"));
-    let o = greffier(&f, &["show", "2026-11-19", "--fiche"]);
-    assert_eq!((o.code, o.err.as_str()), (1, "greffier : pas de fiche pour 2026-11-19-1530\n"));
+    let o = greffier(&f, &["show", "2026-11-21-0939", "--summary"]);
+    assert_eq!((o.code, o.err.as_str()), (1, "greffier: no summary yet for 2026-11-21-0939 (completed stage: Transcription)\n"));
+    let o = greffier(&f, &["show", "2026-11-19", "--sheet"]);
+    assert_eq!((o.code, o.err.as_str()), (1, "greffier: no sheet for 2026-11-19-1530\n"));
 }
 
 #[test]
@@ -343,8 +352,8 @@ fn the_summary_is_shown_without_its_front_matter() {
     let file = f.0.join(RELEASE).join(format!("{RELEASE} - bilan.md"));
     let summary = std::fs::read_to_string(&file).unwrap();
     std::fs::write(&file, format!("---\ntype: bilan\n---\n\n{summary}")).unwrap();
-    assert_eq!(greffier(&f, &["show", "2026-11-20-1000", "--bilan"]).out, summary);
-    assert!(greffier(&f, &["show", "2026-11-20-1000"]).out.contains("Dossier : ") && !greffier(&f, &["show", "2026-11-20-1000"]).out.contains("type: bilan"));
+    assert_eq!(greffier(&f, &["show", "2026-11-20-1000", "--summary"]).out, summary);
+    assert!(greffier(&f, &["show", "2026-11-20-1000"]).out.contains("Folder: ") && !greffier(&f, &["show", "2026-11-20-1000"]).out.contains("type: bilan"));
 }
 
 #[test]
@@ -353,95 +362,95 @@ fn show_transcription_uses_the_displayed_names() {
     let o = greffier(&f, &["show", "2026-11-20-1000", "--transcription"]);
     assert_eq!(
         o.out,
-        "[0:00:00] Alexandre : Bonjour Khalid, on publie la release lundi ?\n\
-         [0:00:02] Khalid ? : Oui, si la recette passe vendredi.\n\
-         [0:00:05] Alexandre : Je préviens le support demain.\n"
+        "[0:00:00] Alexandre: Bonjour Khalid, on publie la release lundi ?\n\
+         [0:00:02] Khalid ?: Oui, si la recette passe vendredi.\n\
+         [0:00:05] Alexandre: Je préviens le support demain.\n"
     );
-    let o = greffier(&f, &["show", "2026-11-20-1000", "--transcription", "--numeros", "--from", "0:03", "--to", "6"]);
-    assert_eq!(o.out, "#2 [0:00:02] Khalid ? : Oui, si la recette passe vendredi.\n#3 [0:00:05] Alexandre : Je préviens le support demain.\n");
+    let o = greffier(&f, &["show", "2026-11-20-1000", "--transcription", "--numbers", "--from", "0:03", "--to", "6"]);
+    assert_eq!(o.out, "#2 [0:00:02] Khalid ?: Oui, si la recette passe vendredi.\n#3 [0:00:05] Alexandre: Je préviens le support demain.\n");
     let o = greffier(&f, &["show", "2026-11-20-1000", "--transcription", "--from", "0:00:10"]);
-    assert_eq!(o.out, "Aucune réplique dans cet intervalle.\n");
+    assert_eq!(o.out, "No utterances in this range.\n");
     let o = greffier(&f, &["show", "2026-11-19", "--transcription"]);
-    assert_eq!((o.code, o.err.as_str()), (1, "greffier : pas encore de transcription pour 2026-11-19-1530\n"));
+    assert_eq!((o.code, o.err.as_str()), (1, "greffier: no transcription yet for 2026-11-19-1530\n"));
 }
 
 #[test]
 fn show_transcription_in_json() {
     let f = meetings();
     let v = greffier(&f, &["show", "2026-11-20-1000", "--transcription", "--json", "--from", "2.5"]).json();
-    assert_eq!(v["identifiant"], "2026-11-20-1000");
-    let r = v["repliques"].as_array().unwrap();
+    assert_eq!(v["identifier"], "2026-11-20-1000");
+    let r = v["utterances"].as_array().unwrap();
     assert_eq!(r.len(), 2);
-    assert_eq!(r[0]["numero"], 2);
-    assert_eq!(r[0]["debut"], 2.0);
-    assert_eq!(r[0]["fin"], 3.5);
-    assert_eq!(r[0]["horodatage"], "0:00:02");
-    assert_eq!(r[0]["locuteur"], "Khalid ?");
+    assert_eq!(r[0]["number"], 2);
+    assert_eq!(r[0]["start"], 2.0);
+    assert_eq!(r[0]["end"], 3.5);
+    assert_eq!(r[0]["timestamp"], "0:00:02");
+    assert_eq!(r[0]["speaker"], "Khalid ?");
     assert_eq!(r[0]["label"], "SPEAKER_01");
-    assert_eq!(r[0]["texte"], "Oui, si la recette passe vendredi.");
+    assert_eq!(r[0]["text"], "Oui, si la recette passe vendredi.");
 }
 
 #[test]
 fn show_speakers_actions_and_passages() {
     let f = meetings();
-    let o = greffier(&f, &["show", "2026-11-20-1000", "--locuteurs"]);
+    let o = greffier(&f, &["show", "2026-11-20-1000", "--speakers"]);
     assert_eq!(
         o.out,
         "0 · SPEAKER_00 · Alexandre · 0:00:03 · 68 %\n\
          1 · SPEAKER_01 · Khalid ? · 0:00:01 · 32 %\n\
-         2 · SPEAKER_02 · Alexandre · fusionné dans SPEAKER_00\n"
+         2 · SPEAKER_02 · Alexandre · merged into SPEAKER_00\n"
     );
     let o = greffier(&f, &["show", "2026-11-20-1000", "--actions"]);
     assert_eq!(o.out, "#1 [ ] Alexandre — publier la release — lundi\n#2 [x] Khalid — lancer la recette — vendredi\n");
     let o = greffier(&f, &["show", "2026-11-20-1000", "--passages"]);
-    assert_eq!(o.out, "#1 [0:00:05] à vérifier : « le support » (hypothèse : « l'équipe support ») · réplique #3\n");
+    assert_eq!(o.out, "#1 [0:00:05] to check: \"le support\" (hypothesis: \"l'équipe support\") · utterance #3\n");
     let o = greffier(&f, &["show", "2026-11-20-1000", "--passages", "--to", "0:00:04"]);
-    assert_eq!(o.out, "Aucun passage à vérifier dans cet intervalle.\n");
+    assert_eq!(o.out, "No passages to check in this range.\n");
 }
 
 #[test]
 fn show_views_in_json() {
     let f = meetings();
     let v = greffier(&f, &["show", "2026-11-20-1000", "--json"]).json();
-    assert_eq!(v["identifiant"], "2026-11-20-1000");
-    assert_eq!(v["statut"], "terminee");
-    assert!(v.get("bilan").is_none(), "the whole summary is --bilan's");
-    assert_eq!(v["en_bref"], "On publie la release lundi si la recette passe vendredi.");
-    assert_eq!(v["sujets"][1], serde_json::json!({ "debut": 5.0, "horodatage": "0:00:05", "titre": "Support" }));
-    assert_eq!(v["decisions"][0], serde_json::json!({ "debut": 2.0, "horodatage": "0:00:02", "texte": "Release lundi si la recette passe vendredi." }));
+    assert_eq!(v["identifier"], "2026-11-20-1000");
+    assert_eq!(v["status"], "done");
+    assert!(v.get("summary").is_none(), "the whole summary is --summary's");
+    assert_eq!(v["brief"], "On publie la release lundi si la recette passe vendredi.");
+    assert_eq!(v["topics"][1], serde_json::json!({ "start": 5.0, "timestamp": "0:00:05", "title": "Support" }));
+    assert_eq!(v["decisions"][0], serde_json::json!({ "start": 2.0, "timestamp": "0:00:02", "text": "Release lundi si la recette passe vendredi." }));
     assert_eq!(v["actions"], 2);
-    let speakers = v["locuteurs"].as_array().unwrap();
+    let speakers = v["speakers"].as_array().unwrap();
     assert_eq!(speakers.len(), 3);
     assert_eq!(speakers[1]["label"], "SPEAKER_01");
-    assert_eq!(speakers[1]["nom"], Value::Null);
-    assert_eq!(speakers[1]["proposition"], "Khalid");
-    assert_eq!(speakers[1]["affiche"], "Khalid ?");
-    assert_eq!(speakers[2]["fusionne_dans"], "SPEAKER_00");
-    assert_eq!(speakers[0]["temps_de_parole"], 3);
+    assert_eq!(speakers[1]["name"], Value::Null);
+    assert_eq!(speakers[1]["proposal"], "Khalid");
+    assert_eq!(speakers[1]["displayed"], "Khalid ?");
+    assert_eq!(speakers[2]["merged_into"], "SPEAKER_00");
+    assert_eq!(speakers[0]["speaking_time"], 3);
     let v = greffier(&f, &["show", "2026-11-21-0939", "--json"]).json();
-    assert_eq!((v["en_bref"].is_null(), v["sujets"].is_null(), v["decisions"].is_null(), v["actions"].is_null()), (true, true, true, true), "no summary yet");
+    assert_eq!((v["brief"].is_null(), v["topics"].is_null(), v["decisions"].is_null(), v["actions"].is_null()), (true, true, true, true), "no summary yet");
 
     let v = greffier(&f, &["show", "2026-11-20-1000", "--actions", "--json"]).json();
-    assert_eq!(v["actions"][1]["numero"], 2);
-    assert_eq!(v["actions"][1]["fait"], true);
-    assert_eq!(v["actions"][1]["texte"], "Khalid — lancer la recette — vendredi");
+    assert_eq!(v["actions"][1]["number"], 2);
+    assert_eq!(v["actions"][1]["done"], true);
+    assert_eq!(v["actions"][1]["text"], "Khalid — lancer la recette — vendredi");
 
     let v = greffier(&f, &["show", "2026-11-20-1000", "--passages", "--json"]).json();
     let p = &v["passages"][0];
-    assert_eq!((p["numero"].as_u64(), p["replique"].as_u64(), p["debut"].as_f64()), (Some(1), Some(3), Some(5.0)));
-    assert_eq!((p["statut"].as_str(), p["extrait"].as_str(), p["hypothese"].as_str()), (Some("a_verifier"), Some("le support"), Some("l'équipe support")));
+    assert_eq!((p["number"].as_u64(), p["utterance"].as_u64(), p["start"].as_f64()), (Some(1), Some(3), Some(5.0)));
+    assert_eq!((p["status"].as_str(), p["excerpt"].as_str(), p["hypothesis"].as_str()), (Some("to_check"), Some("le support"), Some("l'équipe support")));
     assert!(p["correction"].is_null());
 
-    let v = greffier(&f, &["show", "2026-11-20-1000", "--bilan", "--json"]).json();
-    assert!(v["bilan"].as_str().unwrap().starts_with("## En bref"));
-    let v = greffier(&f, &["show", "2026-11-20-1000", "--fiche", "--json"]).json();
-    assert!(v["fiche"].as_str().unwrap().starts_with("---\ntitre: \"Revue de release\""));
-    let v = greffier(&f, &["show", "2026-11-20-1000", "--locuteurs", "--json"]).json();
-    assert_eq!(v["locuteurs"][0]["nom"], "Alexandre");
+    let v = greffier(&f, &["show", "2026-11-20-1000", "--summary", "--json"]).json();
+    assert!(v["summary"].as_str().unwrap().starts_with("## En bref"), "the file, as Greffier writes it");
+    let v = greffier(&f, &["show", "2026-11-20-1000", "--sheet", "--json"]).json();
+    assert!(v["sheet"].as_str().unwrap().starts_with("---\ntitre: \"Revue de release\""));
+    let v = greffier(&f, &["show", "2026-11-20-1000", "--speakers", "--json"]).json();
+    assert_eq!(v["speakers"][0]["name"], "Alexandre");
     // The glossary's Identifier, in every view.
-    for view in ["--bilan", "--fiche", "--transcription", "--locuteurs", "--actions", "--passages"] {
+    for view in ["--summary", "--sheet", "--transcription", "--speakers", "--actions", "--passages"] {
         let v = greffier(&f, &["show", "2026-11-20-1000", view, "--json"]).json();
-        assert_eq!((v["identifiant"].as_str(), v.get("id")), (Some("2026-11-20-1000"), None), "{view}");
+        assert_eq!((v["identifier"].as_str(), v.get("id")), (Some("2026-11-20-1000"), None), "{view}");
     }
 }
 
@@ -454,29 +463,31 @@ fn status_lists_the_meetings_that_are_not_done() {
     assert_eq!(o.code, 0, "{}", o.err);
     assert_eq!(
         o.out,
-        "2026-11-21-0939-2 · en attente · Rétro\n\
-         2026-11-21-0939 · échec : Relecture IA · Point d'équipe · La CLI claude a échoué.\n\
-         2026-11-22-0800 · enregistrement interrompu · Démo\n\
-         2026-11-19-1530 · à traiter · Réunion\n\
-         2026-11-18-0915 · à traiter · Réunion\n"
+        "2026-11-21-0939-2 · queued · Rétro\n\
+         2026-11-21-0939 · failed: Review · Point d'équipe · La CLI claude a échoué.\n\
+         2026-11-22-0800 · recording interrupted · Démo\n\
+         2026-11-19-1530 · to process · Réunion\n\
+         2026-11-18-0915 · to process · Réunion\n"
     );
     let empty = temp_folder();
-    assert_eq!(greffier(&empty, &["status"]).out, "Rien en cours.\n");
+    assert_eq!(greffier(&empty, &["status"]).out, "Nothing in progress.\n");
     assert_eq!(greffier(&empty, &["status", "--json"]).out, "[]\n");
-    assert_eq!(greffier(&empty, &["list"]).out, "Aucune réunion.\n");
+    assert_eq!(greffier(&empty, &["list"]).out, "No meetings.\n");
 }
 
 #[test]
 fn status_of_a_meeting() {
     let f = meetings();
     let o = greffier(&f, &["status", "2026-11-21-0939"]);
-    assert_eq!(o.out, "2026-11-21-0939 · Point d'équipe\nStatut : échec : Relecture IA\nÉtape faite : Transcription\nErreur : La CLI claude a échoué.\n");
+    assert_eq!(o.out, "2026-11-21-0939 · Point d'équipe\nStatus: failed: Review\nCompleted stage: Transcription\nError: La CLI claude a échoué.\n");
     let o = greffier(&f, &["status", "2026-11-20-1000"]);
-    assert_eq!(o.out, "2026-11-20-1000 · Revue de release\nStatut : terminée, 1 à vérifier\nÉtape faite : Bilan IA\n");
+    assert_eq!(o.out, "2026-11-20-1000 · Revue de release\nStatus: done, 1 to check\nCompleted stage: Summary\n");
+    let o = greffier(&f, &["status", "2026-11-19"]);
+    assert_eq!(o.out, "2026-11-19-1530 · Réunion\nStatus: to process\nCompleted stage: none\n");
     let v = greffier(&f, &["status", "2026-11-21-0939", "--json"]).json();
-    assert_eq!((v["identifiant"].as_str(), v["statut"].as_str(), v["etape"].as_str(), v["etape_faite"].as_str()), (Some("2026-11-21-0939"), Some("echec"), Some("relecture"), Some("transcription")));
-    assert_eq!(v["erreur"], "La CLI claude a échoué.");
-    for live in ["rang", "progression", "temps_restant"] {
+    assert_eq!((v["identifier"].as_str(), v["status"].as_str(), v["stage"].as_str(), v["completed_stage"].as_str()), (Some("2026-11-21-0939"), Some("failed"), Some("review"), Some("transcription")));
+    assert_eq!(v["error"], "La CLI claude a échoué.");
+    for live in ["rank", "progress", "time_remaining"] {
         assert!(v[live].is_null(), "{live}: from disk, nothing live");
     }
 }
@@ -499,9 +510,9 @@ fn live_data_from_the_process_takes_over_the_disk() {
     let f = meetings();
     let cx = Context { meetings_folder: Some(f.0.clone()), app_folder: None, live: Some(Box::new(Queue)), process: None };
     let o = run_in(&cx, &["status"]);
-    assert!(o.out.starts_with("2026-11-19-1530 · Transcription 40 % · 7 min · Réunion\n2026-11-21-0939-2 · 2ᵉ dans la file · 15 min · Rétro\n"), "{}", o.out);
+    assert!(o.out.starts_with("2026-11-19-1530 · Transcription 40 % · 7 min · Réunion\n2026-11-21-0939-2 · 2nd in queue · 15 min · Rétro\n"), "{}", o.out);
     let v = run_in(&cx, &["status", "2026-11-19", "--json"]).json();
-    assert_eq!((v["statut"].as_str(), v["etape"].as_str(), v["rang"].as_u64(), v["progression"].as_f64(), v["temps_restant"].as_u64()), (Some("en_cours"), Some("transcription"), Some(1), Some(0.4), Some(420)));
+    assert_eq!((v["status"].as_str(), v["stage"].as_str(), v["rank"].as_u64(), v["progress"].as_f64(), v["time_remaining"].as_u64()), (Some("running"), Some("transcription"), Some(1), Some(0.4), Some(420)));
 }
 
 // --- Reading writes nothing ---
@@ -533,10 +544,10 @@ fn reading_writes_nothing() {
         &["show", "2026-11-20-1000"],
         &["show", "2026-11-20-1000", "--json"],
         &["show", "2026-11-20-1000", "--transcription"],
-        &["show", "2026-11-20-1000", "--locuteurs"],
+        &["show", "2026-11-20-1000", "--speakers"],
         &["show", "2026-11-20-1000", "--actions"],
         &["show", "2026-11-20-1000", "--passages"],
-        &["show", "2026-11-20-1000", "--fiche"],
+        &["show", "2026-11-20-1000", "--sheet"],
         &["status"],
         &["status", "2026-11-18"],
     ] {

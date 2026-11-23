@@ -1,4 +1,4 @@
-//! `greffier search <requête>`: what was said, found in the titles, summaries and transcriptions
+//! `greffier search <query>`: what was said, found in the titles, summaries and transcriptions
 //! of all the meetings, for an agent that must answer "what did we say about X, when, who" in
 //! as few lines as possible.
 //!
@@ -43,27 +43,27 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     }
     let text = a.positionals.join(" ");
     if text.replace('"', "").trim().is_empty() {
-        return Err(Failure::Usage("il manque la requête : des mots, ou une \"expression exacte\"".into()));
+        return Err(Failure::Usage("missing the query: words, or an \"exact phrase\"".into()));
     }
     let days = |option: &str| -> Result<Option<(Day, Day)>, Failure> {
-        a.value(option).map(|d| text::days(d).ok_or_else(|| Failure::Usage(format!("date invalide : « {d} » (AAAA-MM-JJ ou AAAA-MM)")))).transpose()
+        a.value(option).map(|d| text::days(d).ok_or_else(|| Failure::Usage(format!("invalid date: \"{d}\" (YYYY-MM-DD or YYYY-MM)")))).transpose()
     };
     let (date, since, until) = (days("--date")?, days("--since")?, days("--until")?);
     let first = since.map(|d| d.0).into_iter().chain(date.map(|d| d.0)).max();
     let last = until.map(|d| d.1).into_iter().chain(date.map(|d| d.1)).min();
     let mut locations = Vec::new();
     for place in a.values("--in").iter().flat_map(|v| v.split(',')).map(str::trim).filter(|p| !p.is_empty()) {
-        let Some(l) = location_named(place) else { return Err(Failure::Usage(format!("--in : « {place} » (bilan, transcription ou titre)"))) };
+        let Some(l) = location_named(place) else { return Err(Failure::Usage(format!("--in: \"{place}\" (summary, transcription or title)"))) };
         if !locations.contains(&l) {
             locations.push(l);
         }
     }
     let speaker = a.value("--speaker").map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
     if speaker.is_some() && !locations.is_empty() && !locations.contains(&Location::Transcription) {
-        return Err(Failure::Usage("--speaker ne cherche que dans la transcription".into()));
+        return Err(Failure::Usage("--speaker only searches the transcription".into()));
     }
     let number = |option: &str, min: usize| -> Result<Option<usize>, Failure> {
-        a.value(option).map(|n| n.parse::<usize>().ok().filter(|n| *n >= min).ok_or_else(|| Failure::Usage(format!("{option} attend un nombre : « {n} »")))).transpose()
+        a.value(option).map(|n| n.parse::<usize>().ok().filter(|n| *n >= min).ok_or_else(|| Failure::Usage(format!("{option} needs a number: \"{n}\"")))).transpose()
     };
     let limit = number("--limit", 1)?.unwrap_or(LIMIT);
     let context = number("--context", 0)?.unwrap_or(0);
@@ -93,16 +93,14 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let results: Vec<Line> = report.results.into_iter().map(|f| Line::new(&g, &reading, f)).collect();
 
     if a.flag("--json") {
-        return Ok(crate::json(&SearchJson { resultats: results.iter().map(Line::json).collect(), total: report.total, reunions: report.meetings }));
+        return Ok(crate::json(&SearchJson { results: results.iter().map(Line::json).collect(), total: report.total, meetings: report.meetings }));
     }
     if results.is_empty() {
         // Each word may be there, on different lines.
         if greffier_core::search::terms(&text).len() > 1 {
-            return Ok(format!(
-                "Aucun résultat pour « {text} » : tous les mots doivent être sur la même ligne (une ligne du bilan ou une réplique) ; cherchez moins de mots, ou un seul.\n"
-            ));
+            return Ok(format!("No results for \"{text}\": all the words must be on the same line (a summary line or an utterance); search fewer words, or one.\n"));
         }
-        return Ok(format!("Aucun résultat pour « {text} ».\n"));
+        return Ok(format!("No results for \"{text}\".\n"));
     }
     let mut s = String::new();
     let mut shown: HashMap<MeetingId, usize> = HashMap::new();
@@ -115,11 +113,11 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
             let f = &r.found;
             let at = f.instant.map(|t| format!("[{}] ", playback_timestamp(t))).unwrap_or_default();
             match (f.location, f.utterance) {
-                (Location::Title, _) => s += "  titre\n",
+                (Location::Title, _) => s += "  title\n",
                 (Location::Transcription, Some(i)) => {
-                    conversation.insert(i, format!("  {at}{} : {}\n", f.speaker.as_deref().unwrap_or("?"), r.excerpt));
+                    conversation.insert(i, format!("  {at}{}: {}\n", f.speaker.as_deref().unwrap_or("?"), r.excerpt));
                 }
-                _ => s += &format!("  {at}bilan · {}\n", r.excerpt),
+                _ => s += &format!("  {at}summary · {}\n", r.excerpt),
             }
             for u in f.before.iter().chain(&f.after) {
                 conversation.entry(u.index).or_insert_with(|| format!("    {}\n", utterance(u.start, u.speaker.as_deref(), &clip(&u.text, width))));
@@ -136,18 +134,18 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
             listed.push("…".into());
         }
         s += &format!(
-            "… {hidden} {} dans {} {} : {}\nAffinez (--date, --since, --until, --speaker, --in) ou augmentez --limit.\n",
-            if hidden == 1 { "autre résultat" } else { "autres résultats" },
+            "… {hidden} more {} in {} {}: {}\nNarrow down (--date, --since, --until, --speaker, --in) or raise --limit.\n",
+            if hidden == 1 { "result" } else { "results" },
             left.len(),
-            if left.len() == 1 { "réunion" } else { "réunions" },
+            if left.len() == 1 { "meeting" } else { "meetings" },
             listed.join(", ")
         );
     }
     Ok(s)
 }
 
-/// Where a line is found, by the command line's name for it (`--in`, the JSON's `emplacement`).
-const LOCATIONS: [(&str, Location); 3] = [("titre", Location::Title), ("bilan", Location::Summary), ("transcription", Location::Transcription)];
+/// Where a line is found, by the command line's name for it (`--in`, the JSON's `location`).
+const LOCATIONS: [(&str, Location); 3] = [("title", Location::Title), ("summary", Location::Summary), ("transcription", Location::Transcription)];
 
 fn location_named(name: &str) -> Option<Location> {
     LOCATIONS.iter().find(|(n, _)| *n == name).map(|(_, l)| *l)
@@ -157,7 +155,7 @@ fn location_name(location: Location) -> &'static str {
     LOCATIONS.iter().find(|(_, l)| *l == location).map_or("?", |(n, _)| n)
 }
 
-/// The identifier of a meeting of the core opened to search, « ? » if it has none.
+/// The identifier of a meeting of the core opened to search, "?" if it has none.
 fn identifier(g: &Greffier, reading: &Reading, meeting: MeetingId) -> String {
     g.meeting(meeting).and_then(|m| reading.identifier(&m.folder_name)).unwrap_or("?").to_string()
 }
@@ -204,9 +202,9 @@ fn clip(text: &str, width: usize) -> String {
     format!("{}…", text[..end].trim_end_matches([' ', ',', ';', ':']))
 }
 
-/// `[0:47:30] Jérôme ? : texte`
+/// `[0:47:30] Jérôme ?: text`
 fn utterance(start: f64, speaker: Option<&str>, text: &str) -> String {
-    format!("[{}] {} : {text}", playback_timestamp(start), speaker.unwrap_or("?"))
+    format!("[{}] {}: {text}", playback_timestamp(start), speaker.unwrap_or("?"))
 }
 
 /// A line found, with its meeting's identifier and title, and its excerpt without the
@@ -232,25 +230,25 @@ impl Line {
 
     fn json(&self) -> ResultJson {
         let f = &self.found;
-        let nearby = |u: &NearbyUtterance| NearbyJson { replique: u.index + 1, debut: u.start, horodatage: playback_timestamp(u.start), locuteur: u.speaker.clone(), texte: u.text.clone() };
+        let nearby = |u: &NearbyUtterance| NearbyJson { utterance: u.index + 1, start: u.start, timestamp: playback_timestamp(u.start), speaker: u.speaker.clone(), text: u.text.clone() };
         ResultJson {
-            identifiant: self.identifier.clone(),
-            titre: self.title.clone(),
-            emplacement: location_name(f.location),
-            debut: f.instant,
-            horodatage: f.instant.map(playback_timestamp),
-            locuteur: f.speaker.clone(),
-            replique: f.utterance.map(|i| i + 1),
-            extrait: self.excerpt.clone(),
-            surlignes: self.highlights.clone(),
-            avant: f.before.iter().map(nearby).collect(),
-            apres: f.after.iter().map(nearby).collect(),
+            identifier: self.identifier.clone(),
+            title: self.title.clone(),
+            location: location_name(f.location),
+            instant: f.instant,
+            timestamp: f.instant.map(playback_timestamp),
+            speaker: f.speaker.clone(),
+            utterance: f.utterance.map(|i| i + 1),
+            excerpt: self.excerpt.clone(),
+            highlights: self.highlights.clone(),
+            before: f.before.iter().map(nearby).collect(),
+            after: f.after.iter().map(nearby).collect(),
         }
     }
 }
 
-/// The summary line without the "(h:mm:ss)" of `instant` (« (0:44:12) On vend… » becomes « On
-/// vend… », « Bookmarks (1:58:31) » becomes « Bookmarks »), unless a highlight touches it; the
+/// The summary line without the "(h:mm:ss)" of `instant` ("(0:44:12) We sell…" becomes "We
+/// sell…", "Bookmarks (1:58:31)" becomes "Bookmarks"), unless a highlight touches it; the
 /// highlights follow.
 fn without_stamp(excerpt: &str, highlights: &[(usize, usize)], instant: f64) -> (String, Vec<(usize, usize)>) {
     let stamp = format!("({})", playback_timestamp(instant));
@@ -273,39 +271,40 @@ fn without_stamp(excerpt: &str, highlights: &[(usize, usize)], instant: f64) -> 
 
 #[derive(Serialize)]
 struct SearchJson {
-    resultats: Vec<ResultJson>,
+    results: Vec<ResultJson>,
     /// The lines found without the limits, and the number of meetings they come from.
     total: usize,
-    reunions: usize,
+    meetings: usize,
 }
 
 #[derive(Serialize)]
 struct ResultJson {
-    identifiant: String,
-    titre: String,
-    /// `titre`, `bilan` or `transcription`.
-    emplacement: &'static str,
+    identifier: String,
+    /// Its meeting's title.
+    title: String,
+    /// `title`, `summary` or `transcription`.
+    location: &'static str,
     /// The utterance's start, or the moment of a summary line (its own, or its topic's); in
     /// seconds. `null` for the title and a summary line without a moment.
-    debut: Option<f64>,
-    horodatage: Option<String>,
-    locuteur: Option<String>,
-    /// The utterance's number, from 1 (as in `show --transcription --numeros`).
-    replique: Option<usize>,
-    extrait: String,
-    /// The words found in `extrait`, as byte ranges.
-    surlignes: Vec<(usize, usize)>,
-    avant: Vec<NearbyJson>,
-    apres: Vec<NearbyJson>,
+    instant: Option<f64>,
+    timestamp: Option<String>,
+    speaker: Option<String>,
+    /// The utterance's number, from 1 (as in `show --transcription --numbers`).
+    utterance: Option<usize>,
+    excerpt: String,
+    /// The words found in `excerpt`, as byte ranges.
+    highlights: Vec<(usize, usize)>,
+    before: Vec<NearbyJson>,
+    after: Vec<NearbyJson>,
 }
 
 #[derive(Serialize)]
 struct NearbyJson {
-    replique: usize,
-    debut: f64,
-    horodatage: String,
-    locuteur: Option<String>,
-    texte: String,
+    utterance: usize,
+    start: f64,
+    timestamp: String,
+    speaker: Option<String>,
+    text: String,
 }
 
 // --- A core that cannot write ------------------------------------------------------------
@@ -315,7 +314,7 @@ struct NearbyJson {
 /// recorded, processed, trashed or written.
 struct ReadOnly;
 
-const READ_ONLY: &str = "la ligne de commande lit les réunions sans rien écrire";
+const READ_ONLY: &str = "the command line reads the meetings without writing anything";
 
 /// A task that fails at once.
 struct Refused;
@@ -411,7 +410,7 @@ mod tests {
         for (name, location) in LOCATIONS {
             assert_eq!((location_named(name), location_name(location)), (Some(location), name));
         }
-        assert_eq!(location_named("résumé"), None);
+        assert_eq!(location_named("bilan"), None, "the French name is gone");
     }
 
     #[test]

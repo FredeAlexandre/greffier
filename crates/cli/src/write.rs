@@ -35,29 +35,29 @@ fn usage(m: impl Into<String>) -> Failure {
     Failure::Usage(m.into())
 }
 
-/// The positional argument `i`, or « il manque <what> ».
+/// The positional argument `i`, or "missing <what>".
 fn nth(a: &Args, i: usize, what: &str) -> Result<String, Failure> {
-    a.positionals.get(i).cloned().ok_or_else(|| usage(format!("il manque {what}")))
+    a.positionals.get(i).cloned().ok_or_else(|| usage(format!("missing {what}")))
 }
 
 /// The positional arguments from `i` on, joined by spaces (a title, a name, a text).
 fn rest(a: &Args, i: usize, what: &str) -> Result<String, Failure> {
     let words = a.positionals.get(i..).unwrap_or_default();
     if words.is_empty() {
-        return Err(usage(format!("il manque {what}")));
+        return Err(usage(format!("missing {what}")));
     }
     Ok(words.join(" "))
 }
 
 fn speakers(a: &Args) -> Result<Option<u8>, Failure> {
-    a.value("--speakers").map(|n| n.parse::<u8>().ok().filter(|n| *n >= 1).ok_or_else(|| usage(format!("--speakers attend un nombre de locuteurs : « {n} »")))).transpose()
+    a.value("--speakers").map(|n| n.parse::<u8>().ok().filter(|n| *n >= 1).ok_or_else(|| usage(format!("--speakers needs a number of speakers: \"{n}\"")))).transpose()
 }
 
 fn wait(a: &Args) -> Result<Option<Wait>, Failure> {
-    let timeout = a.value("--timeout").map(|t| t.parse::<f64>().ok().filter(|t| t.is_finite() && *t >= 0.0).ok_or_else(|| usage(format!("--timeout attend des secondes : « {t} »")))).transpose()?;
+    let timeout = a.value("--timeout").map(|t| t.parse::<f64>().ok().filter(|t| t.is_finite() && *t >= 0.0).ok_or_else(|| usage(format!("--timeout needs seconds: \"{t}\"")))).transpose()?;
     match (a.flag("--wait"), timeout) {
         (true, timeout) => Ok(Some(Wait { timeout })),
-        (false, Some(_)) => Err(usage("--timeout va avec --wait")),
+        (false, Some(_)) => Err(usage("--timeout goes with --wait")),
         (false, None) => Ok(None),
     }
 }
@@ -76,14 +76,14 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
     if a.help() {
         return Ok(None);
     }
-    let meeting = || nth(&a, 0, "la réunion").map(sent);
+    let meeting = || nth(&a, 0, "the meeting").map(sent);
     let action = match command {
         "import" => {
             if a.positionals.is_empty() {
-                return Err(usage("il manque le fichier à importer"));
+                return Err(usage("missing the file to import"));
             }
             if a.flag("--no-process") && a.flag("--wait") {
-                return Err(usage("--wait ne va pas avec --no-process"));
+                return Err(usage("--wait does not go with --no-process"));
             }
             let files = a.positionals.iter().map(|f| absolute(f)).collect::<Result<_, _>>()?;
             Action::Import { files, title: a.value("--title").map(str::to_string), speakers: speakers(&a)?, process: !a.flag("--no-process") }
@@ -94,11 +94,11 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
         }
         "redo" => {
             a.at_most(2)?;
-            let stage = match nth(&a, 1, "l'étape (transcription, relecture ou bilan)")?.as_str() {
+            let stage = match nth(&a, 1, "the stage (transcription, review or summary)")?.as_str() {
                 "transcription" => Stage::Transcription,
-                "relecture" => Stage::Review,
-                "bilan" => Stage::Summary,
-                other => return Err(usage(format!("étape inconnue : « {other} » (transcription, relecture ou bilan)"))),
+                "review" => Stage::Review,
+                "summary" => Stage::Summary,
+                other => return Err(usage(format!("unknown stage: \"{other}\" (transcription, review or summary)"))),
             };
             Action::Redo { meeting: meeting()?, stage }
         }
@@ -106,55 +106,55 @@ fn parse(command: &str, args: &[String]) -> Result<Option<Asked>, Failure> {
             a.at_most(1)?;
             Action::Stop { meeting: meeting()? }
         }
-        "rename" => Action::Rename { meeting: meeting()?, title: rest(&a, 1, "le titre")? },
+        "rename" => Action::Rename { meeting: meeting()?, title: rest(&a, 1, "the title")? },
         "speaker" => {
-            let what = nth(&a, 0, "name, merge ou split")?;
-            let meeting = sent(nth(&a, 1, "la réunion")?);
-            let speaker = nth(&a, 2, "le locuteur")?;
+            let what = nth(&a, 0, "name, merge or split")?;
+            let meeting = sent(nth(&a, 1, "the meeting")?);
+            let speaker = nth(&a, 2, "the speaker")?;
             match what.as_str() {
-                "name" => Action::NameSpeaker { meeting, speaker, name: rest(&a, 3, "le nom")? },
+                "name" => Action::NameSpeaker { meeting, speaker, name: rest(&a, 3, "the name")? },
                 "merge" => {
                     a.at_most(4)?;
-                    Action::MergeSpeaker { meeting, speaker, into: nth(&a, 3, "le locuteur dans lequel fusionner")? }
+                    Action::MergeSpeaker { meeting, speaker, into: nth(&a, 3, "the speaker to merge into")? }
                 }
                 "split" => {
                     a.at_most(3)?;
                     Action::SplitSpeaker { meeting, speaker }
                 }
-                other => return Err(usage(format!("greffier speaker {other} : name, merge ou split"))),
+                other => return Err(usage(format!("greffier speaker {other}: name, merge or split"))),
             }
         }
-        "correct" => Action::Correct { meeting: meeting()?, utterance: nth(&a, 1, "la réplique")?, text: rest(&a, 2, "le texte")? },
+        "correct" => Action::Correct { meeting: meeting()?, utterance: nth(&a, 1, "the utterance")?, text: rest(&a, 2, "the text")? },
         "resolve" => {
-            let passage = nth(&a, 1, "le passage")?;
-            let word = nth(&a, 2, "accepter, garder, rouvrir ou corriger")?;
+            let passage = nth(&a, 1, "the passage")?;
+            let word = nth(&a, 2, "accept, keep, reopen or correct")?;
             let resolution = match word.as_str() {
-                "corriger" => Resolution::Correct(rest(&a, 3, "le texte de la correction")?),
-                "accepter" | "garder" | "rouvrir" => {
+                "correct" => Resolution::Correct(rest(&a, 3, "the correction's text")?),
+                "accept" | "keep" | "reopen" => {
                     a.at_most(3)?;
                     match word.as_str() {
-                        "accepter" => Resolution::Accept,
-                        "garder" => Resolution::Keep,
+                        "accept" => Resolution::Accept,
+                        "keep" => Resolution::Keep,
                         _ => Resolution::Reopen,
                     }
                 }
-                other => return Err(usage(format!("« {other} » : accepter, garder, rouvrir ou corriger <texte>"))),
+                other => return Err(usage(format!("\"{other}\": accept, keep, reopen or correct <text>"))),
             };
             Action::Resolve { meeting: meeting()?, passage, resolution }
         }
         "check-action" => {
             a.at_most(2)?;
-            Action::CheckAction { meeting: meeting()?, action: nth(&a, 1, "le numéro de l'action")?, done: !a.flag("--undo") }
+            Action::CheckAction { meeting: meeting()?, action: nth(&a, 1, "the action's number")?, done: !a.flag("--undo") }
         }
         "delete" => {
             a.at_most(1)?;
             let meeting = meeting()?;
             if !a.flag("--yes") {
-                return Err(usage(format!("greffier delete met la réunion à la corbeille : confirmez avec greffier delete {meeting} --yes")));
+                return Err(usage(format!("greffier delete moves the meeting to the trash: confirm with greffier delete {meeting} --yes")));
             }
             Action::Delete { meeting }
         }
-        other => return Err(usage(format!("commande inconnue : {other}"))),
+        other => return Err(usage(format!("unknown command: {other}"))),
     };
     let wait = if matches!(command, "import" | "process" | "redo") { wait(&a)? } else { None };
     Ok(Some(Asked { action, wait, json: a.flag("--json") }))
@@ -171,45 +171,46 @@ fn sent(meeting: String) -> String {
 
 /// A file named on the command line, absolute: the process does not share its folder.
 fn absolute(file: &str) -> Result<PathBuf, Failure> {
-    Path::new(file).canonicalize().map_err(|_| Failure::Failed(format!("fichier introuvable : {file}")))
+    Path::new(file).canonicalize().map_err(|_| Failure::Failed(format!("file not found: {file}")))
 }
 
 /// What a command that wrote prints in JSON.
 #[derive(Serialize)]
 struct DoneJson<'a> {
-    identifiant: Option<&'a str>,
-    dossier: Option<String>,
+    identifier: Option<&'a str>,
+    /// The meeting's folder, absolute.
+    folder: Option<String>,
     message: &'a str,
 }
 
 /// Where a waited meeting ended, in JSON.
 #[derive(Serialize)]
 struct EndJson<'a> {
-    identifiant: &'a str,
-    statut: &'static str,
-    titre: &'a str,
+    identifier: &'a str,
+    status: &'static str,
+    title: &'a str,
 }
 
 pub(crate) fn run(cx: &Context, command: &str, args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> Result<String, Failure> {
     let Some(asked) = parse(command, args)? else { return Ok(HELP.into()) };
     let json = asked.json;
     let Some(folder) = &cx.meetings_folder else {
-        return Err(Failure::Failed("aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.".into()));
+        return Err(Failure::Failed(crate::reading::NO_MEETINGS_FOLDER.into()));
     };
     if !folder.is_dir() {
-        return Err(Failure::Failed(format!("dossier de réunions introuvable : {}", folder.display())));
+        return Err(Failure::Failed(format!("meetings folder not found: {}", folder.display())));
     }
-    let Some(process) = &cx.process else { return Err(Failure::Unreachable("Greffier n'est pas joignable d'ici.".into())) };
+    let Some(process) = &cx.process else { return Err(Failure::Unreachable("Greffier cannot be reached from here.".into())) };
     let mut c = process.reach(folder)?;
     let import = matches!(asked.action, Action::Import { .. });
     let done = match c.ask(&Request::Execute(asked.action))? {
         Response::Ok(done) => done,
         Response::Error { message } => return Err(Failure::Failed(message)),
-        other => return Err(Failure::Unreachable(format!("réponse inattendue de Greffier : {other:?}"))),
+        other => return Err(Failure::Unreachable(format!("unexpected answer from Greffier: {other:?}"))),
     };
     let printed = if json {
-        let dossier = done.folder_name.as_ref().map(|n| folder.join(n).to_string_lossy().into_owned());
-        crate::json(&DoneJson { identifiant: done.meeting.as_deref(), dossier, message: &done.message })
+        let folder = done.folder_name.as_ref().map(|n| folder.join(n).to_string_lossy().into_owned());
+        crate::json(&DoneJson { identifier: done.meeting.as_deref(), folder, message: &done.message })
     } else if import {
         // The new meeting's identifier alone, for a script to take.
         format!("{}\n", done.meeting.as_deref().or(done.folder_name.as_deref()).unwrap_or_default())
@@ -234,26 +235,26 @@ struct End {
 impl End {
     fn render(&self, json: bool) -> String {
         if json {
-            return crate::json(&EndJson { identifiant: &self.identifier, statut: "terminee", titre: &self.title });
+            return crate::json(&EndJson { identifier: &self.identifier, status: "done", title: &self.title });
         }
-        format!("{} · terminée · {}\n", self.identifier, self.title)
+        format!("{} · done · {}\n", self.identifier, self.title)
     }
 }
 
-/// « en attente », « Transcription »: where a queued meeting stands, one line per change.
+/// "queued", "Transcription": where a queued meeting stands, one line per change.
 fn phase(s: &LiveStatus) -> String {
     match s {
-        LiveStatus::Pending { .. } => "en attente".into(),
+        LiveStatus::Pending { .. } => "queued".into(),
         LiveStatus::Running { stage, .. } => text::stage((*stage).into()).into(),
         _ => String::new(),
     }
 }
 
-/// « Transcription 40 % », « 2ᵉ dans la file ».
+/// "Transcription 40 %", "2nd in queue".
 fn standing(m: &LiveMeeting) -> String {
     match &m.status {
         LiveStatus::Running { stage, progress } => format!("{} {:.0} %", text::stage((*stage).into()), progress * 100.0),
-        LiveStatus::Pending { .. } => m.rank.map_or_else(|| "en attente".into(), |r| format!("{r}ᵉ dans la file")),
+        LiveStatus::Pending { .. } => m.rank.map_or_else(|| "queued".into(), |r| format!("{} in queue", text::ordinal(r))),
         _ => phase(&m.status),
     }
 }
@@ -261,22 +262,22 @@ fn standing(m: &LiveMeeting) -> String {
 /// Asks where the meeting stands every `poll` until it leaves the queue: done, failed (exit
 /// 1), stopped (exit 1); or the timeout elapses (exit 4). Each change of stage goes to `err`.
 fn follow(c: &mut Connection, done: &Done, w: Wait, poll: Duration, err: &mut dyn Write) -> Result<End, Failure> {
-    let identifier = done.meeting.clone().or_else(|| done.folder_name.clone()).ok_or_else(|| Failure::Failed("réunion sans identifiant : impossible de suivre son traitement".into()))?;
+    let identifier = done.meeting.clone().or_else(|| done.folder_name.clone()).ok_or_else(|| Failure::Failed("meeting without an identifier: its processing cannot be followed".into()))?;
     let start = Instant::now();
     let mut last = String::new();
     loop {
         let snapshot = match c.ask(&Request::Status { meeting: Some(identifier.clone()) })? {
             Response::Status(s) => s,
             Response::Error { message } => return Err(Failure::Failed(message)),
-            other => return Err(Failure::Unreachable(format!("réponse inattendue de Greffier : {other:?}"))),
+            other => return Err(Failure::Unreachable(format!("unexpected answer from Greffier: {other:?}"))),
         };
         let Some(m) = snapshot.meetings.iter().find(|m| m.identifier.as_deref() == Some(identifier.as_str()) || m.folder_name == identifier) else {
-            return Err(Failure::Failed(format!("{identifier} n'est plus dans le dossier de réunions")));
+            return Err(Failure::Failed(format!("{identifier} is no longer in the meetings folder")));
         };
         match &m.status {
             LiveStatus::Done => return Ok(End { identifier, title: m.title.clone() }),
-            LiveStatus::Failed { stage, message } => return Err(Failure::Failed(format!("{identifier} · échec : {} : {message}", text::stage((*stage).into())))),
-            LiveStatus::ToProcess | LiveStatus::RecordingInterrupted | LiveStatus::Recording => return Err(Failure::Failed(format!("{identifier} · traitement arrêté"))),
+            LiveStatus::Failed { stage, message } => return Err(Failure::Failed(format!("{identifier} · failed: {}: {message}", text::stage((*stage).into())))),
+            LiveStatus::ToProcess | LiveStatus::RecordingInterrupted | LiveStatus::Recording => return Err(Failure::Failed(format!("{identifier} · processing stopped"))),
             LiveStatus::Pending { .. } | LiveStatus::Running { .. } => {}
         }
         let now = phase(&m.status);
@@ -288,7 +289,7 @@ fn follow(c: &mut Connection, done: &Done, w: Wait, poll: Duration, err: &mut dy
         if let Some(t) = w.timeout
             && elapsed >= t
         {
-            return Err(Failure::StillRunning(format!("{identifier} toujours en cours après {t} s : {}", standing(m))));
+            return Err(Failure::StillRunning(format!("{identifier} still processing after {t} s: {}", standing(m))));
         }
         let left = w.timeout.map_or(poll, |t| poll.min(Duration::from_secs_f64((t - elapsed).max(0.0))));
         std::thread::sleep(left);

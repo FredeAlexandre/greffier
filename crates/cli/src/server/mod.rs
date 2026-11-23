@@ -60,7 +60,7 @@ pub fn answer<H: Host + ?Sized>(host: &mut H, request: Request) -> Response {
         }
         Request::OpenWindow => {
             host.open_window();
-            Response::Ok(Done { message: "fenêtre ouverte".into(), ..Done::default() })
+            Response::Ok(Done { message: "window opened".into(), ..Done::default() })
         }
         Request::Execute(action) => {
             let mut events = host.core().rescan_folder();
@@ -88,7 +88,9 @@ pub fn snapshot(core: &Greffier, meeting: Option<&str>) -> Result<Snapshot, Stri
     let mut meetings = Vec::new();
     if let Some(r) = core.recording() {
         let identifier = identifiers.of(&r.folder_name).map(str::to_string);
-        meetings.push(LiveMeeting { identifier, folder_name: r.folder_name.clone(), title: "Réunion".into(), status: (&Status::Recording).into(), rank: None, time_remaining: None });
+        // Its title is the one its folder carries (the files' default until the summary names it).
+        let title = greffier_core::folder::read_folder_name(&r.folder_name).map(|(_, t)| t).unwrap_or_default();
+        meetings.push(LiveMeeting { identifier, folder_name: r.folder_name.clone(), title, status: (&Status::Recording).into(), rank: None, time_remaining: None });
     }
     let live = |m: &greffier_core::Meeting| LiveMeeting {
         identifier: identifiers.of(&m.folder_name).map(str::to_string),
@@ -110,13 +112,13 @@ pub fn snapshot(core: &Greffier, meeting: Option<&str>) -> Result<Snapshot, Stri
     Ok(Snapshot { busy: core.busy(), meetings })
 }
 
-/// Runs the core command; its events join the action's.
+/// Runs the core command; its events join the action's. A refusal comes back in English.
 fn run<H: Host + ?Sized>(host: &mut H, command: Command, events: &mut Vec<Event>) -> Result<(), String> {
-    events.extend(host.core().execute(command).map_err(|r| r.to_string())?);
+    events.extend(host.core().execute(command).map_err(|r| r.english())?);
     Ok(())
 }
 
-/// « 2026-11-20-1000 · <what> », with the meeting's identifier and folder after the action.
+/// "2026-11-20-1000 · <what>", with the meeting's identifier and folder after the action.
 fn done(core: &Greffier, meeting: MeetingId, what: impl FnOnce(&str) -> String) -> Done {
     let folder_name = core.meeting(meeting).map(|m| m.folder_name.clone());
     let identifier = folder_name.as_deref().and_then(|n| identifiers(core).of(n).map(str::to_string));
@@ -124,11 +126,11 @@ fn done(core: &Greffier, meeting: MeetingId, what: impl FnOnce(&str) -> String) 
     Done { message: what(&shown), meeting: identifier, folder_name }
 }
 
-/// « dans la file : Transcription », the stage the meeting waits for.
+/// "queued: Transcription", the stage the meeting waits for.
 fn queued(core: &Greffier, meeting: MeetingId) -> String {
     match core.meeting(meeting).map(|m| &m.status) {
-        Some(Status::Pending(stage) | Status::Running { stage, .. }) => format!("dans la file : {}", text::stage(*stage)),
-        _ => "dans la file".into(),
+        Some(Status::Pending(stage) | Status::Running { stage, .. }) => format!("queued: {}", text::stage(*stage)),
+        _ => "queued".into(),
     }
 }
 
@@ -137,8 +139,8 @@ fn execute<H: Host + ?Sized>(host: &mut H, action: Action, events: &mut Vec<Even
         Action::Process { meeting, speakers } => {
             let id = meeting_named(host.core(), &meeting)?;
             match host.core().meeting(id).map(|m| &m.status) {
-                Some(Status::Done) => return Err("la réunion est déjà traitée (greffier redo pour refaire une étape)".into()),
-                Some(s) if s.in_queue() => return Err("la réunion est déjà dans la file".into()),
+                Some(Status::Done) => return Err("the meeting is already processed (greffier redo to redo a stage)".into()),
+                Some(s) if s.in_queue() => return Err("the meeting is already in the queue".into()),
                 _ => {}
             }
             run(host, Command::Process(id), events)?;
@@ -157,87 +159,87 @@ fn execute<H: Host + ?Sized>(host: &mut H, action: Action, events: &mut Vec<Even
         Action::Stop { meeting } => {
             let id = meeting_named(host.core(), &meeting)?;
             run(host, Command::StopProcessing(id), events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · traitement arrêté")))
+            Ok(done(host.core(), id, |m| format!("{m} · processing stopped")))
         }
         Action::Rename { meeting, title } => {
             let id = meeting_named(host.core(), &meeting)?;
             run(host, Command::ChangeTitle { meeting: id, title }, events)?;
             let core = host.core();
             let title = core.meeting(id).map(|m| m.title.clone()).unwrap_or_default();
-            Ok(done(core, id, |m| format!("{m} · renommée : {title}")))
+            Ok(done(core, id, |m| format!("{m} · renamed: {title}")))
         }
         Action::NameSpeaker { meeting, speaker: who, name } => {
             let id = meeting_named(host.core(), &meeting)?;
             let (i, label) = speaker(host.core(), id, &who)?;
             run(host, Command::NameSpeaker { meeting: id, speaker: i, name: name.clone() }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · {label} : {}", name.trim())))
+            Ok(done(host.core(), id, |m| format!("{m} · {label}: {}", name.trim())))
         }
         Action::MergeSpeaker { meeting, speaker: who, into } => {
             let id = meeting_named(host.core(), &meeting)?;
             let (i, label) = speaker(host.core(), id, &who)?;
             let (j, into_label) = speaker(host.core(), id, &into)?;
             run(host, Command::MergeSpeakers { meeting: id, speaker: i, into: j }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · {label} fusionné dans {into_label}")))
+            Ok(done(host.core(), id, |m| format!("{m} · {label} merged into {into_label}")))
         }
         Action::SplitSpeaker { meeting, speaker: who } => {
             let id = meeting_named(host.core(), &meeting)?;
             let (i, label) = speaker(host.core(), id, &who)?;
             run(host, Command::SplitSpeaker { meeting: id, speaker: i }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · {label} séparé")))
+            Ok(done(host.core(), id, |m| format!("{m} · {label} split")))
         }
         Action::Correct { meeting, utterance: which, text } => {
             let id = meeting_named(host.core(), &meeting)?;
             let i = utterance(host.core(), id, &which)?;
             run(host, Command::CorrectUtterance { meeting: id, utterance: i, text }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · réplique #{} corrigée", i + 1)))
+            Ok(done(host.core(), id, |m| format!("{m} · utterance #{} corrected", i + 1)))
         }
         Action::Resolve { meeting, passage, resolution } => {
             let id = meeting_named(host.core(), &meeting)?;
             let count = host.core().meeting(id).map_or(0, |m| m.passages.len());
             if count == 0 {
                 let name = done(host.core(), id, |m| m.to_string()).message;
-                return Err(format!("aucun passage à vérifier dans {name}"));
+                return Err(format!("no passages to check in {name}"));
             }
-            let i = number(&passage, count).ok_or_else(|| format!("passage introuvable : « {passage} » (numéro de 1 à {count})"))?;
+            let i = number(&passage, count).ok_or_else(|| format!("passage not found: \"{passage}\" (number from 1 to {count})"))?;
             let what = match &resolution {
-                Resolution::Accept => "hypothèse acceptée",
-                Resolution::Keep => "original gardé",
-                Resolution::Reopen => "rouvert",
-                Resolution::Correct(_) => "corrigé",
+                Resolution::Accept => "hypothesis accepted",
+                Resolution::Keep => "original kept",
+                Resolution::Reopen => "reopened",
+                Resolution::Correct(_) => "corrected",
             };
             run(host, Command::Resolve { meeting: id, passage: i, resolution: resolution.into() }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · passage #{} : {what}", i + 1)))
+            Ok(done(host.core(), id, |m| format!("{m} · passage #{}: {what}", i + 1)))
         }
         Action::CheckAction { meeting, action, done: checked } => {
             let id = meeting_named(host.core(), &meeting)?;
             let count = host.core().meeting(id).map_or(0, |m| greffier_core::summary::checkbox_count(&m.summary));
             if count == 0 {
                 let name = done(host.core(), id, |m| m.to_string()).message;
-                return Err(format!("aucune action dans le bilan de {name}"));
+                return Err(format!("no actions in the summary of {name}"));
             }
-            let i = number(&action, count).ok_or_else(|| format!("action introuvable : « {action} » (numéro de 1 à {count})"))?;
+            let i = number(&action, count).ok_or_else(|| format!("action not found: \"{action}\" (number from 1 to {count})"))?;
             run(host, Command::CheckAction { meeting: id, action: i, done: checked }, events)?;
-            Ok(done(host.core(), id, |m| format!("{m} · action #{} {}", i + 1, if checked { "cochée" } else { "décochée" })))
+            Ok(done(host.core(), id, |m| format!("{m} · action #{} {}", i + 1, if checked { "checked" } else { "unchecked" })))
         }
         Action::Delete { meeting } => {
             let id = meeting_named(host.core(), &meeting)?;
             // Said before: the meeting is gone after.
-            let before = done(host.core(), id, |m| format!("{m} · mise à la corbeille"));
+            let before = done(host.core(), id, |m| format!("{m} · moved to the trash"));
             run(host, Command::Delete(id), events)?;
             host.deleted(id);
             Ok(Done { meeting: None, folder_name: None, ..before })
         }
         Action::Import { files, title, speakers, process } => {
-            let mut import = host.core().propose_import(&files).map_err(|r| r.to_string())?;
+            let mut import = host.core().propose_import(&files).map_err(|r| r.english())?;
             if let Some(t) = title {
                 if t.trim().is_empty() {
-                    return Err("le titre est vide".into());
+                    return Err("the title is empty".into());
                 }
                 import.title = t.trim().to_string();
             }
             let before = events.len();
             run(host, Command::Import(import), events)?;
-            let id = events[before..].iter().find_map(|e| if let Event::MeetingImported(id) = e { Some(*id) } else { None }).ok_or("l'import n'a pas créé de réunion")?;
+            let id = events[before..].iter().find_map(|e| if let Event::MeetingImported(id) = e { Some(*id) } else { None }).ok_or("the import created no meeting")?;
             if let Some(n) = speakers {
                 run(host, Command::SpeakerCount { meeting: id, number: Some(n) }, events)?;
             }
@@ -248,8 +250,8 @@ fn execute<H: Host + ?Sized>(host: &mut H, action: Action, events: &mut Vec<Even
             let core = host.core();
             let queued = core.meeting(id).is_some_and(|m| m.status.in_queue()).then(|| queued(core, id));
             Ok(done(core, id, |m| match queued {
-                Some(q) => format!("{m} · importée, {q}"),
-                None => format!("{m} · importée"),
+                Some(q) => format!("{m} · imported, {q}"),
+                None => format!("{m} · imported"),
             }))
         }
     }

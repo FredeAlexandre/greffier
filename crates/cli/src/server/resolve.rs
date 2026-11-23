@@ -24,7 +24,7 @@ pub(super) fn meeting_named(core: &Greffier, query: &str) -> Result<MeetingId, S
     })?;
     match core.meetings().iter().find(|m| m.folder_name == name) {
         Some(m) => Ok(m.id),
-        None => Err(format!("la réunion {} est en cours d'enregistrement", identifiers.of(name).unwrap_or(name))),
+        None => Err(format!("meeting {} is still recording", identifiers.of(name).unwrap_or(name))),
     }
 }
 
@@ -36,20 +36,20 @@ pub(super) fn number(s: &str, count: usize) -> Option<usize> {
 
 /// The utterance `s` names: its number, or an instant (`h:mm:ss`, `m:ss`) inside it.
 pub(super) fn utterance(core: &Greffier, meeting: MeetingId, s: &str) -> Result<usize, String> {
-    let m = core.meeting(meeting).ok_or("réunion inconnue")?;
+    let m = core.meeting(meeting).ok_or("unknown meeting")?;
     let count = m.utterances.len();
     if count == 0 {
-        return Err("pas encore de transcription".into());
+        return Err("no transcription yet".into());
     }
-    let unknown = || format!("réplique introuvable : « {s} » (numéro de 1 à {count}, ou instant h:mm:ss)");
+    let unknown = || format!("utterance not found: \"{s}\" (number from 1 to {count}, or instant h:mm:ss)");
     if !s.contains(':') {
         return number(s, count).ok_or_else(unknown);
     }
     let t = crate::text::instant(s.trim()).ok_or_else(unknown)?;
-    m.utterances.iter().position(|u| u.start <= t && t <= u.end).ok_or_else(|| format!("aucune réplique à {}", playback_timestamp(t)))
+    m.utterances.iter().position(|u| u.start <= t && t <= u.end).ok_or_else(|| format!("no utterance at {}", playback_timestamp(t)))
 }
 
-/// Lowercase, without accents, without the « ? » of a proposed name.
+/// Lowercase, without accents, without the "?" of a proposed name.
 fn folded(s: &str) -> String {
     let s = s.trim();
     let s = s.strip_suffix('?').unwrap_or(s).trim_end();
@@ -73,9 +73,9 @@ fn folded(s: &str) -> String {
 /// The speaker `s` names, with its label: its index, its label, or the name a single voice
 /// displays (a merged speaker displays the voice replacing it).
 pub(super) fn speaker(core: &Greffier, meeting: MeetingId, s: &str) -> Result<(usize, String), String> {
-    let m = core.meeting(meeting).ok_or("réunion inconnue")?;
+    let m = core.meeting(meeting).ok_or("unknown meeting")?;
     if m.speakers.is_empty() {
-        return Err("pas encore de transcription".into());
+        return Err("no transcription yet".into());
     }
     let found = |i: usize| Ok((i, m.speakers[i].label.clone()));
     let q = s.trim();
@@ -86,17 +86,17 @@ pub(super) fn speaker(core: &Greffier, meeting: MeetingId, s: &str) -> Result<(u
         return found(i);
     }
     let wanted = folded(q);
-    // As `show --locuteurs` displays them: a merged speaker shows the voice replacing it.
+    // As `show --speakers` displays them: a merged speaker shows the voice replacing it.
     let mut voices: Vec<usize> = (0..m.speakers.len()).map(|i| m.displayed_speaker(i)).filter(|&i| folded(&m.speakers[i].display_name()) == wanted).collect();
     voices.sort_unstable();
     voices.dedup();
     match voices.as_slice() {
         [] => Err(unknown_speaker(s)),
         [i] => found(*i),
-        _ => Err(format!("plusieurs locuteurs pour « {s} » : {}", voices.iter().map(|&i| m.speakers[i].label.as_str()).collect::<Vec<_>>().join(", "))),
+        _ => Err(format!("several speakers match \"{s}\": {}", voices.iter().map(|&i| m.speakers[i].label.as_str()).collect::<Vec<_>>().join(", "))),
     }
 }
 
 fn unknown_speaker(s: &str) -> String {
-    format!("locuteur introuvable : « {s} » (index, label SPEAKER_00 ou nom affiché)")
+    format!("speaker not found: \"{s}\" (index, label SPEAKER_00 or displayed name)")
 }

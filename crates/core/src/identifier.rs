@@ -88,13 +88,13 @@ pub struct Unresolved {
 }
 
 impl fmt::Display for Unresolved {
-    /// « réunion introuvable : « 2026-12-01 » », or the candidates, one per line:
-    /// `2026-11-20-0939 · Titre`.
+    /// In English, as the command line speaks (ADR 0006): `meeting not found: "2026-12-01"`, or
+    /// the candidates, one per line: `2026-11-20-0939 · Title`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.candidates.is_empty() {
-            return write!(f, "réunion introuvable : « {} »", self.query);
+            return write!(f, "meeting not found: \"{}\"", self.query);
         }
-        write!(f, "plusieurs réunions pour « {} » :", self.query)?;
+        write!(f, "several meetings match \"{}\":", self.query)?;
         for (id, title) in &self.candidates {
             write!(f, "\n{id} · {title}")?;
         }

@@ -75,7 +75,7 @@ fn the_wire_format_is_one_json_object_per_line() {
     let rename = Request::Execute(greffier_cli::protocol::Action::Rename { meeting: "2026-11-20".into(), title: "Revue".into() });
     assert_eq!(encode(&rename), "{\"execute\":{\"rename\":{\"meeting\":\"2026-11-20\",\"title\":\"Revue\"}}}\n");
     let redo = Request::Execute(greffier_cli::protocol::Action::Redo { meeting: "x".into(), stage: greffier_cli::protocol::Stage::Review });
-    assert_eq!(encode(&redo), "{\"execute\":{\"redo\":{\"meeting\":\"x\",\"stage\":\"relecture\"}}}\n");
+    assert_eq!(encode(&redo), "{\"execute\":{\"redo\":{\"meeting\":\"x\",\"stage\":\"review\"}}}\n");
     assert_eq!(encode(&Response::error("non")), "{\"error\":{\"message\":\"non\"}}\n");
 }
 
@@ -86,7 +86,7 @@ fn a_malformed_line_gets_an_error_and_the_connection_goes_on() {
     let _l = echo_server(&socket);
     let mut c = Client::new(&socket);
     let answer: Response = serde_json::from_str(&c.line("{\"frobnicate\":1}\n")).unwrap();
-    assert!(matches!(&answer, Response::Error { message } if message.starts_with("requête illisible")), "{answer:?}");
+    assert!(matches!(&answer, Response::Error { message } if message.starts_with("unreadable request")), "{answer:?}");
     assert_eq!(c.ask(&Request::Hello), Response::Ok(Default::default()));
 }
 
@@ -149,7 +149,7 @@ fn a_socket_that_answers_is_not_taken_over() {
     let socket = server::socket_path(&t.0);
     let _first = echo_server(&socket);
     let Err(e) = server::listen(&socket, |_, _| {}) else { panic!("two listeners") };
-    assert!(e.starts_with("un autre processus Greffier répond déjà sur "), "{e}");
+    assert!(e.starts_with("another Greffier process already answers on "), "{e}");
     assert_eq!(Client::new(&socket).ask(&Request::Hello), Response::Ok(Default::default()));
 }
 
@@ -158,7 +158,7 @@ fn a_socket_path_too_long_is_refused_clearly() {
     let t = Temp::new();
     let deep = t.0.join("x".repeat(120));
     let Err(e) = server::listen(&server::socket_path(&deep), |_, _| {}) else { panic!("bound") };
-    assert!(e.starts_with("chemin du socket trop long ("), "{e}");
+    assert!(e.starts_with("socket path too long ("), "{e}");
     assert!(!deep.exists(), "nothing created");
 }
 
@@ -167,7 +167,7 @@ fn one_instance_per_app_folder() {
     let t = Temp::new();
     let lock = server::lock_instance(&t.0).expect("first");
     assert_eq!(server::lock_instance(&t.0).err(), Some(LockError::Held));
-    assert_eq!(LockError::Held.to_string(), "Greffier tourne déjà pour ce dossier de l'app");
+    assert_eq!(LockError::Held.to_string(), "Greffier is already running for this app folder");
     let other = Temp::new();
     let _other = server::lock_instance(&other.0).expect("another app folder");
     drop(lock);

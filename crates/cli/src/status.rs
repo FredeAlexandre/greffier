@@ -15,11 +15,11 @@ struct StatusJson {
     #[serde(flatten)]
     meeting: MeetingJson,
     /// Place in the queue, from 1.
-    rang: Option<usize>,
+    rank: Option<usize>,
     /// The running stage's progress, from 0 to 1.
-    progression: Option<f64>,
+    progress: Option<f64>,
     /// Seconds until processed.
-    temps_restant: Option<u64>,
+    time_remaining: Option<u64>,
 }
 
 impl StatusJson {
@@ -27,12 +27,12 @@ impl StatusJson {
         let live = e.live.as_ref();
         StatusJson {
             meeting: MeetingJson::new(e, &reading.folder),
-            rang: live.and_then(|l| l.rank),
-            progression: live.and_then(|l| match l.status {
+            rank: live.and_then(|l| l.rank),
+            progress: live.and_then(|l| match l.status {
                 Status::Running { progress, .. } => Some(progress),
                 _ => None,
             }),
-            temps_restant: live.and_then(|l| l.time_remaining).map(|t| t.max(0.0).round() as u64),
+            time_remaining: live.and_then(|l| l.time_remaining).map(|t| t.max(0.0).round() as u64),
         }
     }
 }
@@ -76,10 +76,10 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
             return Ok(crate::json(&StatusJson::new(&e, &reading)));
         }
         let m = &e.meeting;
-        let mut s = format!("{} · {}\nStatut : {}\n", e.identifier, m.title, text::status(m, e.live.as_ref()));
-        s += &format!("Étape faite : {}\n", m.completed_stage.map_or("aucune", text::stage));
+        let mut s = format!("{} · {}\nStatus: {}\n", e.identifier, m.title, text::status(m, e.live.as_ref()));
+        s += &format!("Completed stage: {}\n", m.completed_stage.map_or("none", text::stage));
         if let Status::Failed { message, .. } = &m.status {
-            s += &format!("Erreur : {message}\n");
+            s += &format!("Error: {message}\n");
         }
         return Ok(s);
     }
@@ -89,7 +89,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         return Ok(crate::json(&entries.iter().map(|e| StatusJson::new(e, &reading)).collect::<Vec<_>>()));
     }
     if entries.is_empty() {
-        return Ok("Rien en cours.\n".into());
+        return Ok("Nothing in progress.\n".into());
     }
     Ok(entries
         .iter()

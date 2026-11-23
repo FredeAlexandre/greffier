@@ -40,15 +40,15 @@ fn number(variable: &str, default: f64) -> f64 {
 }
 
 fn fail(message: impl std::fmt::Display) -> ! {
-    eprintln!("greffier-test-server : {message}");
+    eprintln!("greffier-test-server: {message}");
     std::process::exit(1);
 }
 
 fn main() {
     let background = std::env::args().any(|a| a == "--background");
-    let Some(folder) = greffier_core::settings::replaced_meetings_folder() else { fail("GREFFIER_FOLDER manque") };
+    let Some(folder) = greffier_core::settings::replaced_meetings_folder() else { fail("GREFFIER_FOLDER is missing") };
     if std::env::var_os(greffier_core::settings::APP_FOLDER_VARIABLE).is_none_or(|v| v.is_empty()) {
-        fail("GREFFIER_APP_FOLDER manque");
+        fail("GREFFIER_APP_FOLDER is missing");
     }
     let app = greffier_core::settings::app_folder();
     let speed = number("GREFFIER_TEST_SPEED", 10.0);

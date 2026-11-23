@@ -1,4 +1,4 @@
-//! `greffier show <réunion>`: a meeting, by default its header and its summary's outline (brief,
+//! `greffier show <meeting>`: a meeting, by default its header and its summary's outline (brief,
 //! topics, decisions, number of actions); or one view: the summary, the sheet, the
 //! transcription, the speakers, the actions or the passages to check. Utterances, actions and
 //! passages are numbered from 1 (`#n`); speakers by their index, as in their label (SPEAKER_00
@@ -11,31 +11,31 @@ use serde::Serialize;
 use crate::reading::{Entry, MeetingJson, Reading};
 use crate::{Context, Failure, HELP, args, text};
 
-const VIEWS: [&str; 6] = ["--bilan", "--transcription", "--fiche", "--locuteurs", "--actions", "--passages"];
+const VIEWS: [&str; 6] = ["--summary", "--transcription", "--sheet", "--speakers", "--actions", "--passages"];
 
 pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
-    let a = args::parse(args, &["--json", "--numeros", "--bilan", "--transcription", "--fiche", "--locuteurs", "--actions", "--passages"], &["--from", "--to"])?;
+    let a = args::parse(args, &["--json", "--numbers", "--summary", "--transcription", "--sheet", "--speakers", "--actions", "--passages"], &["--from", "--to"])?;
     if a.help() {
         return Ok(HELP.into());
     }
     let views: Vec<&str> = VIEWS.into_iter().filter(|v| a.flag(v)).collect();
     if views.len() > 1 {
-        return Err(Failure::Usage(format!("une seule vue à la fois : {}", views.join(" ou "))));
+        return Err(Failure::Usage(format!("one view at a time: {}", views.join(" or "))));
     }
     let view = views.first().copied();
     let windowed = matches!(view, Some("--transcription" | "--passages"));
     if !windowed && (a.value("--from").is_some() || a.value("--to").is_some()) {
-        return Err(Failure::Usage("--from et --to vont avec --transcription ou --passages".into()));
+        return Err(Failure::Usage("--from and --to go with --transcription or --passages".into()));
     }
-    if view != Some("--transcription") && a.flag("--numeros") {
-        return Err(Failure::Usage("--numeros va avec --transcription".into()));
+    if view != Some("--transcription") && a.flag("--numbers") {
+        return Err(Failure::Usage("--numbers goes with --transcription".into()));
     }
     let instant = |option: &str| -> Result<Option<f64>, Failure> {
-        a.value(option).map(|t| text::instant(t).ok_or_else(|| Failure::Usage(format!("instant invalide : « {t} » (h:mm:ss, m:ss ou secondes)")))).transpose()
+        a.value(option).map(|t| text::instant(t).ok_or_else(|| Failure::Usage(format!("invalid instant: \"{t}\" (h:mm:ss, m:ss or seconds)")))).transpose()
     };
     let window = Window { from: instant("--from")?, to: instant("--to")? };
     let Some(query) = a.positionals.first() else {
-        return Err(Failure::Usage("il manque la réunion".into()));
+        return Err(Failure::Usage("missing the meeting".into()));
     };
     a.at_most(1)?;
     let reading = Reading::open(cx)?;
@@ -43,10 +43,10 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     let json = a.flag("--json");
     match view {
         None => default(&reading, &e, json),
-        Some("--bilan") => summary(&e, json),
-        Some("--fiche") => sheet(&reading, &e, json),
-        Some("--transcription") => transcription(&e, window, a.flag("--numeros"), json),
-        Some("--locuteurs") => speakers(&e, json),
+        Some("--summary") => summary(&e, json),
+        Some("--sheet") => sheet(&reading, &e, json),
+        Some("--transcription") => transcription(&e, window, a.flag("--numbers"), json),
+        Some("--speakers") => speakers(&e, json),
         Some("--actions") => actions(&e, json),
         _ => passages(&e, window, json),
     }
@@ -78,40 +78,40 @@ fn summary_text(m: &Meeting) -> Option<String> {
 }
 
 fn no_summary(e: &Entry) -> Failure {
-    Failure::Failed(format!("pas encore de bilan pour {} {}", e.identifier, text::completed_stage(&e.meeting)))
+    Failure::Failed(format!("no summary yet for {} {}", e.identifier, text::completed_stage(&e.meeting)))
 }
 
 fn no_transcription(e: &Entry) -> Failure {
-    Failure::Failed(format!("pas encore de transcription pour {}", e.identifier))
+    Failure::Failed(format!("no transcription yet for {}", e.identifier))
 }
 
 #[derive(Serialize)]
 struct ShowJson {
     #[serde(flatten)]
     meeting: MeetingJson,
-    locuteurs: Vec<SpeakerJson>,
+    speakers: Vec<SpeakerJson>,
     /// The summary's outline; each `null` until there is one.
-    en_bref: Option<String>,
-    sujets: Option<Vec<MomentJson>>,
+    brief: Option<String>,
+    topics: Option<Vec<MomentJson>>,
     decisions: Option<Vec<MomentJson>>,
     /// The number of actions: the summary's checkboxes, as `--actions` numbers them.
     actions: Option<usize>,
 }
 
-/// A topic (`titre`) or a decision (`texte`) of the summary, at its moment.
+/// A topic (`title`) or a decision (`text`) of the summary, at its moment.
 #[derive(Serialize)]
 struct MomentJson {
     /// In seconds.
-    debut: f64,
-    horodatage: String,
+    start: f64,
+    timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    titre: Option<String>,
+    title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    texte: Option<String>,
+    text: Option<String>,
 }
 
 /// What the default view shows of the summary: the brief, the topics, the decisions and how
-/// many actions; the rest is `--bilan`'s, so that a long meeting stays a few lines.
+/// many actions; the rest is `--summary`'s, so that a long meeting stays a few lines.
 struct Outline {
     brief: String,
     topics: Vec<Topic>,
@@ -129,21 +129,21 @@ impl Outline {
     fn text(&self) -> String {
         let mut s = String::new();
         if !self.brief.is_empty() {
-            s += &format!("En bref : {}\n", self.brief);
+            s += &format!("Brief: {}\n", self.brief);
         }
         if !self.topics.is_empty() {
-            s += "Sujets :\n";
+            s += "Topics:\n";
             s += &self.topics.iter().map(|t| format!("  [{}] {}\n", playback_timestamp(t.start), t.title)).collect::<String>();
         }
         match self.decisions.as_slice() {
-            [] => s += "Décisions : aucune\n",
+            [] => s += "Decisions: none\n",
             d => {
-                s += "Décisions :\n";
+                s += "Decisions:\n";
                 s += &d.iter().map(|d| format!("  [{}] {}\n", playback_timestamp(d.instant), d.text)).collect::<String>();
             }
         }
-        s += &format!("Actions : {}\n", self.actions);
-        s + "Suite : --bilan (bilan complet), --actions, --transcription --from h:mm:ss --to h:mm:ss (un passage)\n"
+        s += &format!("Actions: {}\n", self.actions);
+        s + "Next: --summary for the full summary, --transcription --from h:mm:ss --to h:mm:ss for what was said.\n"
     }
 }
 
@@ -153,33 +153,33 @@ fn default(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> 
     let m = &e.meeting;
     let outline = Outline::of(m);
     if json {
-        let moment = |t: f64, titre: Option<String>, texte: Option<String>| MomentJson { debut: t, horodatage: playback_timestamp(t), titre, texte };
+        let moment = |t: f64, title: Option<String>, text: Option<String>| MomentJson { start: t, timestamp: playback_timestamp(t), title, text };
         return Ok(crate::json(&ShowJson {
             meeting: MeetingJson::new(e, &reading.folder),
-            locuteurs: speaker_list(m),
-            en_bref: outline.as_ref().map(|o| o.brief.clone()),
-            sujets: outline.as_ref().map(|o| o.topics.iter().map(|t| moment(t.start, Some(t.title.clone()), None)).collect()),
+            speakers: speaker_list(m),
+            brief: outline.as_ref().map(|o| o.brief.clone()),
+            topics: outline.as_ref().map(|o| o.topics.iter().map(|t| moment(t.start, Some(t.title.clone()), None)).collect()),
             decisions: outline.as_ref().map(|o| o.decisions.iter().map(|d| moment(d.instant, None, Some(d.text.clone()))).collect()),
             actions: outline.as_ref().map(|o| o.actions),
         }));
     }
-    let mut s = format!("{} · {}\n{} · {} · {}\n", e.identifier, m.title, m.start.timestamp(), playback_timestamp(m.duration), text::status(m, e.live.as_ref()));
+    let mut s = format!("{} · {}\n{} · {} · {}\n", e.identifier, m.title, text::start(m.start), playback_timestamp(m.duration), text::status(m, e.live.as_ref()));
     if let greffier_core::Status::Failed { message, .. } = &m.status {
-        s += &format!("Erreur : {message}\n");
+        s += &format!("Error: {message}\n");
     }
     let shown: Vec<(String, &str)> = m.active_speakers().map(|i| (m.speakers[i].display_name(), m.speakers[i].label.as_str())).collect();
     // A name two voices share comes with their labels.
     let names: Vec<String> = shown.iter().map(|(n, l)| if shown.iter().filter(|(o, _)| o == n).count() > 1 { format!("{n} ({l})") } else { n.clone() }).collect();
     if !names.is_empty() {
-        s += &format!("Locuteurs : {}\n", names.join(", "));
+        s += &format!("Speakers: {}\n", names.join(", "));
     }
-    s += &format!("Dossier : {}\n", reading.folder.folder(&m.folder_name).display());
+    s += &format!("Folder: {}\n", reading.folder.folder(&m.folder_name).display());
     match outline {
         Some(outline) => s += &outline.text(),
         None => {
-            s += &format!("Pas encore de bilan {}.\n", text::completed_stage(m));
+            s += &format!("No summary yet {}.\n", text::completed_stage(m));
             if !m.utterances.is_empty() {
-                s += "Suite : --transcription [--from h:mm:ss --to h:mm:ss]\n";
+                s += "Next: --transcription [--from h:mm:ss --to h:mm:ss] for what was said.\n";
             }
         }
     }
@@ -189,36 +189,36 @@ fn default(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> 
 fn summary(e: &Entry, json: bool) -> Result<String, Failure> {
     let s = summary_text(&e.meeting).ok_or_else(|| no_summary(e))?;
     if json {
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "bilan": s })));
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "summary": s })));
     }
     Ok(s)
 }
 
 fn sheet(reading: &Reading, e: &Entry, json: bool) -> Result<String, Failure> {
-    let missing = || Failure::Failed(format!("pas de fiche pour {}", e.identifier));
+    let missing = || Failure::Failed(format!("no sheet for {}", e.identifier));
     if !e.meeting.files.contains(&Role::Sheet) {
         return Err(missing());
     }
     let s = std::fs::read_to_string(reading.folder.file(&e.meeting.folder_name, Role::Sheet)).map_err(|_| missing())?;
     if json {
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "fiche": s })));
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "sheet": s })));
     }
     Ok(s)
 }
 
 #[derive(Serialize)]
 struct UtteranceJson {
-    numero: usize,
+    number: usize,
     /// In seconds.
-    debut: f64,
-    fin: f64,
+    start: f64,
+    end: f64,
     /// `0:44:12`
-    horodatage: String,
-    /// The displayed name (confirmed, otherwise proposed « Khalid ? », otherwise the label).
-    locuteur: String,
+    timestamp: String,
+    /// The displayed name (confirmed, otherwise proposed "Khalid ?", otherwise the label).
+    speaker: String,
     /// The displayed speaker's label (merges followed).
     label: String,
-    texte: String,
+    text: String,
 }
 
 fn transcription(e: &Entry, window: Window, numbered: bool, json: bool) -> Result<String, Failure> {
@@ -233,20 +233,20 @@ fn transcription(e: &Entry, window: Window, numbered: bool, json: bool) -> Resul
         .filter(|(_, u)| window.keeps(u.start, u.end))
         .map(|(i, u)| {
             let speaker = &m.speakers[m.displayed_speaker(u.speaker)];
-            UtteranceJson { numero: i + 1, debut: u.start, fin: u.end, horodatage: playback_timestamp(u.start), locuteur: speaker.display_name(), label: speaker.label.clone(), texte: u.text.clone() }
+            UtteranceJson { number: i + 1, start: u.start, end: u.end, timestamp: playback_timestamp(u.start), speaker: speaker.display_name(), label: speaker.label.clone(), text: u.text.clone() }
         })
         .collect();
     if json {
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "repliques": kept })));
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "utterances": kept })));
     }
     if kept.is_empty() {
-        return Ok("Aucune réplique dans cet intervalle.\n".into());
+        return Ok("No utterances in this range.\n".into());
     }
     Ok(kept
         .iter()
         .map(|u| {
-            let number = if numbered { format!("#{} ", u.numero) } else { String::new() };
-            format!("{number}[{}] {} : {}\n", u.horodatage, u.locuteur, u.texte)
+            let number = if numbered { format!("#{} ", u.number) } else { String::new() };
+            format!("{number}[{}] {}: {}\n", u.timestamp, u.speaker, u.text)
         })
         .collect())
 }
@@ -257,15 +257,15 @@ struct SpeakerJson {
     index: usize,
     label: String,
     /// The name confirmed by the user (merges followed).
-    nom: Option<String>,
+    name: Option<String>,
     /// The name the summary proposes, not confirmed.
-    proposition: Option<String>,
-    /// What the UI displays: « Alexandre », « Khalid ? », « SPEAKER_02 ».
-    affiche: String,
+    proposal: Option<String>,
+    /// What the UI displays: "Alexandre", "Khalid ?", "SPEAKER_02".
+    displayed: String,
     /// The label of the speaker it is merged into.
-    fusionne_dans: Option<String>,
+    merged_into: Option<String>,
     /// Seconds of speech (0 for a merged speaker: counted with the one replacing it).
-    temps_de_parole: u64,
+    speaking_time: u64,
 }
 
 /// Seconds of speech of a displayed speaker, merged ones included.
@@ -281,11 +281,11 @@ fn speaker_list(m: &Meeting) -> Vec<SpeakerJson> {
             SpeakerJson {
                 index: i,
                 label: m.speakers[i].label.clone(),
-                nom: shown.name.clone(),
-                proposition: shown.proposal.clone().filter(|_| shown.name.is_none()),
-                affiche: shown.display_name(),
-                temps_de_parole: if merged.is_some() { 0 } else { speech(m, i).round() as u64 },
-                fusionne_dans: merged,
+                name: shown.name.clone(),
+                proposal: shown.proposal.clone().filter(|_| shown.name.is_none()),
+                displayed: shown.display_name(),
+                speaking_time: if merged.is_some() { 0 } else { speech(m, i).round() as u64 },
+                merged_into: merged,
             }
         })
         .collect()
@@ -298,17 +298,17 @@ fn speakers(e: &Entry, json: bool) -> Result<String, Failure> {
     }
     let list = speaker_list(m);
     if json {
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "locuteurs": list })));
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "speakers": list })));
     }
     let total: f64 = m.utterances.iter().map(|u| u.end - u.start).sum();
     Ok(list
         .iter()
-        .map(|l| match &l.fusionne_dans {
-            Some(into) => format!("{} · {} · {} · fusionné dans {into}\n", l.index, l.label, l.affiche),
+        .map(|l| match &l.merged_into {
+            Some(into) => format!("{} · {} · {} · merged into {into}\n", l.index, l.label, l.displayed),
             None => {
                 let own = speech(m, l.index);
                 let share = if total > 0.0 { own / total * 100.0 } else { 0.0 };
-                format!("{} · {} · {} · {} · {share:.0} %\n", l.index, l.label, l.affiche, playback_timestamp(own))
+                format!("{} · {} · {} · {} · {share:.0} %\n", l.index, l.label, l.displayed, playback_timestamp(own))
             }
         })
         .collect())
@@ -320,30 +320,30 @@ fn actions(e: &Entry, json: bool) -> Result<String, Failure> {
     }
     let boxes = checkboxes(&e.meeting.summary);
     if json {
-        let list: Vec<_> = boxes.iter().enumerate().map(|(i, (done, t))| serde_json::json!({ "numero": i + 1, "fait": done, "texte": t })).collect();
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "actions": list })));
+        let list: Vec<_> = boxes.iter().enumerate().map(|(i, (done, t))| serde_json::json!({ "number": i + 1, "done": done, "text": t })).collect();
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "actions": list })));
     }
     if boxes.is_empty() {
-        return Ok("Aucune action.\n".into());
+        return Ok("No actions.\n".into());
     }
     Ok(boxes.iter().enumerate().map(|(i, (done, t))| format!("#{} [{}] {t}\n", i + 1, if *done { "x" } else { " " })).collect())
 }
 
 #[derive(Serialize)]
 struct PassageJson {
-    numero: usize,
-    /// The number of its utterance (as in `--transcription --numeros`).
-    replique: usize,
+    number: usize,
+    /// The number of its utterance (as in `--transcription --numbers`).
+    utterance: usize,
     /// Its utterance's start, in seconds.
-    debut: f64,
-    horodatage: String,
-    extrait: String,
-    hypothese: Option<String>,
+    start: f64,
+    timestamp: String,
+    excerpt: String,
+    hypothesis: Option<String>,
     /// What the relisten heard.
-    reecoute: String,
-    /// `a_verifier`, `hypothese_acceptee`, `original_garde` or `corrige`.
-    statut: &'static str,
-    /// The user's correction, if `corrige`.
+    relisten: String,
+    /// `to_check`, `hypothesis_accepted`, `original_kept` or `corrected`.
+    status: &'static str,
+    /// The user's correction, if `corrected`.
     correction: Option<String>,
 }
 
@@ -359,43 +359,43 @@ fn passages(e: &Entry, window: Window, json: bool) -> Result<String, Failure> {
         .filter_map(|(i, p)| {
             let u = m.utterances.get(p.utterance)?;
             window.keeps(u.start, u.end).then(|| {
-                let (statut, correction) = match &p.status {
-                    PassageStatus::Pending => ("a_verifier", None),
-                    PassageStatus::HypothesisAccepted => ("hypothese_acceptee", None),
-                    PassageStatus::OriginalKept => ("original_garde", None),
-                    PassageStatus::CorrectedManually(t) => ("corrige", Some(t.clone())),
+                let (status, correction) = match &p.status {
+                    PassageStatus::Pending => ("to_check", None),
+                    PassageStatus::HypothesisAccepted => ("hypothesis_accepted", None),
+                    PassageStatus::OriginalKept => ("original_kept", None),
+                    PassageStatus::CorrectedManually(t) => ("corrected", Some(t.clone())),
                 };
                 PassageJson {
-                    numero: i + 1,
-                    replique: p.utterance + 1,
-                    debut: u.start,
-                    horodatage: playback_timestamp(u.start),
-                    extrait: p.excerpt.clone(),
-                    hypothese: p.hypothesis.clone(),
-                    reecoute: p.relisten.clone(),
-                    statut,
+                    number: i + 1,
+                    utterance: p.utterance + 1,
+                    start: u.start,
+                    timestamp: playback_timestamp(u.start),
+                    excerpt: p.excerpt.clone(),
+                    hypothesis: p.hypothesis.clone(),
+                    relisten: p.relisten.clone(),
+                    status,
                     correction,
                 }
             })
         })
         .collect();
     if json {
-        return Ok(crate::json(&serde_json::json!({ "identifiant": e.identifier, "passages": kept })));
+        return Ok(crate::json(&serde_json::json!({ "identifier": e.identifier, "passages": kept })));
     }
     if kept.is_empty() {
-        return Ok(if m.passages.is_empty() { "Aucun passage à vérifier.\n" } else { "Aucun passage à vérifier dans cet intervalle.\n" }.into());
+        return Ok(if m.passages.is_empty() { "No passages to check.\n" } else { "No passages to check in this range.\n" }.into());
     }
     Ok(kept
         .iter()
         .map(|p| {
-            let what = match (p.statut, &p.hypothese, &p.correction) {
-                ("a_verifier", Some(h), _) => format!("à vérifier : « {} » (hypothèse : « {h} »)", p.extrait),
-                ("a_verifier", None, _) => format!("à vérifier : « {} »", p.extrait),
-                ("hypothese_acceptee", h, _) => format!("hypothèse acceptée : « {} » → « {} »", p.extrait, h.as_deref().unwrap_or(&p.extrait)),
-                ("corrige", _, Some(c)) => format!("corrigé : « {} » → « {c} »", p.extrait),
-                _ => format!("gardé tel quel : « {} »", p.extrait),
+            let what = match (p.status, &p.hypothesis, &p.correction) {
+                ("to_check", Some(h), _) => format!("to check: \"{}\" (hypothesis: \"{h}\")", p.excerpt),
+                ("to_check", None, _) => format!("to check: \"{}\"", p.excerpt),
+                ("hypothesis_accepted", h, _) => format!("hypothesis accepted: \"{}\" → \"{}\"", p.excerpt, h.as_deref().unwrap_or(&p.excerpt)),
+                ("corrected", _, Some(c)) => format!("corrected: \"{}\" → \"{c}\"", p.excerpt),
+                _ => format!("kept as is: \"{}\"", p.excerpt),
             };
-            format!("#{} [{}] {what} · réplique #{}\n", p.numero, p.horodatage, p.replique)
+            format!("#{} [{}] {what} · utterance #{}\n", p.number, p.timestamp, p.utterance)
         })
         .collect())
 }

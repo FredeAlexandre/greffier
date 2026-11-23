@@ -1,47 +1,82 @@
-//! The command line's wording, the same as the UI's (`crates/app/src/ui.rs`): stages, statuses,
-//! durations; and reading the dates and instants a user or an agent types.
+//! The command line's wording, in English with the glossary's terms (ADR 0006): stages,
+//! statuses, durations, and their names in JSON; and reading the dates and instants a user or
+//! an agent types.
 
-use greffier_core::{Meeting, Stage, Status};
+use greffier_core::{DateTime, Meeting, Stage, Status};
 
 use crate::Live;
 
-/// A stage's name, as in the UI.
+/// A stage's name: Transcription, Review, Summary.
 pub(crate) fn stage(e: Stage) -> &'static str {
     match e {
         Stage::Transcription => "Transcription",
-        Stage::Review => "Relecture IA",
-        Stage::Summary => "Bilan IA",
+        Stage::Review => "Review",
+        Stage::Summary => "Summary",
     }
 }
 
-/// « (étape faite : Transcription) », « (aucune étape faite) ».
+/// A stage's name in JSON and on the command line (`redo`): `transcription`, `review`, `summary`.
+pub(crate) fn stage_name(e: Stage) -> &'static str {
+    match e {
+        Stage::Transcription => "transcription",
+        Stage::Review => "review",
+        Stage::Summary => "summary",
+    }
+}
+
+/// A status's name in JSON.
+pub(crate) fn status_name(s: &Status) -> &'static str {
+    match s {
+        Status::Recording => "recording",
+        Status::RecordingInterrupted => "recording_interrupted",
+        Status::ToProcess => "to_process",
+        Status::Pending(_) => "queued",
+        Status::Running { .. } => "running",
+        Status::Failed { .. } => "failed",
+        Status::Done => "done",
+    }
+}
+
+/// "(completed stage: Transcription)", "(no stage completed)".
 pub(crate) fn completed_stage(m: &Meeting) -> String {
     match m.completed_stage {
-        Some(e) => format!("(étape faite : {})", stage(e)),
-        None => "(aucune étape faite)".into(),
+        Some(e) => format!("(completed stage: {})", stage(e)),
+        None => "(no stage completed)".into(),
     }
 }
 
-/// A meeting's status in a line, as in the UI's sidebar: « à traiter », « échec : Relecture
-/// IA », « terminée, 2 à vérifier »; with the running process's data, where it stands in the
-/// queue: « 2ᵉ dans la file · 15 min », « Transcription 40 % · 7 min ».
+/// "1st", "2nd", "3rd", "4th", "11th", "21st"…
+pub(crate) fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// A meeting's status in a line: "to process", "failed: Review", "done, 2 to check"; with the
+/// running process's data, where it stands in the queue: "2nd in queue · 15 min",
+/// "Transcription 40 % · 7 min".
 pub(crate) fn status(m: &Meeting, live: Option<&Live>) -> String {
     let eta = live.and_then(|l| l.time_remaining).map(|t| format!(" · {}", duration(t.max(60.0)))).unwrap_or_default();
     match (&m.status, live) {
-        (Status::Recording, _) => "enregistrement en cours".into(),
-        (Status::RecordingInterrupted, _) => "enregistrement interrompu".into(),
-        (Status::ToProcess, _) => "à traiter".into(),
-        (Status::Pending(_), Some(Live { rank: Some(r), .. })) => format!("{r}ᵉ dans la file{eta}"),
-        (Status::Pending(_), _) => format!("en attente{eta}"),
+        (Status::Recording, _) => "recording".into(),
+        (Status::RecordingInterrupted, _) => "recording interrupted".into(),
+        (Status::ToProcess, _) => "to process".into(),
+        (Status::Pending(_), Some(Live { rank: Some(r), .. })) => format!("{} in queue{eta}", ordinal(*r)),
+        (Status::Pending(_), _) => format!("queued{eta}"),
         (Status::Running { stage: e, progress }, Some(_)) => format!("{} {:.0} %{eta}", stage(*e), progress * 100.0),
-        (Status::Running { stage: e, .. }, None) => format!("{} en cours", stage(*e)),
-        (Status::Failed { stage: e, .. }, _) => format!("échec : {}", stage(*e)),
-        (Status::Done, _) if m.pending_passages() > 0 => format!("terminée, {} à vérifier", m.pending_passages()),
-        (Status::Done, _) => "terminée".into(),
+        (Status::Running { stage: e, .. }, None) => format!("{} running", stage(*e)),
+        (Status::Failed { stage: e, .. }, _) => format!("failed: {}", stage(*e)),
+        (Status::Done, _) if m.pending_passages() > 0 => format!("done, {} to check", m.pending_passages()),
+        (Status::Done, _) => "done".into(),
     }
 }
 
-/// 2 h 34, 50 min, 42 s (as the UI's).
+/// 2 h 34, 50 min, 42 s.
 pub(crate) fn duration(t: f64) -> String {
     let t = t.max(0.0) as u64;
     match (t / 3600, (t / 60) % 60) {
@@ -51,10 +86,15 @@ pub(crate) fn duration(t: f64) -> String {
     }
 }
 
+/// "2026-11-20 10:00", a meeting's start.
+pub(crate) fn start(t: DateTime) -> String {
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute)
+}
+
 /// A calendar day, comparable: (year, month, day).
 pub(crate) type Day = (i32, u8, u8);
 
-/// `AAAA-MM-JJ` gives that day, `AAAA-MM` the whole month: the first and last days.
+/// `YYYY-MM-DD` gives that day, `YYYY-MM` the whole month: the first and last days.
 pub(crate) fn days(s: &str) -> Option<(Day, Day)> {
     let number = |x: &str, n: usize| (x.len() == n && x.bytes().all(|c| c.is_ascii_digit())).then(|| x.parse::<u32>().ok()).flatten();
     let parts: Vec<&str> = s.split('-').collect();

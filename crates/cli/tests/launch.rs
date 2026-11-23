@@ -83,7 +83,7 @@ fn a_write_launches_greffier_in_the_background() {
     assert!(!s.answering());
     let o = run_in(&s.cx(10.0, 60.0), &["rename", "2026-11-20", "Revue", "lancée"]);
     assert_eq!(o.code, 0, "{}", o.err);
-    assert_eq!(o.out, "2026-11-20-1000 · renommée : Revue lancée\n");
+    assert_eq!(o.out, "2026-11-20-1000 · renamed: Revue lancée\n");
     assert!(s.folder.0.join("2026-11-20 10h00 - Revue lancée").is_dir(), "renamed on disk");
     assert!(!s.folder.0.join(RELEASE).exists());
     assert!(s.answering() && s.locked(), "it keeps running");
@@ -116,7 +116,7 @@ fn a_process_that_keeps_exiting_is_given_up_after_a_few_launches() {
     let start = Instant::now();
     let o = run_in(&s.cx(10.0, 60.0), &["rename", "2026-11-20", "Revue"]);
     assert_eq!(o.code, 3, "{}", o.err);
-    assert!(o.err.starts_with(&format!("greffier : Greffier ne répond pas sur {}.", s.socket().display())), "{}", o.err);
+    assert!(o.err.starts_with(&format!("greffier: Greffier does not answer on {}.", s.socket().display())), "{}", o.err);
     assert!(start.elapsed() < Duration::from_secs(10), "without waiting for the 15 s: {:?}", start.elapsed());
     assert!(s.folder.0.join(RELEASE).is_dir());
 }
@@ -129,8 +129,8 @@ fn import_waits_until_the_meeting_is_done() {
     assert_eq!(o.code, 0, "{}", o.err);
     let lines: Vec<&str> = o.out.lines().collect();
     assert_eq!(lines.len(), 2, "{}", o.out);
-    assert_eq!(lines[1], format!("{} · terminée · Point produit : maquettes bookmarks, staging", lines[0]));
-    let shown = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), app_folder: None, live: None, process: None }, &["show", lines[0], "--bilan"]);
+    assert_eq!(lines[1], format!("{} · done · Point produit : maquettes bookmarks, staging", lines[0]));
+    let shown = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), app_folder: None, live: None, process: None }, &["show", lines[0], "--summary"]);
     assert_eq!(shown.code, 0, "{}", shown.err);
     assert!(shown.out.starts_with("## En bref"), "{}", shown.out);
 }
@@ -150,8 +150,8 @@ fn status_shows_the_live_progress_while_processing() {
     assert!(line.starts_with(&format!("{id} · Transcription ")) && line.contains(" % · "), "{line}");
     let o = run_in(&cx, &["status", &id, "--json"]);
     let v: serde_json::Value = serde_json::from_str(&o.out).unwrap_or_else(|e| panic!("{e}: {} {}", o.out, o.err));
-    assert_eq!(v["statut"], "en_cours");
-    assert_eq!(v["rang"], 1);
+    assert_eq!(v["status"], "running");
+    assert_eq!(v["rank"], 1);
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn a_second_process_on_the_same_app_folder_refuses_to_start() {
         .output()
         .expect("runs");
     assert_eq!(second.status.code(), Some(1));
-    assert_eq!(String::from_utf8_lossy(&second.stderr), "greffier-test-server : Greffier tourne déjà pour ce dossier de l'app\n");
+    assert_eq!(String::from_utf8_lossy(&second.stderr), "greffier-test-server: Greffier is already running for this app folder\n");
     assert!(s.answering(), "the first one still answers");
 }
 
@@ -195,5 +195,5 @@ fn the_test_host_never_runs_on_the_real_folders() {
     assert_eq!(o.status.code(), Some(1));
     let app = Temp::new();
     let o = Command::new(env!("CARGO_BIN_EXE_greffier-test-server")).env("GREFFIER_FOLDER", Path::new(&app.0)).env_remove("GREFFIER_APP_FOLDER").output().expect("runs");
-    assert_eq!(String::from_utf8_lossy(&o.stderr), "greffier-test-server : GREFFIER_APP_FOLDER manque\n");
+    assert_eq!(String::from_utf8_lossy(&o.stderr), "greffier-test-server: GREFFIER_APP_FOLDER is missing\n");
 }

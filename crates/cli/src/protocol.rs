@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// The protocol's version, given by [`Request::Hello`]: the command line refuses a process
 /// that speaks another one.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// A request, one JSON line: `"hello"`, `{"status":{"meeting":null}}`,
 /// `{"execute":{"rename":{"meeting":"2026-11-20","title":"Revue"}}}`, `"open_window"`.
@@ -65,9 +65,7 @@ pub enum Action {
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
     Transcription,
-    #[serde(rename = "relecture")]
     Review,
-    #[serde(rename = "bilan")]
     Summary,
 }
 
@@ -119,7 +117,7 @@ pub enum Response {
     Hello(Hello),
     Status(Snapshot),
     Ok(Done),
-    /// The request was refused or failed; nothing changed. `message` is in French.
+    /// The request was refused or failed; nothing changed. `message` is in English.
     Error { message: String },
 }
 
@@ -152,7 +150,6 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LiveMeeting {
     /// Its identifier (`2026-11-20-0939`).
-    #[serde(rename = "identifiant")]
     pub identifier: Option<String>,
     pub folder_name: String,
     pub title: String,
@@ -209,7 +206,7 @@ impl From<&LiveStatus> for greffier_core::Status {
 /// A request carried out.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Done {
-    /// One short line in French: « 2026-11-20-1000 · renommée : Revue ».
+    /// One short line in English: "2026-11-20-1000 · renamed: Review".
     pub message: String,
     /// The meeting's identifier after the action (the new meeting's, for an import).
     pub meeting: Option<String>,

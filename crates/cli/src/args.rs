@@ -1,4 +1,4 @@
-//! Hand-written argument parsing, with French messages: after the command, options and
+//! Hand-written argument parsing: after the command, options and
 //! positional arguments in any order, `--name value` or `--name=value`; after `--`, only
 //! positional arguments (a text that starts with `-`).
 
@@ -31,14 +31,14 @@ pub(crate) fn parse(args: &[String], flags: &[&'static str], valued: &[&'static 
         };
         if let Some(&f) = flags.iter().chain(&["--help", "-h"]).find(|f| **f == name) {
             if inline.is_some() {
-                return Err(Failure::Usage(format!("{f} ne prend pas de valeur")));
+                return Err(Failure::Usage(format!("{f} takes no value")));
             }
             parsed.flags.push(f);
         } else if let Some(&v) = valued.iter().find(|v| **v == name) {
-            let value = inline.or_else(|| it.next().cloned()).ok_or_else(|| Failure::Usage(format!("{v} attend une valeur")))?;
+            let value = inline.or_else(|| it.next().cloned()).ok_or_else(|| Failure::Usage(format!("{v} needs a value")))?;
             parsed.values.push((v, value));
         } else {
-            return Err(Failure::Usage(format!("option inconnue : {name}")));
+            return Err(Failure::Usage(format!("unknown option: {name}")));
         }
     }
     Ok(parsed)
@@ -66,7 +66,7 @@ impl Args {
     /// Fails if there are more than `n` positional arguments.
     pub fn at_most(&self, n: usize) -> Result<(), Failure> {
         match self.positionals.get(n) {
-            Some(extra) => Err(Failure::Usage(format!("argument en trop : « {extra} »"))),
+            Some(extra) => Err(Failure::Usage(format!("extra argument: \"{extra}\""))),
             None => Ok(()),
         }
     }

@@ -44,7 +44,7 @@ fn failed(cx: &Context, args: &[&str], code: i32) -> Output {
 fn rename_goes_through_the_process() {
     let s = serve(fixtures(), adapters, 0.0);
     let cx = cx(&s);
-    assert_eq!(ok(&cx, &["rename", "2026-11-20", "Revue", "de", "la", "1.4"]), "2026-11-20-1000 · renommée : Revue de la 1.4\n");
+    assert_eq!(ok(&cx, &["rename", "2026-11-20", "Revue", "de", "la", "1.4"]), "2026-11-20-1000 · renamed: Revue de la 1.4\n");
     assert!(s.folder.0.join("2026-11-20 10h00 - Revue de la 1.4").is_dir());
     assert!(!s.folder.0.join(RELEASE).exists());
 }
@@ -54,20 +54,20 @@ fn every_command_that_writes_says_what_it_did_in_one_line() {
     let s = serve(fixtures(), adapters, 0.0);
     let cx = cx(&s);
     for (args, said) in [
-        (&["speaker", "name", "2026-11-20", "1", "Khalid", "B."][..], "2026-11-20-1000 · SPEAKER_01 : Khalid B.\n"),
-        (&["speaker", "merge", "2026-11-20", "SPEAKER_01", "0"], "2026-11-20-1000 · SPEAKER_01 fusionné dans SPEAKER_00\n"),
-        (&["speaker", "split", "2026-11-20", "SPEAKER_01"], "2026-11-20-1000 · SPEAKER_01 séparé\n"),
-        (&["correct", "2026-11-20", "#2", "Oui,", "si", "la", "recette", "passe", "jeudi."], "2026-11-20-1000 · réplique #2 corrigée\n"),
-        (&["resolve", "2026-11-20", "1", "corriger", "l'équipe", "support"], "2026-11-20-1000 · passage #1 : corrigé\n"),
-        (&["resolve", "2026-11-20", "#1", "rouvrir"], "2026-11-20-1000 · passage #1 : rouvert\n"),
-        (&["resolve", "2026-11-20", "1", "accepter"], "2026-11-20-1000 · passage #1 : hypothèse acceptée\n"),
-        (&["resolve", "2026-11-20", "1", "garder"], "2026-11-20-1000 · passage #1 : original gardé\n"),
-        (&["check-action", "2026-11-20", "1"], "2026-11-20-1000 · action #1 cochée\n"),
-        (&["check-action", "2026-11-20", "1", "--undo"], "2026-11-20-1000 · action #1 décochée\n"),
-        (&["redo", "2026-11-20", "bilan"], "2026-11-20-1000 · dans la file : Bilan IA\n"),
-        (&["stop", "2026-11-20"], "2026-11-20-1000 · traitement arrêté\n"),
-        (&["process", "2026-11-19", "--speakers", "4"], "2026-11-19-1530 · dans la file : Transcription\n"),
-        (&["delete", "2026-11-18", "--yes"], "2026-11-18-0915 · mise à la corbeille\n"),
+        (&["speaker", "name", "2026-11-20", "1", "Khalid", "B."][..], "2026-11-20-1000 · SPEAKER_01: Khalid B.\n"),
+        (&["speaker", "merge", "2026-11-20", "SPEAKER_01", "0"], "2026-11-20-1000 · SPEAKER_01 merged into SPEAKER_00\n"),
+        (&["speaker", "split", "2026-11-20", "SPEAKER_01"], "2026-11-20-1000 · SPEAKER_01 split\n"),
+        (&["correct", "2026-11-20", "#2", "Oui,", "si", "la", "recette", "passe", "jeudi."], "2026-11-20-1000 · utterance #2 corrected\n"),
+        (&["resolve", "2026-11-20", "1", "correct", "l'équipe", "support"], "2026-11-20-1000 · passage #1: corrected\n"),
+        (&["resolve", "2026-11-20", "#1", "reopen"], "2026-11-20-1000 · passage #1: reopened\n"),
+        (&["resolve", "2026-11-20", "1", "accept"], "2026-11-20-1000 · passage #1: hypothesis accepted\n"),
+        (&["resolve", "2026-11-20", "1", "keep"], "2026-11-20-1000 · passage #1: original kept\n"),
+        (&["check-action", "2026-11-20", "1"], "2026-11-20-1000 · action #1 checked\n"),
+        (&["check-action", "2026-11-20", "1", "--undo"], "2026-11-20-1000 · action #1 unchecked\n"),
+        (&["redo", "2026-11-20", "summary"], "2026-11-20-1000 · queued: Summary\n"),
+        (&["stop", "2026-11-20"], "2026-11-20-1000 · processing stopped\n"),
+        (&["process", "2026-11-19", "--speakers", "4"], "2026-11-19-1530 · queued: Transcription\n"),
+        (&["delete", "2026-11-18", "--yes"], "2026-11-18-0915 · moved to the trash\n"),
     ] {
         assert_eq!(ok(&cx, args), said, "{args:?}");
     }
@@ -82,10 +82,10 @@ fn every_command_that_writes_says_what_it_did_in_one_line() {
 fn after_a_double_dash_everything_is_text() {
     let s = serve(fixtures(), adapters, 0.0);
     let cx = cx(&s);
-    assert_eq!(ok(&cx, &["correct", "2026-11-20", "2", "--", "-5", "degrés", "--json"]), "2026-11-20-1000 · réplique #2 corrigée\n");
+    assert_eq!(ok(&cx, &["correct", "2026-11-20", "2", "--", "-5", "degrés", "--json"]), "2026-11-20-1000 · utterance #2 corrected\n");
     let transcription = std::fs::read_to_string(s.folder.0.join(RELEASE).join(format!("{RELEASE} - transcription.md"))).unwrap();
     assert!(transcription.contains("-5 degrés --json"), "{transcription}");
-    assert_eq!(failed(&cx, &["correct", "2026-11-20", "2", "-5", "degrés"], 2).err, "greffier : option inconnue : -5 (voir greffier help)\n");
+    assert_eq!(failed(&cx, &["correct", "2026-11-20", "2", "-5", "degrés"], 2).err, "greffier: unknown option: -5 (see greffier help)\n");
 }
 
 #[test]
@@ -93,10 +93,10 @@ fn json_gives_the_identifier_and_the_folder() {
     let s = serve(fixtures(), adapters, 0.0);
     let out = ok(&cx(&s), &["rename", "2026-11-20", "Revue", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(v["identifiant"], "2026-11-20-1000");
+    assert_eq!(v["identifier"], "2026-11-20-1000");
     assert!(v.get("id").is_none());
-    assert_eq!(v["dossier"], s.folder.0.join("2026-11-20 10h00 - Revue").to_string_lossy().as_ref());
-    assert_eq!(v["message"], "2026-11-20-1000 · renommée : Revue");
+    assert_eq!(v["folder"], s.folder.0.join("2026-11-20 10h00 - Revue").to_string_lossy().as_ref());
+    assert_eq!(v["message"], "2026-11-20-1000 · renamed: Revue");
 }
 
 #[test]
@@ -104,12 +104,33 @@ fn what_the_process_refuses_exits_with_1() {
     let s = serve(fixtures(), adapters, 0.0);
     let cx = cx(&s);
     for (args, message) in [
-        (&["rename", "2025", "Titre"][..], "greffier : réunion introuvable : « 2025 »\n"),
-        (&["speaker", "name", "2026-11-20", "Bob", "X"], "greffier : locuteur introuvable : « Bob » (index, label SPEAKER_00 ou nom affiché)\n"),
-        (&["stop", "2026-11-20"], "greffier : la réunion n'est pas en traitement\n"),
-        (&["check-action", "2026-11-20", "9"], "greffier : action introuvable : « 9 » (numéro de 1 à 2)\n"),
+        (&["rename", "2025", "Title"][..], "greffier: meeting not found: \"2025\"\n"),
+        (&["speaker", "name", "2026-11-20", "Bob", "X"], "greffier: speaker not found: \"Bob\" (index, label SPEAKER_00 or displayed name)\n"),
+        (&["stop", "2026-11-20"], "greffier: the meeting is not being processed\n"),
+        (&["check-action", "2026-11-20", "9"], "greffier: action not found: \"9\" (number from 1 to 2)\n"),
     ] {
         assert_eq!(failed(&cx, args, 1).err, message, "{args:?}");
+    }
+}
+
+#[test]
+fn the_core_s_refusals_come_back_in_english() {
+    let s = serve(fixtures(), adapters, 0.0);
+    let cx = cx(&s);
+    let notes = s.folder.0.join("notes.txt");
+    for (args, message) in [
+        (&["process", "2026-11-20"][..], "the meeting is already processed (greffier redo to redo a stage)"),
+        (&["redo", "2026-11-19", "review"], "the earlier stages are not done"),
+        (&["stop", "2026-11-19"], "the meeting is not being processed"),
+        (&["rename", "2026-11-20", " "], "the title is empty"),
+        (&["speaker", "name", "2026-11-20", "0", " "], "the name is empty"),
+        (&["speaker", "merge", "2026-11-20", "0", "2"], "these two speakers are already the same voice"),
+        (&["speaker", "split", "2026-11-20", "0"], "this speaker is not merged"),
+        (&["correct", "2026-11-20", "3", "Je", "préviens", "la", "hotline", "demain."], "this text is in a passage to check: resolve the passage instead"),
+        (&["resolve", "2026-11-20", "1", "correct", " "], "the correction is empty"),
+        (&["import", notes.to_str().unwrap()], "\"notes.txt\": Greffier imports a medium (video or audio), a transcription (.vtt, .srt, .json) and a summary (.md)."),
+    ] {
+        assert_eq!(failed(&cx, args, 1).err, format!("greffier: {message}\n"), "{args:?}");
     }
 }
 
@@ -120,25 +141,25 @@ fn usage_errors_exit_with_2_and_send_nothing() {
     let app = Temp::new();
     let cx = on(&f.0, &app.0);
     for (args, message) in [
-        (&["delete", "2026-11-20"][..], "greffier delete met la réunion à la corbeille : confirmez avec greffier delete 2026-11-20 --yes"),
-        (&["redo", "2026-11-20", "résumé"], "étape inconnue : « résumé » (transcription, relecture ou bilan)"),
-        (&["redo", "2026-11-20"], "il manque l'étape (transcription, relecture ou bilan)"),
-        (&["rename", "2026-11-20"], "il manque le titre"),
-        (&["rename"], "il manque la réunion"),
-        (&["speaker", "rename", "2026-11-20", "0"], "greffier speaker rename : name, merge ou split"),
-        (&["speaker", "merge", "2026-11-20", "0"], "il manque le locuteur dans lequel fusionner"),
-        (&["resolve", "2026-11-20", "1", "corriger"], "il manque le texte de la correction"),
-        (&["resolve", "2026-11-20", "1", "accepter", "oui"], "argument en trop : « oui »"),
-        (&["resolve", "2026-11-20", "1", "valider"], "« valider » : accepter, garder, rouvrir ou corriger <texte>"),
-        (&["process", "2026-11-19", "--speakers", "0"], "--speakers attend un nombre de locuteurs : « 0 »"),
-        (&["process", "2026-11-19", "--timeout", "5"], "--timeout va avec --wait"),
-        (&["process", "2026-11-19", "--wait", "--timeout", "bientôt"], "--timeout attend des secondes : « bientôt »"),
-        (&["stop", "2026-11-19", "--wait"], "option inconnue : --wait"),
-        (&["import"], "il manque le fichier à importer"),
-        (&["import", "x.mp4", "--no-process", "--wait"], "--wait ne va pas avec --no-process"),
-        (&["check-action", "2026-11-20"], "il manque le numéro de l'action"),
+        (&["delete", "2026-11-20"][..], "greffier delete moves the meeting to the trash: confirm with greffier delete 2026-11-20 --yes"),
+        (&["redo", "2026-11-20", "bilan"], "unknown stage: \"bilan\" (transcription, review or summary)"),
+        (&["redo", "2026-11-20"], "missing the stage (transcription, review or summary)"),
+        (&["rename", "2026-11-20"], "missing the title"),
+        (&["rename"], "missing the meeting"),
+        (&["speaker", "rename", "2026-11-20", "0"], "greffier speaker rename: name, merge or split"),
+        (&["speaker", "merge", "2026-11-20", "0"], "missing the speaker to merge into"),
+        (&["resolve", "2026-11-20", "1", "correct"], "missing the correction's text"),
+        (&["resolve", "2026-11-20", "1", "accept", "yes"], "extra argument: \"yes\""),
+        (&["resolve", "2026-11-20", "1", "accepter"], "\"accepter\": accept, keep, reopen or correct <text>"),
+        (&["process", "2026-11-19", "--speakers", "0"], "--speakers needs a number of speakers: \"0\""),
+        (&["process", "2026-11-19", "--timeout", "5"], "--timeout goes with --wait"),
+        (&["process", "2026-11-19", "--wait", "--timeout", "soon"], "--timeout needs seconds: \"soon\""),
+        (&["stop", "2026-11-19", "--wait"], "unknown option: --wait"),
+        (&["import"], "missing the file to import"),
+        (&["import", "x.mp4", "--no-process", "--wait"], "--wait does not go with --no-process"),
+        (&["check-action", "2026-11-20"], "missing the action's number"),
     ] {
-        assert_eq!(failed(&cx, args, 2).err, format!("greffier : {message} (voir greffier help)\n"), "{args:?}");
+        assert_eq!(failed(&cx, args, 2).err, format!("greffier: {message} (see greffier help)\n"), "{args:?}");
     }
 }
 
@@ -146,7 +167,7 @@ fn usage_errors_exit_with_2_and_send_nothing() {
 fn help_lists_the_commands_that_write() {
     let s = serve(fixtures(), adapters, 0.0);
     let out = ok(&cx(&s), &["delete", "--help"]);
-    for command in ["greffier import", "greffier process", "greffier redo", "greffier stop", "greffier rename", "greffier speaker", "greffier correct", "greffier resolve", "greffier check-action", "greffier delete", "3 Greffier injoignable"] {
+    for command in ["greffier import", "greffier process", "greffier redo", "greffier stop", "greffier rename", "greffier speaker", "greffier correct", "greffier resolve", "greffier check-action", "greffier delete", "3 Greffier out of reach"] {
         assert!(out.contains(command), "{command}");
     }
 }
@@ -157,7 +178,7 @@ fn a_process_on_another_meetings_folder_is_refused() {
     let other = fixtures();
     let o = failed(&on(&other.0, &s.app.0), &["rename", "2026-11-20", "Autre"], 3);
     let theirs = s.folder.0.canonicalize().unwrap();
-    assert!(o.err.starts_with(&format!("greffier : Greffier tourne sur un autre dossier de réunions : {}", theirs.display())), "{}", o.err);
+    assert!(o.err.starts_with(&format!("greffier: Greffier runs on another meetings folder: {}", theirs.display())), "{}", o.err);
     assert!(other.0.join(RELEASE).exists() && s.folder.0.join(RELEASE).exists(), "nothing renamed");
 }
 
@@ -170,11 +191,11 @@ fn nobody_answering_exits_with_3() {
     // Whatever else runs on this Mac: one message.
     assert_eq!(
         o.err,
-        format!("greffier : Greffier ne répond pas sur {}. Si un Greffier plus ancien est ouvert, quittez-le ou mettez-le à jour (cargo xtask install-app), puis relancez la commande.\n", socket.display())
+        format!("greffier: Greffier does not answer on {}. If an older Greffier is open, quit or update it (cargo xtask install-app), then run the command again.\n", socket.display())
     );
     let mut cx = on(&f.0, &app.0);
     cx.process = None;
-    assert_eq!(failed(&cx, &["stop", "2026-11-20"], 3).err, "greffier : Greffier n'est pas joignable d'ici.\n");
+    assert_eq!(failed(&cx, &["stop", "2026-11-20"], 3).err, "greffier: Greffier cannot be reached from here.\n");
 }
 
 #[test]
@@ -193,7 +214,7 @@ fn an_app_folder_too_deep_for_a_socket_fails_at_once() {
     assert_eq!(
         o.err,
         format!(
-            "greffier : le chemin du socket de Greffier est trop long ({} octets, {} au plus) : {}. Choisissez un dossier de l'app plus court (GREFFIER_APP_FOLDER).\n",
+            "greffier: Greffier's socket path is too long ({} bytes, {} at most): {}. Choose a shorter app folder (GREFFIER_APP_FOLDER).\n",
             socket.as_os_str().len(),
             greffier_cli::server::MAX_SOCKET_PATH,
             socket.display()
@@ -219,7 +240,7 @@ fn busy_process(folder: &Path, app: &Path, delay: Duration) -> std::thread::Join
         line.clear();
         reader.read_line(&mut line).unwrap();
         std::thread::sleep(delay);
-        let _ = writer.write_all(encode(&Response::error("trop tard")).as_bytes());
+        let _ = writer.write_all(encode(&Response::error("too late")).as_bytes());
     })
 }
 
@@ -233,7 +254,7 @@ fn an_action_that_takes_long_may_still_complete() {
     let o = failed(&cx, &["rename", "2026-11-20", "Revue"], 3);
     assert_eq!(
         o.err,
-        "greffier : Greffier n'a pas répondu en 0.2 s : il travaille peut-être encore, et l'action peut aboutir. Vérifiez avec greffier list ou greffier status avant de la relancer.\n"
+        "greffier: Greffier did not answer within 0.2 s: it may still be at work, and the action may still complete. Check with greffier list or greffier status before running it again.\n"
     );
     busy.join().unwrap();
 }
@@ -253,7 +274,7 @@ fn a_launch_that_fails_says_why() {
     let mut cx = on(&f.0, &app.0);
     cx.process.as_mut().unwrap().launch = Launch::Program { program: PathBuf::from("/nulle/part/greffier"), env: vec![] };
     let o = failed(&cx, &["stop", "2026-11-20"], 3);
-    assert!(o.err.starts_with("greffier : lancement de /nulle/part/greffier : "), "{}", o.err);
+    assert!(o.err.starts_with("greffier: could not launch /nulle/part/greffier: "), "{}", o.err);
 }
 
 #[test]
@@ -266,13 +287,13 @@ fn import_prints_the_identifier_then_waits_for_the_end() {
     assert_eq!(lines.len(), 2, "{}", o.out);
     let id = lines[0];
     assert!(id.len() >= 15 && id.as_bytes()[4] == b'-', "an identifier: {id}");
-    assert_eq!(lines[1], format!("{id} · terminée · Point produit : maquettes bookmarks, staging"));
-    for stage in ["Transcription", "Relecture IA", "Bilan IA"] {
+    assert_eq!(lines[1], format!("{id} · done · Point produit : maquettes bookmarks, staging"));
+    for stage in ["Transcription", "Review", "Summary"] {
         assert!(o.err.contains(&format!("{id} · {stage}\n")), "{stage}: {}", o.err);
     }
     assert!(o.err.lines().count() <= 4, "one line per stage: {}", o.err);
     // The summary renamed the folder; the identifier stays.
-    let listed = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), app_folder: None, live: None, process: None }, &["show", id, "--bilan"]);
+    let listed = run_in(&Context { meetings_folder: Some(s.folder.0.clone()), app_folder: None, live: None, process: None }, &["show", id, "--summary"]);
     assert_eq!(listed.code, 0, "{}", listed.err);
 }
 
@@ -282,17 +303,17 @@ fn import_in_json_and_without_processing() {
     let (_outside, file) = media();
     let out = ok(&cx(&s), &["import", file.to_str().unwrap(), "--no-process", "--title", "Point client", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert!(v["dossier"].as_str().unwrap().ends_with(" - Point client"), "{v}");
-    let id = v["identifiant"].as_str().unwrap();
-    assert_eq!(v["message"], format!("{id} · importée"));
-    assert!(Path::new(v["dossier"].as_str().unwrap()).is_dir());
+    assert!(v["folder"].as_str().unwrap().ends_with(" - Point client"), "{v}");
+    let id = v["identifier"].as_str().unwrap();
+    assert_eq!(v["message"], format!("{id} · imported"));
+    assert!(Path::new(v["folder"].as_str().unwrap()).is_dir());
 }
 
 #[test]
 fn import_takes_paths_relative_to_where_it_runs() {
     let s = serve(fixtures(), adapters, 0.0);
     let o = failed(&cx(&s), &["import", "nulle-part.mp4"], 1);
-    assert_eq!(o.err, "greffier : fichier introuvable : nulle-part.mp4\n");
+    assert_eq!(o.err, "greffier: file not found: nulle-part.mp4\n");
 }
 
 #[test]
@@ -300,16 +321,16 @@ fn a_failed_processing_exits_with_1_and_its_stage() {
     let s = serve(fixtures(), failing_adapters, 50.0);
     let o = run_in(&cx(&s), &["process", "2026-11-19", "--wait"]);
     assert_eq!(o.code, 1, "{} {}", o.out, o.err);
-    assert!(o.err.ends_with("greffier : 2026-11-19-1530 · échec : Transcription : whisper a planté\n"), "{}", o.err);
+    assert!(o.err.ends_with("greffier: 2026-11-19-1530 · failed: Transcription: whisper a planté\n"), "{}", o.err);
 }
 
 #[test]
 fn the_timeout_exits_with_4_while_still_processing() {
     // Time does not move: the review starts and stays at 0 %.
     let s = serve(fixtures(), adapters, 0.0);
-    let o = run_in(&cx(&s), &["redo", "2026-11-20", "relecture", "--wait", "--timeout", "0.2"]);
+    let o = run_in(&cx(&s), &["redo", "2026-11-20", "review", "--wait", "--timeout", "0.2"]);
     assert_eq!(o.code, 4, "{} {}", o.out, o.err);
-    assert_eq!(o.err, "2026-11-20-1000 · Relecture IA\ngreffier : 2026-11-20-1000 toujours en cours après 0.2 s : Relecture IA 0 %\n");
+    assert_eq!(o.err, "2026-11-20-1000 · Review\ngreffier: 2026-11-20-1000 still processing after 0.2 s: Review 0 %\n");
 }
 
 #[test]
@@ -318,16 +339,16 @@ fn status_shows_the_live_progress_of_a_running_process() {
     let s = serve(fixtures(), adapters, 0.05);
     let cx = cx(&s);
     ok(&cx, &["process", "2026-11-19"]);
-    ok(&cx, &["redo", "2026-11-20", "bilan"]);
+    ok(&cx, &["redo", "2026-11-20", "summary"]);
     std::thread::sleep(Duration::from_millis(100));
     let out = ok(&cx, &["status"]);
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].starts_with("2026-11-19-1530 · Transcription ") && lines[0].contains(" % · "), "{out}");
-    assert!(lines[1].starts_with("2026-11-20-1000 · 2ᵉ dans la file · "), "{out}");
+    assert!(lines[1].starts_with("2026-11-20-1000 · 2nd in queue · "), "{out}");
     let v: serde_json::Value = serde_json::from_str(&ok(&cx, &["status", "2026-11-19", "--json"])).unwrap();
-    assert_eq!(v["statut"], "en_cours");
-    assert_eq!(v["rang"], 1);
-    assert!(v["progression"].as_f64().is_some() && v["temps_restant"].as_u64().is_some(), "{v}");
+    assert_eq!(v["status"], "running");
+    assert_eq!(v["rank"], 1);
+    assert!(v["progress"].as_f64().is_some() && v["time_remaining"].as_u64().is_some(), "{v}");
 }
 
 #[test]
@@ -335,7 +356,7 @@ fn status_reads_the_folder_when_nobody_answers() {
     let f = fixtures();
     let app = Temp::new();
     let out = ok(&on(&f.0, &app.0), &["status"]);
-    assert!(out.contains("2026-11-19-1530 · à traiter"), "{out}");
+    assert!(out.contains("2026-11-19-1530 · to process"), "{out}");
 }
 
 #[test]

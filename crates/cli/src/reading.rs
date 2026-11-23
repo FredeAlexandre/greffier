@@ -29,10 +29,10 @@ impl<'a> Reading<'a> {
     /// The context's meetings folder, which must exist.
     pub fn open(cx: &'a Context) -> Result<Reading<'a>, Failure> {
         let Some(root) = &cx.meetings_folder else {
-            return Err(Failure::Failed("aucun dossier de réunions : ouvrez Greffier une fois pour le choisir, ou définissez GREFFIER_FOLDER.".into()));
+            return Err(Failure::Failed(NO_MEETINGS_FOLDER.into()));
         };
         if !root.is_dir() {
-            return Err(Failure::Failed(format!("dossier de réunions introuvable : {}", root.display())));
+            return Err(Failure::Failed(format!("meetings folder not found: {}", root.display())));
         }
         let folder = MeetingsFolder::new(root);
         let names = folder.names();
@@ -72,7 +72,7 @@ impl<'a> Reading<'a> {
             }
             Failure::Failed(e.to_string())
         })?;
-        entry(name).ok_or_else(|| Failure::Failed(format!("réunion illisible : {name}")))
+        entry(name).ok_or_else(|| Failure::Failed(format!("unreadable meeting: {name}")))
     }
 }
 
@@ -91,56 +91,61 @@ pub(crate) fn in_meetings_folder<'q>(query: &'q str, root: &Path) -> Result<&'q 
     let name = path.file_name().and_then(|n| n.to_str());
     match (name, parent.and_then(canonical)) {
         (Some(name), Some(parent)) if Some(&parent) == canonical(root).as_ref() => Ok(name),
-        _ => Err(format!("réunion introuvable : « {q} » (pas dans le dossier de réunions {})", canonical(root).unwrap_or_else(|| root.to_path_buf()).display())),
+        _ => Err(format!("meeting not found: \"{q}\" (not in the meetings folder {})", canonical(root).unwrap_or_else(|| root.to_path_buf()).display())),
     }
 }
 
-/// A meeting in JSON, in the sheet's vocabulary.
+/// What the command line says without a meetings folder.
+pub(crate) const NO_MEETINGS_FOLDER: &str = "no meetings folder: open Greffier once to choose one, or set GREFFIER_FOLDER.";
+
+/// A meeting in JSON, in the glossary's English terms.
 #[derive(Serialize)]
 pub(crate) struct MeetingJson {
-    pub identifiant: String,
-    pub dossier: String,
-    pub titre: String,
+    pub identifier: String,
+    /// The meeting's folder, absolute.
+    pub folder: String,
+    pub title: String,
     /// `2026-11-20`
     pub date: String,
     /// `09:39`
-    pub debut: String,
+    pub start: String,
     /// In seconds.
-    pub duree: u64,
+    pub duration: u64,
     /// `2:34:22`
-    pub duree_texte: String,
-    pub statut: &'static str,
-    /// The stage pending, running or failed.
-    pub etape: Option<&'static str>,
-    pub etape_faite: Option<&'static str>,
-    pub erreur: Option<String>,
+    pub duration_text: String,
+    /// [`crate::text::status_name`].
+    pub status: &'static str,
+    /// The stage queued, running or failed ([`crate::text::stage_name`]).
+    pub stage: Option<&'static str>,
+    pub completed_stage: Option<&'static str>,
+    pub error: Option<String>,
     /// The passages to check still pending.
-    pub a_verifier: usize,
+    pub to_check: usize,
 }
 
 impl MeetingJson {
     pub fn new(e: &Entry, folder: &MeetingsFolder) -> MeetingJson {
-        use greffier_core::folder::sheet::{stage_name, status_name};
+        use crate::text::{stage_name, status_name};
         use greffier_core::{Status, playback_timestamp};
         let m = &e.meeting;
-        let (etape, erreur) = match &m.status {
+        let (stage, error) = match &m.status {
             Status::Pending(s) | Status::Running { stage: s, .. } => (Some(stage_name(*s)), None),
             Status::Failed { stage, message } => (Some(stage_name(*stage)), Some(message.clone())),
             _ => (None, None),
         };
         MeetingJson {
-            identifiant: e.identifier.clone(),
-            dossier: folder.folder(&m.folder_name).to_string_lossy().into_owned(),
-            titre: m.title.clone(),
+            identifier: e.identifier.clone(),
+            folder: folder.folder(&m.folder_name).to_string_lossy().into_owned(),
+            title: m.title.clone(),
             date: format!("{:04}-{:02}-{:02}", m.start.year, m.start.month, m.start.day),
-            debut: format!("{:02}:{:02}", m.start.hour, m.start.minute),
-            duree: m.duration.max(0.0).round() as u64,
-            duree_texte: playback_timestamp(m.duration),
-            statut: status_name(&m.status),
-            etape,
-            etape_faite: m.completed_stage.map(stage_name),
-            erreur,
-            a_verifier: m.pending_passages(),
+            start: format!("{:02}:{:02}", m.start.hour, m.start.minute),
+            duration: m.duration.max(0.0).round() as u64,
+            duration_text: playback_timestamp(m.duration),
+            status: status_name(&m.status),
+            stage,
+            completed_stage: m.completed_stage.map(stage_name),
+            error,
+            to_check: m.pending_passages(),
         }
     }
 }

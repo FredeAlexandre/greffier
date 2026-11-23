@@ -1,5 +1,5 @@
 //! `greffier list`: the meetings, most recent first, one line each:
-//! `identifiant · durée · statut · titre`.
+//! `identifier · duration · status · title`.
 
 use greffier_core::playback_timestamp;
 
@@ -14,11 +14,11 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
     }
     a.at_most(0)?;
     let days = |option: &str| -> Result<Option<(Day, Day)>, Failure> {
-        a.value(option).map(|d| text::days(d).ok_or_else(|| Failure::Usage(format!("date invalide : « {d} » (AAAA-MM-JJ ou AAAA-MM)")))).transpose()
+        a.value(option).map(|d| text::days(d).ok_or_else(|| Failure::Usage(format!("invalid date: \"{d}\" (YYYY-MM-DD or YYYY-MM)")))).transpose()
     };
     let (date, since, until) = (days("--date")?, days("--since")?, days("--until")?);
     let limit = match a.value("--limit") {
-        Some(n) => Some(n.parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| Failure::Usage(format!("--limit attend un nombre : « {n} »")))?),
+        Some(n) => Some(n.parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| Failure::Usage(format!("--limit needs a number: \"{n}\"")))?),
         None => None,
     };
     let reading = Reading::open(cx)?;
@@ -38,7 +38,7 @@ pub(crate) fn run(cx: &Context, args: &[String]) -> Result<String, Failure> {
         return Ok(crate::json(&entries.iter().map(|e| MeetingJson::new(e, &reading.folder)).collect::<Vec<_>>()));
     }
     if entries.is_empty() {
-        return Ok("Aucune réunion.\n".into());
+        return Ok("No meetings.\n".into());
     }
     Ok(entries.iter().map(|e| format!("{} · {} · {} · {}\n", e.identifier, playback_timestamp(e.meeting.duration), text::status(&e.meeting, e.live.as_ref()), e.meeting.title)).collect())
 }
