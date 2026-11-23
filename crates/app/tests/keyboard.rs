@@ -62,7 +62,7 @@ fn the_arrows_move_playback_ten_seconds() {
     assert!((state(&mut rt, |s| s.pos) - 50.0).abs() < 0.01);
 }
 
-/// `scenarios/tab-change-space.json`, with focus first left on a control of the page: the speed
+/// ⌘2 then Space (#24), with focus first left on a control of the page: the speed
 /// picker keeps it after a click, and would take Space.
 #[test]
 fn space_after_a_tab_change_plays_even_when_a_control_of_the_page_had_focus() {
@@ -82,7 +82,7 @@ fn space_after_a_tab_change_plays_even_when_a_control_of_the_page_had_focus() {
     });
 }
 
-/// `scenarios/playback.json`: a decision starts playback, then on the Transcript tab Space pauses
+/// A decision starts playback, then on the Transcript tab Space pauses
 /// it where it is.
 #[test]
 fn space_pauses_the_playback_a_decision_started() {

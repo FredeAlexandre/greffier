@@ -164,7 +164,7 @@ pub struct App {
     /// when an answer to a macOS prompt or a change in System Settings changes them.
     pub permissions_shown: Option<(Permissions, Option<PermissionState>)>,
     /// The app runs in its window and talks to macOS: notifications, keep-awake, Finder, the
-    /// remembered settings. False headless (scenes, scenarios) and in tests ([`App::with_core`]).
+    /// remembered settings. False headless (scenes) and in tests ([`App::with_core`]).
     pub live: bool,
     /// The notification permission, for the permissions card: macOS's when live, none otherwise
     /// (the tests bring their own).

@@ -354,7 +354,7 @@ fn fake_capture_writes_an_mp4_whose_duration_is_read() {
 
 #[test]
 fn an_avassetwriter_mp4_cut_mid_recording_keeps_its_duration() {
-    // Written by the real capture (the `try_writer` example, quitting before finishing the file):
+    // Written by the real capture, quitting before finishing the file:
     // 2 s in the moov, then fragments without tfdt; ffprobe reads 6.04 s.
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/avassetwriter-cut.mp4");
     let duration = greffier_core::folder::mp4_duration(&file).expect("duration");

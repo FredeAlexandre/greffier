@@ -24,18 +24,3 @@ objc2-core-graphics = "0.3"
 [dev-dependencies]
 # The smoke tests (tests/real_capture.rs) read ffprobe's JSON.
 serde_json = "1"
-
-[[example]]
-name = "try_writer"
-
-[[example]]
-name = "try_capture"
-
-[[example]]
-name = "replay"
-
-[[example]]
-name = "try_sleep"
-
-[[example]]
-name = "try_mp4_muxing"

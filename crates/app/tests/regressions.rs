@@ -141,7 +141,7 @@ fn open_a_done_meeting(rt: &mut Runtime<App>) -> MeetingId {
     id
 }
 
-/// `be2594a`, scenario `naming-focus-lost`: once a click elsewhere took the focus of the speaker's
+/// `be2594a`: once a click elsewhere took the focus of the speaker's
 /// name field, the next letters reached the page: an f opened the video in full screen.
 #[test]
 fn after_a_click_away_from_the_speaker_name_field_f_and_space_stay_out_of_the_page() {

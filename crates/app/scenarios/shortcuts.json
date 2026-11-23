@@ -1,6 +1,0 @@
-{"events": [
-  {"t": 0.3, "type": "shortcut", "chord": "cmd+shift+r"},
-  {"t": 1.0, "type": "shortcut", "chord": "cmd+m"},
-  {"t": 1.5, "type": "shortcut", "chord": "cmd+m"},
-  {"t": 2.0, "type": "shortcut", "chord": "cmd+shift+r"}
-]}

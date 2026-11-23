@@ -13,7 +13,7 @@ headless core wired to the real adapters: native capture of the screen, the Mac 
 microphone (ScreenCaptureKit, 1080p MP4), import of a past meeting, integrated whisper.cpp
 transcription, diarization by pyannote in a private Python, review and summary by the `claude` CLI,
 writing the files into the meetings folder (watched for changes made outside the app), search,
-trash, menu bar icon. Headless (scenes, scenarios), the app stays on demo data and fake adapters.
+trash, menu bar icon. Headless (scenes) and in its tests, the app stays on demo data and fake adapters.
 During the cycles, the app only targets its author's Mac; 1.0.0 will come with an installation guide
 and downloadable packages.
 
@@ -71,8 +71,7 @@ At first launch, the window shows the state of each resource and installs them a
 - the shipped lexicon (`crates/core/resources/lexicon.md`) is written there as `lexique.md` if it does not
   exist yet.
 
-Headless: `cargo run -p greffier-tools --example install_resources` (`-- --check` to only run the
-checks). Scenes and scenarios keep fake resources.
+Scenes and the app's tests keep fake resources.
 
 ## Things to try
 
@@ -95,21 +94,15 @@ checks). Scenes and scenarios keep fake resources.
 
 ## Headless
 
-Scripted scenes and scenarios serve as visual tests:
+Scenes render a screen of the app on demo data, to look at it:
 
 ```sh
 target/debug/greffier --list-scenes
 target/debug/greffier --snap out.png --scene meeting --theme dark
-target/debug/greffier --script crates/app/scenarios/recording.json --snap end.png --at 20
-# A scenario can start from a scene: the speaker's name field loses focus, f and space stay out of the page.
-target/debug/greffier --scene people-naming --script crates/app/scenarios/naming-focus-lost.json --snap end.png --at mark:end
-# ⌘2 from the name field, then space: the video plays, not full screen.
-target/debug/greffier --scene people-naming --script crates/app/scenarios/tab-change-space.json --snap end.png --at mark:end
-# A click on a meeting in the sidebar, then space: the video plays.
-target/debug/greffier --script crates/app/scenarios/sidebar-space.json --snap end.png --at mark:end
-# A click on a summary timestamp scrolls back up to the video, which plays.
-target/debug/greffier --scene meeting --script crates/app/scenarios/summary-timestamp.json --snap end.png --at mark:end
 ```
+
+What the UI does is tested in `crates/app/tests/` (the app driven without a window, see
+`crates/app/tests/support/mod.rs`).
 
 ## Code
 
@@ -141,7 +134,7 @@ lives in `crates/`, except `xtask/`.
 - `crates/capture/` (`greffier-capture`): ScreenCaptureKit and AVAssetWriter, the keep-awake assertion,
   the Mac trash, MP4 muxing of imported media. `crates/menubar/` (`greffier-menubar`): the menu bar icon.
 - `crates/app/` (`greffier`, the binary): the UI around the core.
-  - `src/main.rs`: playback, shortcuts, shell, scenes.
+  - `src/lib.rs`: playback, shortcuts, shell, scenes; `src/main.rs` only runs it.
   - `src/meeting.rs`: meeting page, video, tabs. `src/timeline.rs`: the timeline.
     `src/overlays.rs`: ⌘K search, deletion confirmation.
   - `src/pages.rs`: overview, recording, settings, first launch. `src/sidebar.rs`: sidebar and
@@ -149,7 +142,7 @@ lives in `crates/`, except `xtask/`.
   - `src/check.rs`, `src/speakers.rs`, `src/redo.rs`, `src/title.rs`, `src/import.rs`: the À
     vérifier (passages to check) and Locuteurs (speakers) tabs, redoing a stage, changing the
     title, importing. `src/settings.rs`: the app's real adapters; `src/watch.rs`: FSEvents.
-  - `scenarios/`: the scripted UI scenarios (`--script`).
+  - `tests/`: the UI driven headless, as the user does (clicks by key, keys, time), on fake adapters.
 - `xtask/`: the development tasks, run with `cargo xtask <task>` (alias in `.cargo/config.toml`):
   `install-app` (packaging, signing and installing `Greffier.app`), `vendor-whisper` (copying the
   whisper.cpp sources pinned in `crates/engines/whisper-version.rs` into `crates/engines/whisper.cpp/`) and

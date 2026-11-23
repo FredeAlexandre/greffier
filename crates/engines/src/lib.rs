@@ -7,9 +7,7 @@
 //!   in the app's private Python ([`pyannote`]), while whisper transcribes.
 //!
 //! `cargo test` does not run these engines (the core is tested with fake adapters); the smoke
-//! tests (`tests/real_engines.rs`, `cargo xtask smoke`) run them on an excerpt of a real meeting,
-//! and `cargo run -p greffier-engines --example transcribe -- <media>` (and `--example diarize`)
-//! shows their output.
+//! tests (`tests/real_engines.rs`, `cargo xtask smoke`) run them on an excerpt of a real meeting.
 
 pub mod audio;
 pub mod pyannote;
