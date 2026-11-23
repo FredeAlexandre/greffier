@@ -1303,14 +1303,14 @@ fn main() {
         if !rune::is_headless() {
             s.install_menu_bar();
             // A click on « Bilan prêt » opens the meeting, even if the window was closed.
+            // `h.open()` shows the window, restores it only if minimized and activates the app.
+            // Not `rune_notify::bring_to_front()`: it deminiaturizes a window that is not
+            // minimized, and AppKit then throws an exception that aborts the app (macOS 27).
             let h = shared_for_clicks.clone();
             rune_notify::on_click(move |click| {
                 let Some(name) = click.get("folder").map(str::to_owned) else { return };
                 h.open();
-                h.update(move |s: &mut App, _| {
-                    s.open_folder_named(&name);
-                    rune_notify::bring_to_front();
-                });
+                h.update(move |s: &mut App, _| s.open_folder_named(&name));
             });
         }
     });
