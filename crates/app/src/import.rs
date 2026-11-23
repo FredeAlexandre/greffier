@@ -48,7 +48,7 @@ impl App {
             Err(e) => {
                 match &mut self.import {
                     Some(d) => d.error = Some(e.to_string()),
-                    None => self.toast = Some(Toast { text: e.to_string(), meeting: None, until: self.clock + 6.0 }),
+                    None => self.toast = Some(Toast { text: e.to_string(), meeting: None, until: self.clock + 6.0, error: true }),
                 }
                 return;
             }

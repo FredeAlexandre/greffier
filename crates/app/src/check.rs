@@ -63,7 +63,7 @@ impl App {
         };
         match &mut self.correction {
             Some(c) => c.error = Some(message),
-            None => self.toast = Some(Toast { text: format!("Impossible : {message}"), meeting: None, until: self.clock + 6.0 }),
+            None => self.toast = Some(Toast { text: format!("Impossible : {message}"), meeting: None, until: self.clock + 6.0, error: true }),
         }
         false
     }

@@ -131,6 +131,15 @@ fn trun_duration(trun: &[u8], default: u64) -> Option<u64> {
     Some(total)
 }
 
+/// Whether the MP4 (or QuickTime) file has a video track (`hdlr` of type `vide`). `None` if
+/// its `moov` cannot be read: not an MP4, or one cut off before it.
+pub fn has_video(path: &Path) -> Option<bool> {
+    let (_, moov) = moov(path)?;
+    Some(boxes(&moov).filter(|(n, _)| n == b"trak").any(|(_, trak)| {
+        boxes(trak).find(|(n, _)| n == b"mdia").and_then(|(_, mdia)| boxes(mdia).find(|(n, _)| n == b"hdlr")).is_some_and(|(_, hdlr)| hdlr.get(8..12) == Some(b"vide"))
+    }))
+}
+
 /// The creation date stored in `moov/mvhd`, if present (0 means absent).
 pub fn creation_date(path: &Path) -> Option<std::time::SystemTime> {
     let (_, moov) = moov(path)?;

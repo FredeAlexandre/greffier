@@ -32,6 +32,8 @@ fn page(key: &str, title: &str, subtitle: &str, k: &Kit, body: El) -> El {
 pub fn with_toast(s: &App, k: &Kit, main: El) -> El {
     let Some(t) = &s.toast else { return col().w_full().h_full().min_h(0.0).child(main) };
     let id = t.meeting;
+    // A failure reads as one: the danger colors and a flag, not a green tick.
+    let (colors, icon) = if t.error { (&k.c.danger, &ui::FLAG) } else { (&k.c.success, &ui::CHECK) };
     let banner = row()
         .key("toast")
         .w_full()
@@ -39,11 +41,12 @@ pub fn with_toast(s: &App, k: &Kit, main: El) -> El {
         .py(10.0)
         .gap(10.0)
         .center_y()
-        .fill(k.c.success.bg)
-        .child(glyph(&ui::CHECK, 14.0, k.c.success.icon))
-        .child(text(t.text.clone()).font(k.ty.ui_medium).color(k.c.success.fg).grow(1.0).min_w(0.0).truncate())
+        .fill(colors.bg)
+        .child(glyph(icon, 14.0, colors.icon))
+        .child(text(t.text.clone()).font(k.ty.ui_medium).color(colors.fg).grow(1.0).min_w(0.0).truncate())
         .child(
-            Button::new("Ouvrir")
+            // With no meeting to open, the button only closes the banner.
+            Button::new(if id.is_some() { "Ouvrir" } else { "Fermer" })
                 .variant(ButtonVariant::Outline)
                 .control_size(ControlSize::Small)
                 .on_press(move |s: &mut App| {

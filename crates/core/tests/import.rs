@@ -7,7 +7,7 @@ mod bench;
 use std::path::{Path, PathBuf};
 
 use bench::Bench;
-use greffier_core::folder::{Import, mp4_duration, mp4_leading_video_gap};
+use greffier_core::folder::{Import, has_picture, mp4_duration, mp4_leading_video_gap};
 use greffier_core::{Command, DateTime, Stage, Event, MeetingId, Role, Status};
 
 /// The fixtures' video (12 s).
@@ -20,6 +20,31 @@ fn video() -> PathBuf {
 /// picture in that gap, and fails on it.
 fn video_after_a_gap() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/ffmpeg-leading-gap.mp4")
+}
+
+/// An MP4 with sound only (1 s of silence, AAC), as an `.m4a` turned into `.mp4` gives.
+fn audio_only_mp4() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4/audio-only.mp4")
+}
+
+/// A PCM WAV file of `seconds` of silence: 16 kHz, mono, 16 bits.
+fn wav(seconds: f64) -> Vec<u8> {
+    let data = (seconds * 32_000.0) as u32;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&16_000u32.to_le_bytes());
+    b.extend_from_slice(&32_000u32.to_le_bytes()); // byte rate
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    b.resize(b.len() + data as usize, 0);
+    b
 }
 
 /// The number of bytes that differ between two files of the same length.
@@ -40,6 +65,11 @@ impl Outside {
         Outside(d)
     }
     fn write(&self, name: &str, content: &str) -> PathBuf {
+        let p = self.0.join(name);
+        std::fs::write(&p, content).expect("original");
+        p
+    }
+    fn write_bytes(&self, name: &str, content: &[u8]) -> PathBuf {
         let p = self.0.join(name);
         std::fs::write(&p, content).expect("original");
         p
@@ -467,4 +497,34 @@ fn an_imported_meeting_is_not_seen_as_modified_outside_the_app_and_its_audio_is_
     assert_eq!(copy.extension().and_then(|e| e.to_str()), Some("m4a"));
     std::fs::write(&copy, "un autre audio, plus long que le premier").unwrap();
     assert_eq!(bench.greffier.rescan_folder(), [Event::MeetingReviewed(id)]);
+}
+
+#[test]
+fn an_audio_file_kept_as_is_has_its_duration_and_the_sheet_links_to_it() {
+    let mut bench = Bench::new();
+    let outside = Outside::new(&bench);
+    let id = run_import(&mut bench, import(outside.write_bytes("point.wav", &wav(2.5))));
+
+    // Not an MP4: its duration comes from the adapter (AVFoundation in the app), not 0.
+    let name = bench.meeting(id).folder_name.clone();
+    assert_eq!(bench.meeting(id).duration, 2.5);
+    // The sheet's link leads to the file that exists, `.wav`, not to a missing `.mp4`.
+    let sheet = std::fs::read_to_string(bench.greffier.folder().file(&name, Role::Sheet)).unwrap();
+    assert!(sheet.contains(&format!("- [Enregistrement](<{name} - enregistrement.wav>)")), "{sheet}");
+    assert!(!sheet.contains("enregistrement.mp4"), "{sheet}");
+
+    bench.reopen();
+    assert_eq!(bench.named_meeting(&name).duration, 2.5, "read back from the sheet");
+}
+
+#[test]
+fn only_a_recording_with_a_video_track_has_a_picture() {
+    let bench = Bench::new();
+    let outside = Outside::new(&bench);
+    assert!(has_picture(&video()));
+    assert!(!has_picture(&audio_only_mp4()), "an MP4 with sound only plays as audio");
+    assert!(!has_picture(&outside.write_bytes("point.wav", &wav(1.0))));
+    // A file whose boxes cannot be read is judged by its extension.
+    assert!(has_picture(&outside.write("point.mov", "pas vraiment une vidéo")));
+    assert!(!has_picture(&outside.write("point.mp3", "pas vraiment de l'audio")));
 }

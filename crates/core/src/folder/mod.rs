@@ -16,6 +16,14 @@ pub mod transcription;
 
 pub use mp4::{duration as mp4_duration, leading_video_gap as mp4_leading_video_gap};
 
+/// Whether a recording file has a picture to show: an MP4 or QuickTime file with a video
+/// track. An audio file (`.wav`, `.mp3`…) or an MP4 with sound only (an `.m4a` turned into
+/// `.mp4`) has none, and plays as audio. A file whose `moov` cannot be read is judged by its
+/// extension.
+pub fn has_picture(path: &Path) -> bool {
+    mp4::has_video(path).unwrap_or_else(|| import::VIDEO_EXTENSIONS.contains(&import::extension(path).as_str()))
+}
+
 use std::path::{Path, PathBuf};
 
 use crate::meeting::{Stage, MeetingId, Meeting, Status};
@@ -213,7 +221,8 @@ impl MeetingsFolder {
         let name = &r.folder_name;
         let folder = self.folder(name);
         std::fs::create_dir_all(&folder).map_err(|e| format!("{} : {e}", folder.display()))?;
-        write_atomically(&self.file(name, Role::Sheet), &Sheet::from_meeting(r).markdown(name))?;
+        let recording = self.recording(name).map_or_else(|| Role::Recording.suffix().to_string(), |f| format!("enregistrement.{}", import::extension(&f)));
+        write_atomically(&self.file(name, Role::Sheet), &Sheet::from_meeting(r).markdown(name, &recording))?;
         if r.completed_stage.is_some() || !r.utterances.is_empty() {
             write_atomically(&self.file(name, Role::StructuredTranscription), &StructuredTranscription::from_meeting(r).json())?;
             write_atomically(&self.file(name, Role::ReadableTranscription), &transcription::readable_transcription(r))?;

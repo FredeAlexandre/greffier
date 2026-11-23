@@ -69,6 +69,8 @@ pub struct Toast {
     pub text: String,
     pub meeting: Option<MeetingId>,
     pub until: f64,
+    /// Something failed: shown as an error, not as a success.
+    pub error: bool,
 }
 
 pub struct App {
@@ -213,7 +215,7 @@ impl App {
                     eprintln!("greffier: {message}");
                     self.register_marker_shortcut(false);
                     self.open(meeting);
-                    self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(meeting), until: self.clock + 8.0 });
+                    self.toast = Some(Toast { text: "Enregistrement interrompu : ce qui a été capturé est gardé.".into(), meeting: Some(meeting), until: self.clock + 8.0, error: false });
                     if let Some(h) = &self.handle {
                         h.open();
                     }
@@ -224,7 +226,7 @@ impl App {
                     if self.page == Page::Meeting(meeting) {
                         self.command(Command::MarkRead(meeting));
                     }
-                    self.toast = Some(Toast { text: format!("Bilan prêt : {title}"), meeting: Some(meeting), until: self.clock + 6.0 });
+                    self.toast = Some(Toast { text: format!("Bilan prêt : {title}"), meeting: Some(meeting), until: self.clock + 6.0, error: false });
                     self.notify_summary(meeting);
                 }
                 Event::StageDone { stage: Stage::Review, .. } if !rune::is_headless() => {
@@ -234,7 +236,7 @@ impl App {
                 }
                 Event::StageFailed { message, .. } | Event::WriteFailed { message, .. } => eprintln!("greffier: {message}"),
                 Event::ResourcesInstalled => {
-                    self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0 });
+                    self.toast = Some(Toast { text: "Ressources installées : Greffier est prêt.".into(), meeting: None, until: self.clock + 6.0, error: false });
                 }
                 Event::InstallationFailed(message) => eprintln!("greffier: resource installation: {message}"),
                 Event::MeetingDisappeared(id) => self.forget(id),
@@ -302,7 +304,8 @@ impl App {
         self.open(id);
         self.seek(t);
     }
-    /// Opens the meeting's recording, sound on, if there is one.
+    /// Opens the meeting's recording, sound on, if there is one. A recording without a picture
+    /// (an imported `.wav`, `.mp3`, `.m4a`…) plays as audio: the video player would fail on it.
     fn load_video(&mut self, id: MeetingId) {
         self.video = None;
         let Some(m) = self.core.meeting(id) else { return };
@@ -310,7 +313,7 @@ impl App {
             return;
         }
         let Some(file) = self.core.recording_to_play(id) else { return };
-        let player = Player::file(file);
+        let player = if greffier_core::folder::has_picture(&file) { Player::file(file) } else { Player::audio(file) };
         player.set_muted(false);
         player.set_rate(SPEEDS[self.speed] as f32);
         if let Some(w) = &self.waker {
@@ -334,7 +337,7 @@ impl App {
         // A video the player cannot open ignores `play`: say why rather than flicker.
         if let Some(PlayerState::Failed(e)) = self.player().map(Player::state) {
             eprintln!("greffier: video: {e}");
-            self.toast = Some(Toast { text: format!("Impossible de lire la vidéo : {e}"), meeting: None, until: self.clock + 8.0 });
+            self.toast = Some(Toast { text: "Impossible de lire l'enregistrement de cette réunion.".into(), meeting: None, until: self.clock + 8.0, error: true });
             return;
         }
         if let Some(p) = self.player() {
@@ -568,7 +571,7 @@ impl App {
         self.confirm_delete = None;
         match self.try_command(Command::Delete(id)) {
             Ok(()) => self.forget(id),
-            Err(rejection) => self.toast = Some(Toast { text: format!("Suppression impossible : {rejection}"), meeting: Some(id), until: self.clock + 8.0 }),
+            Err(rejection) => self.toast = Some(Toast { text: format!("Suppression impossible : {rejection}"), meeting: Some(id), until: self.clock + 8.0, error: true }),
         }
     }
     /// Shows the meeting's folder in the Finder (headless: does nothing).
@@ -588,7 +591,7 @@ impl App {
             return;
         }
         tx.copy(m.summary.clone());
-        self.toast = Some(Toast { text: "Bilan copié en Markdown.".into(), meeting: Some(id), until: self.clock + 4.0 });
+        self.toast = Some(Toast { text: "Bilan copié en Markdown.".into(), meeting: Some(id), until: self.clock + 4.0, error: false });
     }
     /// The meeting no longer exists (deleted in or outside the app): leave its page.
     fn forget(&mut self, id: MeetingId) {

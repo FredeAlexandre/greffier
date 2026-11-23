@@ -432,6 +432,11 @@ pub trait Mp4Muxer {
     /// Writes `to` (an `.mp4`) with the tracks of `from`, without touching `from`. The error is
     /// a message; the core then copies the media as is, with its extension.
     fn to_mp4(&self, from: &std::path::Path, to: &std::path::Path) -> Result<(), String>;
+    /// The duration in seconds of an imported medium that is not an MP4 (`.wav`, `.mp3`…),
+    /// whose boxes the core cannot read. `None` if unknown.
+    fn duration(&self, _media: &std::path::Path) -> Option<f64> {
+        None
+    }
 }
 
 /// All the adapters plugged into the core.

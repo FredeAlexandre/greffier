@@ -1,6 +1,7 @@
 //! [`MacMp4Muxer`]: an imported medium from the MP4 family (`.mov`, `.m4a`, `.m4v`) turned into
 //! `.mp4` by `AVAssetExportSession` without re-encoding ("passthrough" preset): the tracks are
-//! copied as is into an MP4 container. The original is only read.
+//! copied as is into an MP4 container. The original is only read. Also the duration of an
+//! imported medium that stays as is (`.wav`, `.mp3`…), read by AVFoundation.
 
 use std::path::Path;
 use std::sync::mpsc;
@@ -37,5 +38,14 @@ impl Mp4Muxer for MacMp4Muxer {
                 Err(session.error().map_or_else(|| format!("{} : mise en MP4 impossible", from.display()), |e| e.localizedDescription().to_string()))
             }
         }
+    }
+
+    fn duration(&self, media: &Path) -> Option<f64> {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(media.to_str()?));
+        // SAFETY: an `AVURLAsset` created and queried here, synchronously (the import runs off
+        // the main thread's drawing); `duration` loads the asset's tracks if needed.
+        let d = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None).duration() };
+        let seconds = if d.timescale > 0 { d.value as f64 / f64::from(d.timescale) } else { 0.0 };
+        (seconds.is_finite() && seconds > 0.0).then_some(seconds)
     }
 }

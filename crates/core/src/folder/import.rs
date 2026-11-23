@@ -6,7 +6,7 @@
 //! files into a new meeting folder: the originals are never touched. A media file of the MP4
 //! family (`.mov`, `.m4a`, `.m4v`) becomes `… - enregistrement.mp4` there without re-encoding
 //! ([`Mp4Muxer`]); if it cannot, or for other media (`.wav`, `.mp3`…), it keeps its
-//! extension. A copied video that starts after a gap gets its first frame from 0
+//! extension, and its duration comes from AVFoundation ([`Mp4Muxer::duration`]). A copied video that starts after a gap gets its first frame from 0
 //! ([`mp4::fill_leading_video_gap`]), or it would not play.
 
 use std::path::{Path, PathBuf};
@@ -38,6 +38,9 @@ pub(crate) fn extension(path: &Path) -> String {
 
 /// The extensions of MP4-family media that AVFoundation turns into `.mp4` without re-encoding.
 pub const MP4_FAMILY_EXTENSIONS: [&str; 4] = ["mov", "qt", "m4a", "m4v"];
+
+/// The extensions of the media that may hold a picture; the others are audio only.
+pub(crate) const VIDEO_EXTENSIONS: [&str; 6] = ["mp4", "m4v", "mov", "qt", "3gp", "3g2"];
 
 /// The extensions of the media AVFoundation reads, video or audio only.
 pub const MEDIA_EXTENSIONS: [&str; 17] = ["mp4", "m4v", "mov", "qt", "3gp", "3g2", "m4a", "m4b", "mp3", "wav", "aif", "aiff", "aifc", "caf", "aac", "flac", "amr"];
@@ -87,7 +90,11 @@ impl MeetingsFolder {
                 // meeting is still worth importing: the player tries again (`recording_to_play`).
                 let _ = mp4::fill_leading_video_gap(&f);
             }
-            r.duration = self.recording(&name).and_then(|f| mp4::duration(&f)).or_else(|| r.utterances.iter().map(|x| x.end).reduce(f64::max)).unwrap_or(0.0);
+            // An MP4 states its duration in its boxes; another medium (`.wav`, `.mp3`…) is
+            // asked of AVFoundation.
+            let recording = self.recording(&name);
+            let media = recording.as_deref().and_then(|f| mp4::duration(f).or_else(|| mp4_muxing.duration(f)));
+            r.duration = media.or_else(|| r.utterances.iter().map(|x| x.end).reduce(f64::max)).unwrap_or(0.0);
             Ok(r)
         })();
         if result.is_err() {

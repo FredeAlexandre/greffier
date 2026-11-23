@@ -396,7 +396,7 @@ fn info(s: &App, m: &Meeting, k: &Kit) -> El {
                     .help("Copie la commande du Terminal qui reprend cette conversation avec Claude")
                     .on_press_tx(move |s: &mut App, tx| {
                         tx.copy(command.clone());
-                        s.toast = Some(crate::Toast { text: "Commande de reprise de la session copiée.".into(), meeting: None, until: s.clock + 4.0 });
+                        s.toast = Some(crate::Toast { text: "Commande de reprise de la session copiée.".into(), meeting: None, until: s.clock + 4.0, error: false });
                     })
                     .build(k)
                     .key(format!("session{i}"))),

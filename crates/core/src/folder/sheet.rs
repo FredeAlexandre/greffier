@@ -171,8 +171,10 @@ impl Sheet {
         r.key_actions = self.key_actions.clone();
     }
 
-    /// The sheet's file, for the folder `folder_name`.
-    pub fn markdown(&self, folder_name: &str) -> String {
+    /// The sheet's file, for the folder `folder_name`. `recording` is the recording's role and
+    /// extension as on disk (`enregistrement.mp4`, or `enregistrement.wav` for an imported audio
+    /// file that stayed as is), so that its link leads to a file that exists.
+    pub fn markdown(&self, folder_name: &str, recording: &str) -> String {
         let mut y = String::from("---\n");
         let mut line = |key: &str, value: String| y.push_str(&format!("{key}: {value}\n"));
         line("titre", c_string(&self.title));
@@ -270,7 +272,8 @@ impl Sheet {
             ("Transcription structurée", Role::StructuredTranscription),
             ("Enregistrement", Role::Recording),
         ] {
-            y.push_str(&format!("- [{label}](<{folder_name} - {}>)\n", role.suffix()));
+            let suffix = if role == Role::Recording { recording } else { role.suffix() };
+            y.push_str(&format!("- [{label}](<{folder_name} - {suffix}>)\n"));
         }
         y
     }

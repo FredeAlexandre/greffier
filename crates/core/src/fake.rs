@@ -537,7 +537,7 @@ impl Trash for FakeTrash {
 }
 
 /// A fake MP4 muxing: a file that starts like an MP4 (`ftyp` box) is copied as is, anything
-/// else is rejected.
+/// else is rejected. Its duration is that of a PCM WAV file (from its header), else unknown.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FakeMp4Muxer;
 
@@ -548,5 +548,26 @@ impl Mp4Muxer for FakeMp4Muxer {
             return Err(format!("{} : pas un conteneur MP4", from.display()));
         }
         std::fs::write(to, bytes).map_err(|e| format!("{} : {e}", to.display()))
+    }
+
+    fn duration(&self, media: &Path) -> Option<f64> {
+        let b = std::fs::read(media).ok()?;
+        if b.get(0..4)? != b"RIFF" || b.get(8..12)? != b"WAVE" {
+            return None;
+        }
+        let u32_at = |i: usize| b.get(i..i + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
+        // Chunks after the 12-byte header: `fmt ` gives the byte rate, `data` the size.
+        let (mut at, mut byte_rate, mut data) = (12, None, None);
+        while at + 8 <= b.len() {
+            let size = u32_at(at + 4)? as usize;
+            match b.get(at..at + 4)? {
+                b"fmt " => byte_rate = u32_at(at + 16),
+                b"data" => data = Some(size),
+                _ => {}
+            }
+            at += 8 + size + size % 2;
+        }
+        let byte_rate = byte_rate.filter(|r| *r > 0)?;
+        Some(data? as f64 / f64::from(byte_rate))
     }
 }
