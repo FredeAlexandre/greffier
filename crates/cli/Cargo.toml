@@ -3,7 +3,7 @@ name = "greffier-cli"
 version = "0.0.1"
 edition = "2024"
 publish = false
-description = "Greffier's command line for agents: reads the meetings folder (list, show, status); the app's binary dispatches to it."
+description = "Greffier's command line for agents: reads the meetings folder, sends the writes to the Greffier process over a socket; and that process's side of the socket. The app's binary dispatches to it."
 
 [dependencies]
 greffier-core = { path = "../core" }

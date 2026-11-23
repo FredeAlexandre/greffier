@@ -1,11 +1,13 @@
 # greffier-cli
 
-Greffier's command line for agents (ADR 0006), reading side: `greffier search`, `list`, `show`,
-`status`, `help`. It reads the meetings folder (and the app's search cache) through the core and
-never writes. `greffier help` gives the usage. A meeting is named by its identifier
-(`2026-11-20-0939`), its folder name or path, a date or the start of an identifier. Any first
-argument that does not start with `-` is a command (a mistyped one fails with exit code 2);
-`greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window.
+Greffier's command line for agents (ADR 0006). `greffier search`, `list`, `show`, `status` read the
+meetings folder (and the app's search cache) through the core and never write. `import`, `process`, `redo`, `stop`, `rename`, `speaker`,
+`correct`, `resolve`, `check-action`, `delete` are sent to the Greffier process over its socket,
+which is started without a window if it does not run. `greffier help` gives the usage. A meeting
+is named by its identifier (`2026-11-20-0939`), its folder name or path, a date or the start of
+an identifier. Any first argument that does not start with `-` is a command (a mistyped one fails with
+exit code 2); `greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the
+window.
 
 ## `search`
 
@@ -48,6 +50,31 @@ those around them (indented, cut to 200 characters) follow each other in order, 
 Nothing found: `Aucun résultat pour « … ».`, exit code 0. The command opens the core with adapters that refuse everything and reads the
 search cache without writing it: entries missing or stale there are built in memory, and the
 meetings folder and the app folder are left byte for byte as they were.
+
+## Talking to the Greffier process
+
+The socket is `<app folder>/greffier.sock` (0600), one JSON object per line, a response for each
+request, several requests per connection. Requests: `"hello"`, `{"status":{"meeting":null}}`
+(or a meeting, as typed), `{"execute":{<action>}}`, `"open_window"`. Actions, with meetings,
+speakers, utterances, passages and actions as the user typed them (the process resolves them
+against its live state, numbering as `show`): `process {meeting, speakers}`, `redo {meeting,
+stage: transcription|relecture|bilan}`, `stop`, `rename {meeting, title}`, `name_speaker
+{meeting, speaker, name}`, `merge_speaker {meeting, speaker, into}`, `split_speaker`, `correct
+{meeting, utterance, text}`, `resolve {meeting, passage, resolution: "accept"|"keep"|"reopen"|
+{"correct": text}}`, `check_action {meeting, action, done}`, `delete {meeting}`, `import {files,
+title, speakers, process}`. Responses: `{"hello":{version, pid, meetings_folder, background}}`,
+`{"status":{busy, meetings: [{id, folder_name, title, status, rank, time_remaining}]}}`,
+`{"ok":{message, meeting, folder_name}}`, `{"error":{message}}`. Types in `src/protocol.rs`.
+
+The command line refuses a process on another meetings folder. If nobody answers, it launches
+`GREFFIER_SERVER_PROGRAM` (the tests' `greffier-test-server`), else the running binary when
+`GREFFIER_FOLDER` or `GREFFIER_APP_FOLDER` is set or outside an app bundle, else the installed
+app (`open -g -j -b io.github.fredealexandre.greffier --args --background`), and waits up to
+15 s. `status` never launches it.
+
+Writing prints one line: `2026-11-20-1000 · renommée : Revue` (`import`: the new identifier).
+With `--json`: `{"id", "dossier", "message"}`. `--wait` follows the processing on stderr, one
+line per stage, then prints `<id> · terminée · <titre>` (`{"id", "statut", "titre"}`).
 
 ## JSON (`--json`)
 

@@ -2,16 +2,23 @@
 //! The app's binary hands its arguments here when the first one is a command ([`is_command`]),
 //! and opens the window otherwise.
 //!
-//! This crate is the reading side: `search`, `list`, `show`, `status` read the meetings folder
-//! (and the app's search cache) through the core, never launch the app and never write anything. It depends on the core alone (no
-//! Rune, no whisper.cpp), so its logic is tested without linking the UI, and the app only
-//! dispatches to it. The process's live data (queue rank, progress, time remaining) will come
-//! through a [`LiveSource`]; for now everything is read from disk.
+//! Reading (`search`, `list`, `show`, `status`) goes to the meetings folder (and the app's search
+//! cache) through the core, never
+//! launches the app and never writes anything; `status` takes the live data (queue rank,
+//! progress, time remaining) from a Greffier process already running, through a [`LiveSource`].
+//! Writing (`import`, `process`, `redo`, `stop`, `rename`, `speaker`, `correct`, `resolve`,
+//! `check-action`, `delete`) is sent to the Greffier process over its socket ([`client`],
+//! [`protocol`]), which is launched without a window if nobody answers; [`server`] is that
+//! process's side, shared by the app and the tests' host (`greffier-test-server`). The crate
+//! depends on the core alone (no Rune, no whisper.cpp), so its logic is tested without linking
+//! the UI, and the app only dispatches to it.
 //!
 //! The output is for agents: compact, one line per item, no colour, no padding. Errors go to
 //! stderr, prefixed `greffier : `. Exit codes: 0 success, 1 the command failed (unknown or
-//! ambiguous meeting, missing file…), 2 usage error (unknown option, missing argument).
-//! `--json` gives the same data in JSON; the shapes are in `README.md`.
+//! ambiguous meeting, missing file, refused by Greffier…), 2 usage error (unknown option,
+//! missing argument), 3 Greffier out of reach (does not answer, or works on another meetings
+//! folder), 4 `--timeout` elapsed while still processing. `--json` gives the same data in JSON;
+//! the shapes are in `README.md`.
 
 #![forbid(unsafe_code)]
 

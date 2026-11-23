@@ -136,9 +136,12 @@ lives in `crates/`, except `xtask/`.
   pyannote (`diarize.py`) and the relisten.
 - `crates/capture/` (`greffier-capture`): ScreenCaptureKit and AVAssetWriter, the keep-awake assertion,
   the Mac trash, MP4 muxing of imported media. `crates/menubar/` (`greffier-menubar`): the menu bar icon.
-- `crates/cli/` (`greffier-cli`): the command line for agents (ADR 0006), reading side: `list`,
-  `show`, `status`, `--json` (shapes in its `README.md`). It depends on the core alone, reads the
-  meetings folder and never writes.
+- `crates/cli/` (`greffier-cli`): the command line for agents (ADR 0006). Reading (`list`,
+  `show`, `status`, `--json`, shapes in its `README.md`) goes to the meetings folder; writing
+  (`import`, `process`, `rename`…) goes over a socket to the Greffier process, launched without a
+  window if needed. `src/server/` is that process's side (protocol, actions on the core, socket,
+  lock, idle quit), shared by the app and `greffier-test-server`, the tests' host. It depends on
+  the core alone.
 - `crates/app/` (`greffier`, the binary): the UI around the core.
   - `src/lib.rs`: playback, shortcuts, shell, scenes; `src/main.rs` hands a command
     (`greffier list`…) to `greffier-cli`, and otherwise runs the UI.
