@@ -255,6 +255,19 @@ fn the_outline_says_when_there_is_no_decision() {
 }
 
 #[test]
+fn the_outline_counts_the_actions_as_check_action_numbers_them() {
+    let f = meetings();
+    let file = f.0.join(RELEASE).join(format!("{RELEASE} - bilan.md"));
+    // A checkbox outside the Actions section: `--actions` and `check-action` number it too.
+    let summary = std::fs::read_to_string(&file).unwrap().replace("## Questions ouvertes\n\n- Aucune.", "## Questions ouvertes\n\n- [ ] Qui prévient le support ?");
+    std::fs::write(&file, summary).unwrap();
+    let numbered = greffier(&f, &["show", "2026-11-20-1000", "--actions"]).out;
+    assert_eq!(numbered.lines().count(), 3, "{numbered}");
+    assert!(greffier(&f, &["show", "2026-11-20-1000"]).out.contains("\nActions : 3\n"));
+    assert_eq!(greffier(&f, &["show", "2026-11-20-1000", "--json"]).json()["actions"], 3);
+}
+
+#[test]
 fn show_without_a_summary_says_where_the_meeting_stands() {
     let f = meetings();
     let o = greffier(&f, &["show", "2026-11-21-0939"]);

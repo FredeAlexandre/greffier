@@ -94,7 +94,7 @@ struct ShowJson {
     en_bref: Option<String>,
     sujets: Option<Vec<MomentJson>>,
     decisions: Option<Vec<MomentJson>>,
-    /// The number of actions.
+    /// The number of actions: the summary's checkboxes, as `--actions` numbers them.
     actions: Option<usize>,
 }
 
@@ -116,13 +116,14 @@ struct Outline {
     brief: String,
     topics: Vec<Topic>,
     decisions: Vec<Decision>,
+    /// The summary's checkboxes, as `--actions` and `check-action` number them.
     actions: usize,
 }
 
 impl Outline {
     fn of(m: &Meeting) -> Option<Outline> {
         let md = summary_text(m)?;
-        Some(Outline { brief: summary::brief(&md), topics: summary::topics(&md), decisions: summary::decisions(&md), actions: summary::actions(&md).len() })
+        Some(Outline { brief: summary::brief(&md), topics: summary::topics(&md), decisions: summary::decisions(&md), actions: summary::checkbox_count(&m.summary) })
     }
 
     fn text(&self) -> String {
