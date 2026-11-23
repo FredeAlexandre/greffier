@@ -3,9 +3,9 @@
 //! and opens the window otherwise.
 //!
 //! Reading (`search`, `list`, `show`, `status`) goes to the meetings folder (and the app's search
-//! cache) through the core, never
-//! launches the app and never writes anything; `status` takes the live data (queue rank,
-//! progress, time remaining) from a Greffier process already running, through a [`LiveSource`].
+//! cache) through the core, never launches the app and never writes anything; `status` takes the
+//! live data (queue rank, progress, time remaining) from a Greffier process already running,
+//! through a [`LiveSource`].
 //! Writing (`import`, `process`, `redo`, `stop`, `rename`, `speaker`, `correct`, `resolve`,
 //! `check-action`, `delete`) is sent to the Greffier process over its socket ([`client`],
 //! [`protocol`]), which is launched without a window if nobody answers; [`server`] is that

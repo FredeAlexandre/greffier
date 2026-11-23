@@ -1,13 +1,13 @@
 # greffier-cli
 
-Greffier's command line for agents (ADR 0006). `greffier search`, `list`, `show`, `status` read the
-meetings folder (and the app's search cache) through the core and never write. `import`, `process`, `redo`, `stop`, `rename`, `speaker`,
-`correct`, `resolve`, `check-action`, `delete` are sent to the Greffier process over its socket,
-which is started without a window if it does not run. `greffier help` gives the usage. A meeting
-is named by its identifier (`2026-11-20-0939`), its folder name or path, a date or the start of
-an identifier. Any first argument that does not start with `-` is a command (a mistyped one fails with
-exit code 2); `greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the
-window.
+Greffier's command line for agents (ADR 0006). `greffier search`, `list`, `show`, `status` read
+the meetings folder (and the app's search cache) through the core and never write. `import`,
+`process`, `redo`, `stop`, `rename`, `speaker`, `correct`, `resolve`, `check-action`, `delete`
+are sent to the Greffier process over its socket, which is started without a window if it does
+not run. `greffier help` gives the usage. A meeting is named by its identifier
+(`2026-11-20-0939`), its folder name or path, a date or the start of an identifier. Any first
+argument that does not start with `-` is a command (a mistyped one fails with exit code 2);
+`greffier` alone, or with the window's options (`--snap`, `--scene`…), opens the window.
 
 ## `search`
 
